@@ -1,8 +1,8 @@
 # 当前任务
 
-当前执行规格：[学习库集合文档与双向同步](specs/vault-collections-sync.md)。选区查词与添加到对话已完成本地实施与验收；根因、验证与剩余实机项见 [验收报告](specs/selection-chat-actions-verification.md)。M11 主体完成，状态见下文。
+当前执行规格：[五语言界面与设置整理](specs/ui-i18n.md)。实现已接入工程主线；具体检查以当前提交上运行的结果为准，浏览器 UI 和用户实机验收不能由类型检查或构建替代。前一阶段的[学习库集合文档与双向同步](specs/vault-collections-sync.md)及下文 M0–M11 记录用于追溯。
 
-基线：当前版本 0.4.2；M0–M5 已交付，M7 主体与实机修复已完成，M8–M10 本地验收及保留出口见下文。M6 剩余验收不因后续受控检查视为通过。
+历史阶段基线为 0.4.2；下文状态对应各阶段当时的验收范围，当前版本以 `package.json` 和发布标签为准。M6 等阶段保留的实机验收不因后续受控检查视为通过。
 
 | 阶段 | 交付 |
 | --- | --- |
@@ -115,13 +115,18 @@ M6 已复核真实网页标记、首次发送状态、引用面板清理；句�
 
 Anki、X thread、Netflix。学习数据文件夹共享与恢复已纳入 M11。
 
-## 发布习惯
+## Git 与发布约定
 
-每次发布（含不发版的普通提交）按此清单执行：
+- `develop` 是唯一工程主线，继承旧工程历史；代码、规格、设计与检查工具一起提交。`codex/m11-integration` 保留为旧工程记录，不再作为接续开发的入口。工程资料可以公开在当前仓库。
+- 功能和修复从最新 `develop` 创建 `codex/<topic>` 分支，验证后集成回 `develop`。`main` 保存筛选后的发布树；两条主线保留既有独立历史，不整体合并，也不用独有提交数判断功能是否已发布。
+- 换机器前提交并推送正在使用的工程分支；另一台机器先 `git fetch origin`，再跟踪同一分支。接续工程主线使用 `git switch develop`、`git pull --ff-only`；新机器首次使用 `git switch --track origin/develop`。有本地提交导致无法快进时先检查差异，再明确选择合并或变基。
+- 发布或修复产生的功能变化必须回到工程主线；发布用版本号、文案和配置转换与功能变化区分处理。公开分支间选取独立提交使用 `git cherry-pick -x` 保留来源；按文件筛选时在提交说明记录完整工程源 SHA、筛选范围及验证结果。
 
-1. 发布前 `npm run verify-local` 通过；发布树不含私有路径（内部检查脚本、本机绝对路径）。
-2. 版本号：新规格进 minor 位，修复批次进 patch 位；`package.json` 与 `package-lock.json` 同步提交。
-3. README：中英两份（`README.md` / `README.en.md`）的「当前发布版」行随每次发版更新；hero 文案变更后运行 `node assets/readme/source/render.mjs` 重导出中英两图并目检。
-4. 发布树：源码全量，排除 `docs/`、`design*`、`AGENTS.md`、`UI意向图.PNG`、内部检查工具与未跟踪设计稿；`package.json` 用发布形态（name=peak-distance、精简 scripts、license 字段）。
-5. 产物三件套：`wxt zip` 产物改名 chrome.zip、`git archive --prefix=peak-distance/` 源码包、两空格格式 SHA256SUMS；Release 说明含「本版更新」。
-6. 不发版的内容改动走 main 普通提交（先例：品牌图、许可、README）；有用户可感知的修复时发补丁版让安装包跟上。
+发布步骤：
+
+1. 固定已提交并推送的工程源 SHA，在该提交运行 `npm run verify-local`；涉及界面、浏览器或外部服务的改动，按对应规格补齐验收。检查脚本使用测试响应时不宣称已通过真实服务验收。
+2. 从最新 `main` 创建 `codex/release-<version>`，只导入本次已批准的源码、公开素材和文档。保留工程与发布配置的有意差异；`docs/`、`design*`、`AGENTS.md`、`UI意向图.PNG` 和内部检查工具继续留在工程主线。发布脚本引用的公开检查工具必须一起提交。
+3. 新规格进 minor 位，修复批次进 patch 位；`package.json` 与 `package-lock.json` 同步更新。中英文 README 的「当前发布版」与 Release 一起更新；hero 文案变更时重导出并目检。发布配置的名称为 `peak-distance`，保留许可与可运行的脚本。
+4. 在筛选后的发布树执行 `npm ci` 和 `npm run verify-local`，检查暂存差异。工程树检查通过不能替代发布树检查；提交说明记录工程源 SHA、排除项及实际验证范围，通过 PR 审查后合入 `main`。
+5. 从最终发布提交构建并打版本标签，生成 chrome.zip、同一标签的源码包和两空格格式 SHA256SUMS；Release 说明包含「本版更新」。安装包、源码包、版本标签和 README 必须对应同一版本。
+6. 品牌图、许可和 README 等不改变产品行为的改动可普通提交；用户可感知的功能或修复应发布对应版本，让安装包跟上。工程实现已提交与正式版已发布分别记录。
