@@ -1,3 +1,4 @@
+import { t } from './i18n';
 // M11 语言身份合同（C0）：语言标识、规范化与词条稳定 ID 的唯一落点。
 // 网页 / 视频 / 学习库 / 词典路由共用；服务专属语言代码转换（如 google-gtx
 // 的 zh-CN）由各服务适配层负责，不在这里重复。
@@ -50,22 +51,9 @@ export function isTargetLanguage(tag: LanguageTag): boolean {
   return (TARGET_LANGUAGES as readonly string[]).includes(primaryOfLang(tag));
 }
 
-/** 生词本／设置页的中文显示名；清单外回退到标签本身。 */
+/** 使用当前显示语言命名原文、解释与筛选语言。 */
 export function langDisplayName(tag: LanguageTag): string {
-  const primary = primaryOfLang(tag);
-  if (primary === 'zh') {
-    if (/^zh-hant/i.test(tag)) return '繁体中文';
-    if (/^zh-hans/i.test(tag)) return '简体中文';
-    return '中文';
-  }
-  const names: Record<string, string> = {
-    en: '英语', ja: '日语', ko: '韩语', fr: '法语', es: '西班牙语',
-    de: '德语', pt: '葡萄牙语', it: '意大利语', ru: '俄语', ar: '阿拉伯语',
-    hi: '印地语', bn: '孟加拉语', id: '印尼语', vi: '越南语', th: '泰语',
-    tr: '土耳其语', pl: '波兰语', nl: '荷兰语', fa: '波斯语',
-  };
-  if (primary === LANG_UNDETERMINED) return '待确认';
-  return names[primary] ?? tag;
+  return t('$language',{tag});
 }
 
 /** RTL 文字系统：原文局部排版用，不翻转中文界面。 */

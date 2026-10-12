@@ -1,11 +1,13 @@
+import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, languageLabel, type UiText } from './i18n';
 import { brandTokens, brandControls } from './brand';
-import { selectionError, type SelectionSnapshot } from './panel';
+import { selectionError, MAX_SELECTION_CHARS, type SelectionSnapshot } from './panel';
 import { detectTextLanguage } from './tokenize';
 import { langDisplayName } from './languages';
 import { comprehensionLangFor, DEFAULT_SETTINGS } from './settings';
 
 export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
   let host: HTMLElement | null = null;
+  onDisplayLanguageChange(()=>{if(host)localize(host.shadowRoot!);});
   let requestId = '';
   let focus: HTMLElement | null = null;
   let sourcePage='';
@@ -27,7 +29,7 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
     root.innerHTML = `<style>${brandTokens}:host{font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;color:var(--pd-ink)}*{box-sizing:border-box}${brandControls}
       .card{pointer-events:auto;position:fixed;width:min(420px,calc(100vw - 24px));max-height:calc(100dvh - 32px);display:flex;flex-direction:column;background:var(--pd-paper);border:1px solid var(--pd-line);border-radius:12px;box-shadow:var(--pd-shadow)}
       header,footer{display:flex;gap:8px;align-items:center;padding:12px 16px}header{border-bottom:1px solid var(--pd-line)}header strong{flex:1}main{overflow:auto;padding:0 16px;min-height:0}p{white-space:pre-wrap;overflow-wrap:anywhere}small,a{color:var(--pd-muted)}footer{border-top:1px solid var(--pd-line)}#result{font-size:15px}#close{margin-left:auto}
-    </style><section class="card" role="dialog" aria-label="选区翻译"><header><strong>翻译</strong><button id="close" aria-label="关闭翻译">×</button></header><main><p id="original"></p><small>简体中文 · Google 翻译</small><p id="result" role="status">正在翻译…</p><a id="source" target="_blank" rel="noopener"></a></main><footer><button id="copy" disabled>复制译文</button><button id="retry">重试</button></footer></section>`;
+    </style><section class="card" role="dialog" data-i18n-aria-label="选区翻译" aria-label="${tr("选区翻译")}"><header><strong data-i18n="翻译">${tr("翻译")}</strong><button id="close" data-i18n-aria-label="关闭翻译" aria-label="${tr("关闭翻译")}">×</button></header><main><p id="original"></p><small></small><p id="result" role="status" data-i18n="正在翻译…">${tr("正在翻译…")}</p><a id="source" target="_blank" rel="noopener"></a></main><footer><button id="copy" disabled data-i18n="复制译文">${tr("复制译文")}</button><button id="retry" data-i18n="重试">${tr("重试")}</button></footer></section>`;
     root.querySelector('#original')!.textContent = snapshot.text;
     // M11：源语言局部初判（无法判定交给免费渠道自动检测）；目标按设置解析。
     const sourceLang = detectTextLanguage(snapshot.text) ?? undefined;
@@ -37,10 +39,11 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       if (r?.ok && r.settings) settings = { ...DEFAULT_SETTINGS, ...r.settings };
     } catch { /* 设置不可达时用默认 */ }
     const targetLang = comprehensionLangFor(settings, sourceLang);
-    (root.querySelector('main small') as HTMLElement).textContent = `${langDisplayName(targetLang)} · Google 翻译`;
+    setText(root.querySelector('main small')!,message('{language} · {service}',{language:languageLabel(targetLang),service:message('Google 翻译')}));
+    localize(root);
     const link = root.querySelector<HTMLAnchorElement>('#source')!;
     if (/^https?:\/\//.test(snapshot.url)) link.href = snapshot.url;
-    link.textContent = snapshot.title || '原文来源';
+    setText(link, snapshot.title || message('原文来源'));
     (document.fullscreenElement ?? document.documentElement).append(host);
     const card = root.querySelector<HTMLElement>('.card')!;
     const width = card.getBoundingClientRect().width;
@@ -53,20 +56,20 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
     const run = async () => {
       if (requestId) void send({ type:'cancelOnline', requestId });
       const error = selectionError(snapshot.text);
-      if (error) { result.textContent = error; retry.hidden = true; return; }
+      if (error) { setText(result,message(error,{limit:MAX_SELECTION_CHARS})); retry.hidden = true; return; }
       const id = requestId = `selection-${crypto.randomUUID()}`;
-      copy.disabled = true; copy.textContent='复制译文'; retry.disabled = true; result.textContent = '正在翻译…';
+      copy.disabled = true; setText(copy, message('复制译文')); retry.disabled = true; setText(result, message('正在翻译…'));
       const r = await send<{ok:boolean; text?:string; error?:string}>({ type:'translateSelection', text:snapshot.text, requestId:id,
         ...(sourceLang ? { sourceLang } : {}), targetLang });
       if (requestId !== id || !host) return;
       if(location.href!==sourcePage){close();return;}
       retry.disabled = false;
       translated = r?.ok ? r.text ?? '' : '';
-      result.textContent = translated || (r?.error==='restricted'?'翻译服务限制访问，请稍后重试。原文已保留。':r?.error==='network'?'网络连接失败，请检查连接后重试。原文已保留。':'翻译暂不可用，请重试。原文已保留。'); copy.disabled = !translated;
+      setText(result, translated || (r?.error==='restricted'?message('翻译服务限制访问，请稍后重试。原文已保留。'):r?.error==='network'?message('网络连接失败，请检查连接后重试。原文已保留。'):message('翻译暂不可用，请重试。原文已保留。'))); copy.disabled = !translated;
     };
     root.querySelector('#close')!.addEventListener('click', () => close());
     retry.addEventListener('click', () => void run());
-    copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(translated); copy.textContent = '已复制'; } catch { copy.textContent = '复制失败，请重试'; } });
+    copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(translated); setText(copy, message('已复制')); } catch { setText(copy, message('复制失败，请重试')); } });
     host.addEventListener('keydown', e => { e.stopPropagation(); if(e.key === 'Escape') { e.preventDefault(); close(); } });
     host.addEventListener('mousedown', e => e.stopPropagation());
     root.querySelector<HTMLButtonElement>('#close')!.focus({preventScroll:true});

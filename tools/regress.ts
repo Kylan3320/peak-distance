@@ -594,6 +594,7 @@ console.log('M5 问答：历史裁剪与请求组装');
     ],
   };
   const msgs = buildChatMessages({
+    responseLanguage: 'zh-Hans',
     snapshot,
     segment: { index: 0, label: '已加载正文', blocks: snapshot.blocks },
     question: '这篇文章的观点是什么？',
@@ -651,7 +652,7 @@ console.log('M5 问答：引用解析与 SSE 流');
   ]);
   check('移除材料后请求仅有普通历史', historyForTurn(messages, 'new', 0).length === 1);
   check('替换材料只带普通与当前快照历史', historyForTurn(messages, 'new', 2).map(p => p.question).join(',') === 'question0,question2');
-  const free = buildChatMessages({ snapshot: null, segment: null, question: 'hello', quote: { blockIds: ['p1'], note: 'removed' }, history: [] });
+  const free = buildChatMessages({ responseLanguage: 'zh-Hans', snapshot: null, segment: null, question: 'hello', quote: { blockIds: ['p1'], note: 'removed' }, history: [] });
   check('普通问答不夹带材料或引用', free.at(-1)?.content === 'hello');
   const legacy = { sourceKey: 'web:test', source: { sourceType: 'article' as const, sourceKey: 'web:test', title: 'test', url: 'https://example.com' }, snapshots: [], messages, pendingQuote: { blockIds: ['p1'] }, draft: 'draft', updatedAt: 1 };
   const migrated = migrateLegacyChat(legacy);
