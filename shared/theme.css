@@ -12,12 +12,22 @@ a {color:var(--pd-blue);overflow-wrap:anywhere}
 h1,h2 {font-family:Georgia,'Noto Serif SC',SimSun,serif;font-weight:600}
 h1 {font-size:22px;margin:0 0 16px} h2 {font-size:18px;margin:0 0 12px}
 .primary {background:var(--pd-blue);border-color:var(--pd-blue);color:white} .primary:hover {background:#154fa6}
-.hint {color:var(--pd-muted);font-size:12px}
+.hint {color:var(--pd-muted);font-size:13px}
 .settings-section {padding:20px 0;border-bottom:1px solid var(--pd-line)} .settings-section:first-child {padding-top:0}
-.settings-field {display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}
-.settings-field select {max-width:58%;min-width:0} .settings-field input[type=number] {width:86px}
+.settings-field {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,50%);align-items:center;gap:12px;margin:16px 0}
+.settings-field select {width:100%;min-width:0} .settings-field input {justify-self:end} .settings-field input[type=number] {width:86px}
+.settings-field:has(input[type=checkbox]) {grid-template-columns:minmax(0,1fr) auto}
+@media(max-width:480px){.settings-field:not(:has(input[type=checkbox])) {grid-template-columns:minmax(0,1fr);gap:6px}}
+.settings-details summary {cursor:pointer;padding:8px 0;color:var(--pd-muted)}
+.settings-number {display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.language-rule {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:end}
+.language-rule .ai-field {margin:8px 0}
+.language-rule button {grid-column:1/-1;justify-self:end}
+.settings-details[open] > :not(summary) {animation:settings-reveal 160ms ease-out}
+@keyframes settings-reveal {from {opacity:0;transform:translateY(-4px)} to {opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.settings-details[open] > :not(summary){animation:none}}
 .settings-actions {display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
-.settings-status {color:var(--pd-muted);font-size:12px;min-height:20px} .settings-status.err {color:#b3261e} .settings-status.ok {color:#24643a}
+.settings-status {color:var(--pd-muted);font-size:13px;min-height:20px} .settings-status.err {color:#b3261e} .settings-status.ok {color:#24643a}
 .settings-key {width:100%} .settings-heading {display:flex;align-items:center;gap:12px;margin-bottom:16px} .settings-heading h1 {margin:0}
 #ai-fields {border:0;margin:0;padding:0;min-width:0}
 #ai-current {overflow-wrap:anywhere}

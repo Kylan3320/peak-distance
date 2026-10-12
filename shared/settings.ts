@@ -1,4 +1,5 @@
 import type { DictionarySource } from '@/lib/onlineDictionary';
+import { isDisplayLanguage, type DisplayLanguage } from './i18n';
 import {
   DEFAULT_COMPREHENSION_LANG,
   isLanguageTag,
@@ -7,6 +8,7 @@ import {
 } from './languages';
 
 export interface Settings {
+  displayLanguage: DisplayLanguage;
   markingEnabled: boolean;
   primaryDictionary: DictionarySource;
   backupDictionary: DictionarySource;
@@ -25,6 +27,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  displayLanguage: 'auto',
   markingEnabled: true, primaryDictionary: 'youdao', backupDictionary: 'cambridge',
   regularTranslation: 'google-gtx', translationMode: 'regular',
   bilingualEnabled: true, chineseVisible: true, cacheLimit: 200, subtitleSize: 'standard',
@@ -39,7 +42,7 @@ export function comprehensionLangFor(
   sourceLang: string | undefined,
 ): string {
   if (sourceLang) {
-    const override = settings.comprehensionOverrides?.[primaryOfLang(sourceLang)];
+    const override = Object.entries(settings.comprehensionOverrides).find(([language]) => primaryOfLang(language) === primaryOfLang(sourceLang))?.[1];
     if (isLanguageTag(override)) return override;
   }
   return isLanguageTag(settings.defaultComprehensionLang)
@@ -58,6 +61,7 @@ function validOverrides(v: unknown): boolean {
 }
 
 export function validSetting(name: string, value: unknown): boolean {
+  if (name === 'displayLanguage') return isDisplayLanguage(value);
   if (name === 'subtitleSize') return ['small', 'standard', 'large'].includes(String(value));
   if (['markingEnabled', 'bilingualEnabled', 'chineseVisible', 'aiLookupFallback'].includes(name)) return typeof value === 'boolean';
   if (name === 'primaryDictionary' || name === 'backupDictionary') return value === 'youdao' || value === 'cambridge';

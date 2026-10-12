@@ -1,3 +1,4 @@
+import { t as tr, localize, onDisplayLanguageChange, initDisplayLanguage , message, setText, setLocalizedAttribute, type UiText } from '@/shared/i18n';
 // 通用网页 / X 选词 content script（M1 + M3 标记 + M5 问答入口）。
 // 跳过 YouTube（M2 脚本负责字幕与页面正文）、输入框 / contenteditable /
 // iframe（默认仅顶层文档）/ PDF。行为：
@@ -30,8 +31,9 @@ export default defineContentScript({
   matches: ['https://*/*'],
   excludeMatches: ['*://*.youtube.com/*', '*://www.youtube-nocookie.com/*'],
   runAt: 'document_idle',
-  main() {
+  async main() {
     if (document.contentType === 'application/pdf') return;
+    await initDisplayLanguage();
     // 注入标记：供自动化断言 content script 已就绪（与 M0 徽标 data-blc-* 同一做法）
     document.documentElement.setAttribute('data-blc-web', '1');
 
@@ -215,7 +217,7 @@ export default defineContentScript({
         return {
           sourceType: 'x',
           sourceKey: sourceKeyOf({ sourceType: 'x', statusId: t.statusId }),
-          title: document.title || `X 帖子 ${t.statusId}`,
+          title: document.title || `${tr('X 帖子')} ${t.statusId}`,
           url: t.url,
         };
       }
@@ -247,14 +249,14 @@ export default defineContentScript({
     }
 
     // 页面内轻提示（如全屏时侧栏打不开）
-    function pageToast(text: string): void {
+    function pageToast(text: string | UiText): void {
       const host = document.createElement('div');
       host.style.cssText =
         'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);z-index:2147483647;pointer-events:none;';
       const box = document.createElement('div');
       box.style.cssText =
         'background:rgba(8,8,8,.85);color:#e8eaed;padding:8px 14px;border-radius:8px;font:13px/1.4 system-ui,"Microsoft YaHei",sans-serif;';
-      box.textContent = text;
+      setText(box,text);
       host.appendChild(box);
       document.documentElement.appendChild(host);
       setTimeout(() => host.remove(), 3200);
@@ -267,7 +269,7 @@ export default defineContentScript({
     }): Promise<void> {
       const source = buildSelectionSource();
       if (!source) {
-        pageToast('在信息流里先从目标帖子选中词句，再继续问');
+        pageToast(message('在信息流里先从目标帖子选中词句，再继续问'));
         return;
       }
       const expression = ctx.snapshot.expression.trim();
@@ -286,7 +288,7 @@ export default defineContentScript({
         ...(ctx.definition ? { definition: ctx.definition } : {}),
       };
       const built = materialFromCandidate(candidate);
-      if (!built) { pageToast('无法提取材料：先在正文里选中一段文字'); return; }
+      if (!built) { pageToast(message('无法提取材料：先在正文里选中一段文字')); return; }
       const r = await send<{ ok: boolean; panelOpened?: boolean }>({
         type: 'chatEnsure',
         source,
@@ -295,10 +297,10 @@ export default defineContentScript({
         openPanel: true,
       });
       popup.close();
-      if (!r?.ok) { pageToast('附加失败，请重试'); return; }
+      if (!r?.ok) { pageToast(message('附加失败，请重试')); return; }
       if (!r.panelOpened) {
         // Chrome 不总允许从内容脚本消息代开侧栏：引用已保存，点扩展图标即续
-        pageToast('已带入引用：点浏览器工具栏的扩展图标打开侧栏继续');
+        pageToast(message('已带入引用：点浏览器工具栏的扩展图标打开侧栏继续'));
       }
     }
 

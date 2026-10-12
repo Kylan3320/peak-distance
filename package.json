@@ -10,6 +10,8 @@
     "zip": "wxt zip",
     "typecheck": "wxt prepare && tsc --noEmit",
     "regress": "tsx tools/regress.ts",
+    "check-i18n": "tsx tools/check-i18n.ts",
+    "check-ui-i18n": "node tools/check-ui-i18n.mjs",
     "check-ai": "tsx tools/ai-services-check.ts",
     "verify-local": "npm run typecheck && npm run build && npm run regress && npm run check-ai"
   },
