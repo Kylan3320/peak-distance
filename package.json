@@ -3,15 +3,25 @@
   "description": "Chrome 英语学习扩展：网页、X 与 YouTube 的查词、双语字幕、原句复习与 AI 问答",
   "private": true,
   "version": "0.6.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
-    "zip": "wxt zip",
     "typecheck": "wxt prepare && tsc --noEmit",
-    "regress": "tsx tools/regress.ts",
+    "regress": "tsx tools/regress.ts && tsx tools/chat-lifecycle-check.ts",
+    "verify-local": "npm run typecheck && npm run build && npm run regress && npm run check-ai && npm run check-i18n",
+    "check-i18n": "tsx tools/check-i18n.ts",
+    "check-ui-i18n": "node tools/check-ui-i18n.mjs",
+    "verify": "node tools/verify.mjs",
+    "render-check": "node tools/render-check.mjs",
+    "e2e-check": "node tools/e2e-check.mjs",
+    "selection-check": "node tools/selection-check.mjs",
+    "check-m7": "node tools/check-m7.mjs",
+    "check-m8": "node tools/check-m8.mjs",
     "check-ai": "tsx tools/ai-services-check.ts",
-    "verify-local": "npm run typecheck && npm run build && npm run regress && npm run check-ai"
+    "zip": "wxt zip",
+    "zip:source": "git archive --format=zip --prefix=peak-distance/ -o .output/peak-distance-source.zip HEAD"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
@@ -22,6 +32,5 @@
   },
   "dependencies": {
     "linkedom": "0.18.13"
-  },
-  "license": "MIT"
+  }
 }

@@ -8,14 +8,14 @@
   </head>
   <body inert>
     <header class="app-header">
-      <div class="brand-row"><div class="brand-name">Peak Distance<small>让世界的知识，走向你。</small></div>
-        <button id="panel-mode" title="切换面板模式" aria-label="切换为浮动面板">浮动</button><button id="open-settings" title="设置" aria-label="设置">⚙</button><button id="panel-close" aria-label="关闭面板">×</button></div>
-      <nav id="views" aria-label="主导航"><button data-view="subs" type="button">当前内容</button><button data-view="list" class="active" type="button">生词本</button><button data-view="chat" type="button">AI 问答</button></nav>
+      <div class="brand-row"><div class="brand-name">Peak Distance<small data-i18n="让世界的知识，走向你。">让世界的知识，走向你。</small></div>
+        <button id="panel-mode" data-i18n-title="切换面板模式" title="切换面板模式" data-i18n-aria-label="切换为浮动面板" aria-label="切换为浮动面板" data-i18n="浮动">浮动</button><button id="open-settings" data-i18n-title="设置" title="设置" data-i18n-aria-label="设置" aria-label="设置">⚙</button><button id="panel-close" data-i18n-aria-label="关闭面板" aria-label="关闭面板">×</button></div>
+      <nav id="views" data-i18n-aria-label="主导航" aria-label="主导航"><button data-view="subs" type="button" data-i18n="当前内容">当前内容</button><button data-view="list" class="active" type="button" data-i18n="生词本">生词本</button><button data-view="chat" type="button" data-i18n="AI 问答">AI 问答</button></nav>
       <div class="brand-landscape" aria-hidden="true"></div>
     </header>
     <div class="app-content">
       <div id="panel-feedback" role="status" hidden></div>
-      <div id="library-tools"><div class="section-title"><h1>生词本</h1><button data-view="review" type="button">原句复习 →</button></div><div class="library-tabs"><button data-view="list">词语</button><button data-view="sentences">句子</button></div><div class="search-combo" id="search-combo"><button id="lang-filter" type="button" aria-label="语言筛选" aria-haspopup="listbox" aria-expanded="false" title="语言筛选"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2"/><path d="M2.8 10h14.4M10 2.8c2.4 2.2 2.4 12.2 0 14.4M10 2.8c-2.4 2.2-2.4 12.2 0 14.4"/></svg></button><input id="search" type="search" placeholder="搜索表达…" autocomplete="off" aria-label="搜索表达"><span id="lang-chip" hidden><span id="lang-chip-label"></span><button id="lang-chip-clear" type="button" aria-label="清除语言筛选"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg></button></span><div id="lang-menu" role="listbox" hidden></div></div></div>
+      <div id="library-tools"><div class="section-title"><h1 data-i18n="生词本">生词本</h1><button data-view="review" type="button" data-i18n="原句复习 →">原句复习 →</button></div><div class="library-tabs"><button data-view="list" data-i18n="词语">词语</button><button data-view="sentences" data-i18n="句子">句子</button></div><div class="search-combo" id="search-combo"><button id="lang-filter" type="button" data-i18n-aria-label="语言筛选" aria-label="语言筛选" aria-haspopup="listbox" aria-expanded="false" data-i18n-title="语言筛选" title="语言筛选"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2"/><path d="M2.8 10h14.4M10 2.8c2.4 2.2 2.4 12.2 0 14.4M10 2.8c-2.4 2.2-2.4 12.2 0 14.4"/></svg></button><input id="search" type="search" data-i18n-placeholder="搜索表达…" placeholder="搜索表达…" autocomplete="off" data-i18n-aria-label="搜索表达" aria-label="搜索表达"><span id="lang-chip" hidden><span id="lang-chip-label"></span><button id="lang-chip-clear" type="button" data-i18n-aria-label="清除语言筛选" aria-label="清除语言筛选"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg></button></span><div id="lang-menu" role="listbox" hidden></div></div></div>
     <main id="view-list" aria-live="polite">
       <div id="list"></div>
     </main>
@@ -36,7 +36,7 @@
       <div id="chat-head"></div>
       <div id="chat-cite-panel" hidden></div>
       <div id="chat-list"></div>
-      <button id="chat-latest" type="button" hidden>↓ 回到最新</button>
+      <button id="chat-latest" type="button" hidden>↓ <span data-i18n="回到最新">回到最新</span></button>
       <div id="chat-input-row">
         <div id="chat-attachment" hidden>
           <div class="chat-attachment-row">
@@ -44,7 +44,7 @@
               <span id="chat-attachment-kind"></span>
               <span id="chat-attachment-summary"></span>
             </button>
-            <button id="chat-attachment-remove" type="button" aria-label="移除材料" title="移除材料（保留问题）">×</button>
+            <button id="chat-attachment-remove" type="button" data-i18n-aria-label="移除材料" aria-label="移除材料" data-i18n-title="移除材料（保留问题）" title="移除材料（保留问题）">×</button>
           </div>
           <div id="chat-attachment-focus" class="chat-attachment-focus"></div>
           <div id="chat-attachment-detail" hidden></div>
@@ -54,21 +54,21 @@
         <textarea
           id="chat-input"
           rows="3"
-          aria-label="向 AI 提问"
-          placeholder="想弄懂什么？"
+          data-i18n-aria-label="向 AI 提问" aria-label="向 AI 提问"
+          data-i18n-placeholder="想弄懂什么？" placeholder="想弄懂什么？"
         ></textarea>
         <div class="chat-composer-tools">
           <details id="chat-attachments">
-            <summary><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>附加材料</summary>
+            <summary><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg><span data-i18n="附加材料">附加材料</span></summary>
             <div class="chat-attachment-menu">
-              <button id="chat-attach-page" class="chat-tool">附加页面</button>
-              <button id="chat-attach-selection" class="chat-tool"><span>附加选区</span><small id="chat-attach-selection-summary"></small></button>
-              <button id="chat-attach-video" class="chat-tool">附加视频字幕</button>
+              <button id="chat-attach-page" class="chat-tool" data-i18n="附加页面">附加页面</button>
+              <button id="chat-attach-selection" class="chat-tool"><span data-i18n="附加选区">附加选区</span><small id="chat-attach-selection-summary"></small></button>
+              <button id="chat-attach-video" class="chat-tool" data-i18n="附加视频字幕">附加视频字幕</button>
             </div>
           </details>
-          <button id="chat-settings" class="chat-tool">AI 设置</button>
-          <button id="chat-send" type="button" aria-label="发送" title="发送（Ctrl+Enter）"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M4 10l6-6 6 6"/></svg></button>
-          <button id="chat-stop" type="button" hidden>停止</button>
+          <button id="chat-settings" class="chat-tool" data-i18n="AI 设置">AI 设置</button>
+          <button id="chat-send" type="button" data-i18n-aria-label="发送" aria-label="发送" data-i18n-title="Ctrl / ⌘ + Enter 发送" title="Ctrl / ⌘ + Enter 发送"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M4 10l6-6 6 6"/></svg></button>
+          <button id="chat-stop" type="button" hidden data-i18n="停止">停止</button>
         </div>
         <div id="chat-input-meta">
           <span id="chat-meta-error" role="status" hidden></span>
@@ -77,7 +77,7 @@
       </div>
     </main>
 
-    <main id="view-settings" hidden><div class="settings-heading"><button id="settings-back" aria-label="返回" title="返回"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7"/></svg></button><h1>设置</h1></div><div id="settings-body"></div></main>
+    <main id="view-settings" hidden><div class="settings-heading"><button id="settings-back" data-i18n-aria-label="返回" aria-label="返回" data-i18n-title="返回" title="返回"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7"/></svg></button><h1 data-i18n="设置">设置</h1></div><div id="settings-body"></div></main>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>

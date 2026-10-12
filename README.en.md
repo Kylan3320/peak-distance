@@ -10,6 +10,8 @@ Peak Distance is a browser extension for language learning. While reading web pa
 
 It supports many languages beyond English. You choose the language used for translations and explanations, then filter your vocabulary book by language.
 
+The interface supports Simplified Chinese, Traditional Chinese, English, German and French, or follows your browser. Choose **Settings → Languages → Display language**. AI chat answers use the active display language; definitions and translations use the separate **Explanation language** setting.
+
 [中文](README.md) · [Download](https://github.com/Rayyy3320/peak-distance/releases/latest) · [Installation](#installation) · [Usage](#usage) · [Privacy & Services](#privacy--services) · [License](#license)
 
 > The extension's interface is currently in Chinese. Below, UI labels are given in English with the original Chinese in parentheses so you can match them on screen.
@@ -17,6 +19,8 @@ It supports many languages beyond English. You choose the language used for tran
 ## Installation
 
 Requires desktop **Chrome 142 or newer**. The current release is [v0.6.0](https://github.com/Rayyy3320/peak-distance/releases/tag/v0.6.0).
+
+`main` contains the complete project with the latest locally verified changes. This README describes main-branch features, which may be newer than the release above. Download installable packages from Releases. `npm run zip:source` creates a source archive using `.gitattributes` to exclude design and process documentation.
 
 1. Download the package whose name ends with `-chrome.zip` from [Releases](https://github.com/Rayyy3320/peak-distance/releases/latest) and unzip it into a fixed folder.
 2. Type `chrome://extensions` in Chrome's address bar and turn on **Developer mode** (开发者模式) in the top-right corner.
@@ -46,7 +50,7 @@ Select a word or phrase and click **Look up** (查词); select a sentence or par
 
 For example, reading “She is comfortable **with** people.” and saving **with** means later reviews still show this sentence — you are not left recalling an isolated word.
 
-The **Add to chat** (添加到对话) bubble next to the selection brings content into the AI chat. Words and phrases are attached together with their sentence; for a sentence or paragraph, the selected text itself is attached. Your existing draft is never replaced, and no AI request is made until you click send.
+The **Add to chat** (加入对话) bubble next to the selection brings content into the AI chat. Words and phrases are attached together with their sentence; for a sentence or paragraph, the selected text itself is attached. Your existing draft is never replaced, and no AI request is made until you click send.
 
 ### Watching videos: keep the original, replay line by line
 
@@ -54,19 +58,19 @@ Open a YouTube video with subtitles and read the bilingual subtitles below the p
 
 Hover a word in the subtitles to see its meaning and pause playback; click to expand the word card. You can also drag to select phrases and save full sentences. Selections in the player subtitles and in the learning panel's subtitle list can both be added to the chat.
 
-**Bilingual → Original language** (双语 → 原文语言) at the bottom of the player selects among the tracks the video provides; you can also switch via YouTube's native **Settings → Subtitles/CC**. The same menu adjusts the translation mode, translation display and font size. With **AP** on, the video pauses at the end of each subtitle line; the learning panel also offers previous, replay and next for repeating a passage.
+**Subtitles → Original language** (字幕设置 → 原文语言) at the bottom of the player selects among the tracks the video provides; you can also switch via YouTube's native **Settings → Subtitles/CC**. The same menu adjusts the translation mode, translation display and font size. With **Pause after each line** on, the video pauses at the end of each subtitle line; the learning panel also offers previous, replay and next for repeating a passage.
 
 ### Learning different languages: pick explanations you understand
 
-In **Settings → Language** (设置 → 语言), choose the default **comprehension language** — the language you want translations and word explanations in. You can also set a language pair individually, for example understanding English via Chinese, or Japanese via English.
+In **Settings → Languages** (设置 → 语言设置), choose the default **Explanation language** — the language you want translations and word explanations in. You can also set a language pair individually, for example understanding English via Chinese, or Japanese via English.
 
-Expressions from web pages and videos go into the same vocabulary book (生词本). The language filter at the top of the vocabulary book shows records for one language at a time, where you can adjust the **Saved / Learning / Mastered** (已收藏／在学／已掌握) status or start sentence review.
+Expressions from web pages and videos go into the same vocabulary book (生词本). The language filter at the top of the vocabulary book shows records for one language at a time, where you can adjust the **Saved / Learning / Known** (已收藏／学习中／已掌握) status or start sentence review.
 
 Different language pairs have different lookup sources. English to Chinese prefers online dictionaries; other combinations may use regular translations. Word cards show their source; when a language cannot be determined it is marked **Unconfirmed** (待确认) instead of assuming everything is English.
 
 ### Keeping it local: your learning records in your own folder
 
-In **Settings → Learning vault** (设置 → 学习库), click **Connect learning folder** (连接学习文件夹) and pick a local directory. Vocabulary, sentences, notes, language preferences and your saved chat history are stored as Markdown — plain note files any text editor can open. You can also pick a folder inside an Obsidian vault.
+In **Settings → Shared files** (设置 → 文件共享), click **Choose folder** (选择位置) and pick a local directory. Vocabulary, sentences, notes, language preferences and your saved chat history are stored as Markdown — plain note files any text editor can open. You can also pick a folder inside an Obsidian vault.
 
 When you change an entry's status or **My notes** (我的笔记) in Obsidian, the extension reads those changes back. Chrome and Edge on the same computer can connect to the same directory and share learning records; when both sides edit the same field, both versions are kept and a conflict is reported.
 
@@ -78,11 +82,11 @@ The extension works without connecting a folder — records stay in the browser 
 
 ### Using AI: ask with the original text attached
 
-In **Settings → AI services** (设置 → AI 服务), pick a provider, enter your API key and click **Save and use** (保存并使用). Presets include DeepSeek, OpenAI, Anthropic, Gemini, Zhipu GLM and Kimi; other compatible services can be configured in advanced settings with their address, model and API format.
+In **Settings → AI services** (设置 → AI 服务), pick a provider, enter your API key and click **Save and use** (保存启用). Presets include DeepSeek, OpenAI, Anthropic, Gemini, Zhipu GLM and Kimi; other compatible services can be configured in advanced settings with their address, model and API format.
 
-Ask questions directly, or attach a page, a selection or subtitles. Attached material is shown above the input box — click to view it in full, and removing it keeps your typed question. **Continue asking** (继续问) in a word card brings in the expression and its sentence first; you decide whether to send.
+Ask questions directly, or attach a page, a selection or subtitles. Attached material is shown above the input box — click to view it in full, and removing it keeps your typed question. **Ask about this** (继续提问) in a word card brings in the expression and its sentence first; you decide whether to send.
 
-**Regular lookups and translations need no API key.** Configuring a key never switches translation to AI automatically. If you also enable **Use AI when the dictionary has no result** (无词典结果时自动使用 AI 查词), an AI explanation is attempted only when you actively look a word up, no applicable dictionary or a clear no-result applies, and AI is configured. Hover previews never trigger it, and neither do dictionary network failures.
+**Regular lookups and translations need no API key.** Configuring a key never switches translation to AI automatically. If you also enable **Use AI when needed** (查词补充), an AI explanation is attempted only when you actively look a word up, no applicable dictionary or a clear no-result applies, and AI is configured. Hover previews never trigger it, and neither do dictionary network failures.
 
 ## Privacy & Services
 

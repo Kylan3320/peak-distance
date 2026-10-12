@@ -4,13 +4,14 @@ export default defineConfig({
   // 桌面 Chrome，Manifest V3 是 WXT 的默认目标。
   manifest: {
     name: 'Peak Distance',
+    default_locale: 'en',
     minimum_chrome_version: '142',
-    description: '网页 / X 与 YouTube 英语学习扩展',
+    description: '__MSG_extensionDescription__',
     permissions: ['storage', 'sidePanel'],
     host_permissions: ['https://api.deepseek.com/*', 'https://dict.youdao.com/*', 'https://dictionary.cambridge.org/*', 'https://translate.googleapis.com/*'],
     optional_host_permissions: ['https://*/*'],
     action: {
-      default_title: '打开 Peak Distance',
+      default_title: '__MSG_openExtension__',
     },
     icons: { 16:'brand/peak-icon.png',32:'brand/peak-icon.png',48:'brand/peak-icon.png',128:'brand/peak-icon.png' },
     web_accessible_resources: [{resources:['sidepanel.html','assets/*','chunks/*','brand/*'],matches:['https://*/*']}],

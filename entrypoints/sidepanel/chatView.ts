@@ -1,3 +1,4 @@
+import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, materialLabel, scopeLabel, type UiText } from '@/shared/i18n';
 import {
   CHAT_MATERIAL_BUDGET_CHARS,
   CHAT_QUESTION_MAX_CHARS,
@@ -73,11 +74,11 @@ function tabSend<T>(tabId: number, msg: unknown): Promise<T | null> {
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   cls?: string,
-  text?: string,
+  text?: string | UiText,
 ): HTMLElementTagNameMap[K] {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
-  if (text !== undefined) n.textContent = text;
+  if (text !== undefined) setText(n,text);
   return n;
 }
 
@@ -95,7 +96,7 @@ const ERROR_LABEL: Record<string, string> = {
   'no-material': '材料缺失',
   busy: '当前对话已有回答在生成',
   'material-changed': '材料已改变，请按当前材料重新提问',
-  'question-too-long': `问题超过 ${CHAT_QUESTION_MAX_CHARS} 字`,
+  'question-too-long': '问题超过 {limit} 字',
   'empty-question': '先输入问题',
 };
 
@@ -179,7 +180,7 @@ function portSend(m: ChatPortMessage): void {
   connectPort();
   if (!port) {
     sending = null;
-    inlineError('连接不可用，请重试');
+    inlineError(message('连接不可用，请重试'));
     return;
   }
   try {
@@ -187,7 +188,7 @@ function portSend(m: ChatPortMessage): void {
   } catch {
     port = null;
     sending = null;
-    inlineError('连接中断，请重试');
+    inlineError(message('连接中断，请重试'));
   }
 }
 
@@ -238,10 +239,10 @@ function onPortEvent(ev: ChatPortEvent): void {
   renderGenerationState();
 }
 
-function inlineError(text: string): void {
+function inlineError(text: string | UiText): void {
   const box = document.getElementById('chat-meta-error');
   if (box) {
-    box.textContent = text;
+    setText(box,text);
     box.hidden = false;
   }
 }
@@ -357,7 +358,7 @@ export async function attachSelectionCandidate(candidate: SelectionCandidate, op
   const op = operation;
   clearInlineError();
   const built = materialFromCandidate(candidate);
-  if (!built) { inlineError('选区内容无法附加，请重新选择'); return false; }
+  if (!built) { inlineError(message('选区内容无法附加，请重新选择')); return false; }
   const r = await send<ChatEnsureResult>({
     type: 'chatEnsure', chatId, source: candidate.source, material: built.material, quote: built.quote,
   });
@@ -368,7 +369,7 @@ export async function attachSelectionCandidate(candidate: SelectionCandidate, op
     await acceptRecord(r.chat);
     return true;
   }
-  if (op === operation) inlineError('附加失败，材料未改变');
+  if (op === operation) inlineError(message('附加失败，材料未改变'));
   return false;
 }
 
@@ -390,46 +391,46 @@ async function attachMaterial(kind: 'page' | 'selection' | 'video'): Promise<voi
   clearInlineError();
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
-  if (typeof tab?.id !== 'number') { inlineError('找不到当前页面，请重试'); return; }
+  if (typeof tab?.id !== 'number') { inlineError(message('找不到当前页面，请重试')); return; }
   if (kind === 'selection') {
     const [info, got] = await Promise.all([
       tabSend<ChatSourceInfo>(tab.id, { type: 'blc-chat-source' }),
       send<SelectionCandidateResult>({ type: 'selectionCandidateGet', tabId: tab.id }),
     ]);
     if (op !== operation) return;
-    if (!info) { inlineError('无法连接当前页面，请刷新后重试'); return; }
-    if (!got?.ok) { inlineError('选区信息读取失败，请重试'); return; }
+    if (!info) { inlineError(message('无法连接当前页面，请刷新后重试')); return; }
+    if (!got?.ok) { inlineError(message('选区信息读取失败，请重试')); return; }
     const candidate = got.candidate;
     if (!candidate) { inlineError(selectionMissingReason(info)); return; }
-    if (candidateStale(candidate, info)) { inlineError('选区与当前页面不一致，请重新选择'); return; }
+    if (candidateStale(candidate, info)) { inlineError(message('选区与当前页面不一致，请重新选择')); return; }
     await attachSelectionCandidate(candidate, { tabId: tab.id });
     return;
   }
   const info = await tabSend<ChatSourceInfo>(tab.id, { type: 'blc-chat-source' });
   if (op !== operation) return;
-  if (!info) { inlineError('无法连接当前页面，请刷新后重试'); return; }
+  if (!info) { inlineError(message('无法连接当前页面，请刷新后重试')); return; }
   if (!info.source || (kind === 'video' && info.source.sourceType !== 'youtube') || (kind === 'page' && info.source.sourceType === 'youtube')) {
-    inlineError(info.source ? (kind === 'video' ? '当前页面没有可附加的视频字幕' : '当前页面无法附加材料，仍可直接提问') : (info.hint || '当前页面无法附加材料，仍可直接提问'));
+    inlineError(info.source ? (kind === 'video' ? message('当前页面没有可附加的视频字幕') : message('当前页面无法附加材料，仍可直接提问')) : (info.hint ? message(info.hint) : message('当前页面无法附加材料，仍可直接提问')));
     return;
   }
   const material = await tabSend<{ material: MaterialPayload | null }>(tab.id, { type: 'blc-chat-material' });
   if (op !== operation) return;
-  if (!material) { inlineError('材料提取失败，请重试'); return; }
+  if (!material) { inlineError(message('材料提取失败，请重试')); return; }
   if (!material.material) {
     // 提取失败 ≠ 没有选区：按来源给出实际原因
-    inlineError(info.hint || (kind === 'video' ? '字幕尚未就绪，稍后再试' : '未识别到可附加的正文'));
+    inlineError(info.hint ? message(info.hint) : (kind === 'video' ? message('字幕尚未就绪，稍后再试') : message('未识别到可附加的正文')));
     return;
   }
   const r = await send<ChatEnsureResult>({ type: 'chatEnsure', chatId, source: info.source, material: material.material });
   if (r?.ok && r.chat && op === operation) { noteSourceTab(r); chatTabId = tab.id; chatQuote = null; chatSegmentIndex = 0; await acceptRecord(r.chat); }
-  else if (op === operation) inlineError('附加失败，材料未改变');
+  else if (op === operation) inlineError(message('附加失败，材料未改变'));
 }
 
 /** 无候选的实际原因（页面能力而非“选区丢失”）。 */
-function selectionMissingReason(info: ChatSourceInfo): string {
-  if (info.source?.sourceType === 'youtube' && !info.source.video?.trackId) return '字幕尚未就绪，等字幕出现后再选择';
-  if (info.source?.sourceType === 'x') return '还没有可用选区：在目标帖子里选择文字';
-  return '还没有可用选区：在页面或字幕中选择文字';
+function selectionMissingReason(info: ChatSourceInfo): UiText {
+  if (info.source?.sourceType === 'youtube' && !info.source.video?.trackId) return message('字幕尚未就绪，等字幕出现后再选择');
+  if (info.source?.sourceType === 'x') return message('还没有可用选区：在目标帖子里选择文字');
+  return message('还没有可用选区：在页面或字幕中选择文字');
 }
 
 async function newConversation(): Promise<void> {
@@ -441,7 +442,7 @@ async function newConversation(): Promise<void> {
 
 function renderGenerationState(): void {
   const tab = document.querySelector('[data-view="chat"]');
-  if (tab) tab.textContent = generating.size ? 'AI 问答 · 生成中' : 'AI 问答';
+  if (tab) setText(tab, generating.size ? message('AI 问答 · 生成中') : message('AI 问答'));
 }
 
 // ---- 发送 / 停止 / 重试 ----------------------------------------------------------
@@ -492,7 +493,7 @@ async function doSend(): Promise<void> {
   if (!question) return;
   clearInlineError();
   if (question.length > CHAT_QUESTION_MAX_CHARS) {
-    inlineError(ERROR_LABEL['question-too-long']!);
+    inlineError(message(ERROR_LABEL['question-too-long']!,{limit:CHAT_QUESTION_MAX_CHARS}));
     return;
   }
   if (!chatRecord || sending === chatId) return;
@@ -533,7 +534,7 @@ function onAck(
   if (payload.chatId !== chatId || payload.editId && payload.editId !== chatRecord?.editId) return;
   if (!payload.ok) {
     if (payload.error === 'no-key') document.getElementById('chat-settings')!.hidden = false;
-    inlineError(ERROR_LABEL[payload.error ?? ''] ?? payload.error ?? '发送失败');
+    inlineError(message(ERROR_LABEL[payload.error ?? ''] ?? '发送失败',{limit:CHAT_QUESTION_MAX_CHARS}));
     return;
   }
   if (!payload.editId) { void reloadRecord(); return; }
@@ -601,10 +602,10 @@ function showCitationPanel(blockId: string, text: string, isVideo: boolean, loca
   const panel = document.getElementById('chat-cite-panel')!;
   panel.textContent = '';
   const head = el('div', 'cite-head');
-  const title = el('span', undefined, isVideo ? `引用 ${blockId}（已跳转）` : `引用 ${blockId}`);
+  const title = el('span', undefined, isVideo ? message('引用 {id}（已跳转）',{id:blockId}) : message('引用 {id}',{id:blockId}));
   head.appendChild(title);
   if (!isVideo) {
-    head.appendChild(el('span', 'cite-state', located ? '已定位到原文' : '页面已变化，显示保存的原文'));
+    head.appendChild(el('span', 'cite-state', located ? message('已定位到原文') : message('页面已变化，显示保存的原文')));
   }
   const close = el('button', 'cite-close', '×');
   close.addEventListener('click', () => {
@@ -614,7 +615,7 @@ function showCitationPanel(blockId: string, text: string, isVideo: boolean, loca
   panel.appendChild(head);
   panel.appendChild(el('div', 'cite-text', text));
   if (source) {
-    const link = el('a', 'cite-link', '打开来源');
+    const link = el('a', 'cite-link', message('打开来源'));
     link.href = source.url;
     link.target = '_blank';
     link.rel = 'noopener';
@@ -638,14 +639,14 @@ function renderHead(): void {
   const top = head.scrollTop;
   head.textContent = '';
   const row = el('div', 'chat-meta');
-  row.appendChild(el('span', 'chat-title', chatRecord?.title ?? '新对话'));
-  const addButton = (label: string, action: () => void) => {
+  row.appendChild(el('span', 'chat-title', chatRecord?.title==='新对话'&&!chatRecord.messages.length ? message('新对话') : chatRecord?.title ?? message('新对话')));
+  const addButton = (label: string | UiText, action: () => void) => {
     const b = el('button', 'chat-tool', label); b.addEventListener('click', action); row.appendChild(b);
   };
-  addButton('新对话', () => void newConversation());
-  addButton('历史', () => { historyOpen = !historyOpen; renderChat(); });
+  addButton(message('新对话'), () => void newConversation());
+  addButton(message('历史'), () => { historyOpen = !historyOpen; renderChat(); });
   row.lastElementChild?.setAttribute('aria-expanded', String(historyOpen));
-  addButton(retainedOnly ? '显示全部' : '已保留', () => { retainedOnly = !retainedOnly; renderChat(); });
+  addButton(retainedOnly ? message('显示全部') : message('已保留'), () => { retainedOnly = !retainedOnly; renderChat(); });
   row.lastElementChild?.setAttribute('aria-pressed', String(retainedOnly));
   clearButton.setDisabled(!chatId && !chatQuote && !latestSnapshot() && !(document.getElementById('chat-input') as HTMLTextAreaElement).value);
   row.append(clearButton.element);
@@ -687,20 +688,20 @@ function renderAttachment(): void {
     return;
   }
   zone.hidden = false;
-  kind.textContent = snap.label;
+  setText(kind,materialLabel(snap.label));
   summary.textContent = attachmentSummary(snap);
   summary.title = attachmentSummary(snap);
   // 焦点（引用）行：当前材料内的关注点与已有释义
   focusRow.textContent = '';
   if (chatQuote) {
-    const label = el('span', 'attach-focus-label', `焦点：${chatQuote.expression || chatQuote.note || chatQuote.blockIds.join(', ')}`);
-    const remove = el('button', 'chat-tool', '移除焦点');
+    const label = el('span', 'attach-focus-label', message('焦点：{text}', {text:chatQuote.expression || chatQuote.note || chatQuote.blockIds.join(', ')}));
+    const remove = el('button', 'chat-tool', message('移除焦点'));
     remove.addEventListener('click', async () => {
       const op = operation;
       const r = await send<{ ok: boolean }>({ type: 'chatTakeQuote', chatId });
       if (op !== operation) return;
       if (r?.ok) { chatQuote = null; if (chatRecord) chatRecord.pendingQuote = null; renderChat(); }
-      else inlineError('移除失败，请重试');
+      else inlineError(message('移除失败，请重试'));
     });
     focusRow.append(label, remove);
   }
@@ -710,8 +711,8 @@ function renderAttachment(): void {
     const meta = el('div', 'attach-meta');
     const link = el('a', 'attach-source', snap.source.title || snap.source.url);
     link.href = snap.source.url; link.target = '_blank'; link.rel = 'noopener';
-    meta.append(el('span', undefined, `${snap.label} · ${snap.blocks.length} 块`), link);
-    if (chatQuote?.definition) meta.append(el('span', undefined, `已有释义：${chatQuote.definition.slice(0, 120)}`));
+    meta.append(el('span', undefined, message('{label} · {count} 块', {label:materialLabel(snap.label),count:snap.blocks.length})), link);
+    if (chatQuote?.definition) meta.append(el('span', undefined, message('已有释义：{text}',{text:chatQuote.definition.slice(0,120)})));
     detail.append(meta);
     const body = el('div', 'attach-blocks');
     for (const b of snap.blocks) {
@@ -729,18 +730,18 @@ const historyMeta = el('div', 'chat-history-meta');
 const historyTotal = el('span');
 const historyFeedback = el('span'); historyFeedback.setAttribute('role', 'status');
 historyMeta.append(historyTotal, historyFeedback);
-const historyRows = new Map<string, { item: HTMLElement; open: HTMLButtonElement }>();
+const historyRows = new Map<string, { item: HTMLElement; open: HTMLButtonElement; dispose():void }>();
 let historyRequest = 0;
 const clearButton = createDeleteButton({ buttonText: '清空', onDelete: () => void clearConversation() });
 async function refreshHistory(): Promise<void> {
   const request = ++historyRequest;
   const r = await send<{ ok: boolean; chats: ChatRecentItem[] }>({ type: 'chatRecent' });
   if (request !== historyRequest) return;
-  if (!r?.ok) { if (!historyRows.size) historyList.textContent = '历史加载失败，请重试'; return; }
-  historyTotal.textContent = `历史 · ${r.chats.length} 个对话`;
+  if (!r?.ok) { if (!historyRows.size) setText(historyList, message('历史加载失败，请重试')); return; }
+  setText(historyTotal, message('历史 · {count} 个对话',{count:r.chats.length}));
   if (!historyRows.size) historyList.textContent = '';
   const ids = new Set(r.chats.map(c => c.chatId));
-  for (const [id, row] of historyRows) if (!ids.has(id)) { row.item.remove(); historyRows.delete(id); }
+  for (const [id, row] of historyRows) if (!ids.has(id)) { row.dispose();row.item.remove(); historyRows.delete(id); }
   for (const c of r.chats) {
     let row = historyRows.get(c.chatId);
     if (!row) {
@@ -752,7 +753,7 @@ async function refreshHistory(): Promise<void> {
         const op = ++operation;
         const selected = await send<{ ok: boolean; chat: ChatRecordView }>({ type: 'chatSelect', chatId: c.chatId });
         if (selected?.ok && op === operation) { historyOpen = false; await acceptRecord(selected.chat); }
-        else if (!selected?.ok) error.textContent = '切换失败，请重试';
+        else if (!selected?.ok) setText(error, message('切换失败，请重试'));
       });
       const remove = createDeleteButton({ onDelete: () => {
         remove.setDisabled(true); error.textContent = '';
@@ -760,24 +761,24 @@ async function refreshHistory(): Promise<void> {
         const current = chatId === c.chatId;
         const op = current ? ++operation : operation;
         void send<{ ok: boolean }>({ type: 'chatDelete', chatId: c.chatId }).then(async result => {
-          if (!result?.ok) { remove.setDisabled(false); error.textContent = '删除失败，请重试'; return; }
+          if (!result?.ok) { remove.setDisabled(false); setText(error, message('删除失败，请重试')); return; }
           historyRequest++;
-          item.remove(); historyRows.delete(c.chatId);
-          historyTotal.textContent = `历史 · ${historyRows.size} 个对话`;
-          historyFeedback.textContent = '已删除一个对话';
+          remove.dispose();item.remove(); historyRows.delete(c.chatId);
+          setText(historyTotal, message('历史 · {count} 个对话',{count:historyRows.size}));
+          setText(historyFeedback, message('已删除一个对话'));
           if (current && op === operation) {
             const active = await send<ChatActiveResult>({ type: 'chatActive' });
             if (active?.ok && active.chat && op === operation) { noteSourceTab(active); await acceptRecord(active.chat); }
           }
-          if (!historyRows.size) historyList.textContent = '还没有历史对话';
+          if (!historyRows.size) setText(historyList, message('还没有历史对话'));
         });
       } });
-      item.append(open, remove.element, error); row = { item, open }; historyRows.set(c.chatId, row);
+      item.append(open, remove.element, error); row = { item, open, dispose:remove.dispose }; historyRows.set(c.chatId, row);
     }
-    row.open.textContent = `${c.title} · ${c.questions} 问`;
+    setText(row.open, message('{title} · {count} 问',{title:c.title,count:c.questions}));
     if (!row.item.isConnected) historyList.append(row.item);
   }
-  if (!r.chats.length) historyList.textContent = '还没有历史对话';
+  if (!r.chats.length) setText(historyList, message('还没有历史对话'));
 }
 
 function renderSegments(): void {
@@ -787,11 +788,11 @@ function renderSegments(): void {
   if (!chatRecord) return;
   const cur = currentSegments();
   if (!cur || !cur.overBudget || !cur.segments.length) return;
-  const label = el('div', 'seg-label', '材料超出单次预算，选择讨论范围：');
+  const label = el('div', 'seg-label', message('材料超出单次预算，选择讨论范围：'));
   box.appendChild(label);
   const row = el('div', 'seg-row');
   for (const seg of cur.segments) {
-    const b = el('button', seg.index === chatSegmentIndex ? 'seg on' : 'seg', seg.label);
+    const b = el('button', seg.index === chatSegmentIndex ? 'seg on' : 'seg', scopeLabel(seg.label));
     b.addEventListener('click', () => {
       chatSegmentIndex = seg.index;
       renderChat();
@@ -803,15 +804,17 @@ function renderSegments(): void {
 
 function assistantStateChip(msg: ChatMessageRecord): HTMLElement {
   if (msg.state === 'streaming') {
-    return el('span', 'state streaming', msg.text ? '生成中…' : '正在准备回答');
+    return el('span', 'state streaming', msg.text ? message('生成中…') : message('正在准备回答'));
   }
-  if (msg.state === 'stopped') return el('span', 'state stopped', '已停止');
-  if (msg.state === 'interrupted') return el('span', 'state stopped', '已中断');
+  if (msg.state === 'stopped') return el('span', 'state stopped', message('已停止'));
+  if (msg.state === 'interrupted') return el('span', 'state stopped', message('已中断'));
   if (msg.state === 'error') {
-    return el('span', 'state error', `失败：${ERROR_LABEL[msg.errorKind ?? ''] ?? msg.errorKind ?? '未知'}`);
+    return el('span', 'state error', message('失败：{error}', {error:message(ERROR_LABEL[msg.errorKind ?? ''] ?? '服务返回异常',{limit:CHAT_QUESTION_MAX_CHARS})}));
   }
   const saved = (msg as ChatMessageRecord & { saved?: boolean }).saved;
-  return el('span', 'state done', saved === false ? '已回答（未保存）' : '已回答');
+  const chip=el('span','state done',saved===false?message('已回答（未保存）'):'');
+  chip.hidden=saved!==false;
+  return chip;
 }
 
 function renderAnswerText(box: HTMLElement, msg: ChatMessageRecord): void {
@@ -823,7 +826,7 @@ function renderAnswerText(box: HTMLElement, msg: ChatMessageRecord): void {
     }
     if (valid.has(token.id)) {
       const b = el('button', 'cite', `[${token.id}]`);
-      b.title = '点击查看 / 跳转到原文';
+      setLocalizedAttribute(b, 'title', message('点击查看 / 跳转到原文'));
       b.addEventListener('click', () => void openCitation(msg, token.id));
       box.appendChild(b);
     } else {
@@ -868,8 +871,8 @@ function renderMessages(): void {
     mark.setAttribute('aria-hidden', 'true'); mark.appendChild(image);
     const sentence = el('span', 'chat-welcome-sentence');
     const copy = el('span', 'chat-welcome-copy');
-    copy.appendChild(el('span', 'chat-welcome-text', '读懂更多。'));
-    sentence.append(el('span', 'chat-welcome-prefix', '从一句话，'), copy);
+    copy.appendChild(el('span', 'chat-welcome-text', message('读懂更多。')));
+    sentence.append(el('span', 'chat-welcome-prefix', message('从一句话，')), copy);
     title.setAttribute('aria-label', sentence.textContent!);
     title.append(mark, sentence);
     welcome.appendChild(title);
@@ -886,7 +889,7 @@ function renderMessages(): void {
       }
     }
     if (!items.length) {
-      list.appendChild(el('div', 'chat-hint', '还没有保留的解释。回答完成后点“保留解释”存档。'));
+      list.appendChild(el('div', 'chat-hint', message('还没有保留的解释。回答完成后点“保留解释”存档。')));
       return;
     }
   } else {
@@ -895,10 +898,10 @@ function renderMessages(): void {
   for (const m of items) {
     const item = el('div', `msg ${m.role}`);
     if (m.role === 'user') {
-      if (m.scopeLabel) item.appendChild(el('div', 'scope', `[范围：${m.scopeLabel}]`));
+      if (m.scopeLabel) item.appendChild(el('div', 'scope', message('[范围：{scope}]',{scope:scopeLabel(m.scopeLabel)})));
       item.appendChild(el('div', 'q', m.text));
       if (m.quote?.expression) {
-        item.appendChild(el('div', 'quote-ref', `引用：${m.quote.expression}`));
+        item.appendChild(el('div', 'quote-ref', message('引用：{text}',{text:m.quote.expression})));
       }
     } else {
       // 流式中的消息带请求标记：delta 快路径只更新这一条，不重建列表
@@ -906,11 +909,11 @@ function renderMessages(): void {
       const headRow = el('div', 'a-head');
       headRow.appendChild(assistantStateChip(m));
       if (m.state === 'streaming') {
-        const stop = el('button', 'mini', '停止');
+        const stop = el('button', 'mini', message('停止'));
         stop.addEventListener('click', doStop);
         headRow.appendChild(stop);
       } else if (m.state === 'error' || m.state === 'interrupted' || m.state === 'stopped') {
-        const retry = el('button', 'mini', '重试');
+        const retry = el('button', 'mini', message('重试'));
         retry.addEventListener('click', () => doRetry(m.turnId));
         headRow.appendChild(retry);
       }
@@ -918,7 +921,7 @@ function renderMessages(): void {
         const retain = el(
           'button',
           m.retained ? 'mini on' : 'mini',
-          m.retained ? '取消保留' : '保留解释',
+          m.retained ? message('取消保留') : message('保留解释'),
         );
         retain.addEventListener('click', async () => {
           if (!chatId) return;
@@ -958,12 +961,13 @@ function renderInputState(): void {
   inputRow.hidden = !hasChat;
   starters.textContent = '';
   if (latestSnapshot()) {
-    for (const prompt of ['解释这句', '梳理观点', '举例说明']) {
-      const b = el('button', 'starter', prompt);
+    for (const promptKey of ['解释这句','梳理观点','举例说明']) {
+      const b = el('button', 'starter', message(promptKey));
       b.addEventListener('click', () => {
+        const prompt=tr(promptKey);
         input.value = chatQuote?.expression
           ? `${prompt}：${chatQuote.expression}`
-          : `${prompt}（材料中你最关注的部分）`;
+          : tr('{prompt}（材料中你最关注的部分）',{prompt});
         input.focus();
         updateCount();
       });
@@ -981,7 +985,7 @@ function updateCount(): void {
   const count = document.getElementById('chat-count');
   if (!input || !count) return;
   const n = input.value.length;
-  count.textContent = n > CHAT_QUESTION_MAX_CHARS ? `${n} / ${CHAT_QUESTION_MAX_CHARS}（超限）` : n ? `${n} / ${CHAT_QUESTION_MAX_CHARS}` : 'Ctrl / ⌘ + Enter 发送';
+  setText(count, n > CHAT_QUESTION_MAX_CHARS ? message('{count} / {limit}（超限）',{count:n,limit:CHAT_QUESTION_MAX_CHARS}) : n ? `${n} / ${CHAT_QUESTION_MAX_CHARS}` : message('Ctrl / ⌘ + Enter 发送'));
   count.classList.toggle('over', n > CHAT_QUESTION_MAX_CHARS);
 }
 
@@ -990,7 +994,7 @@ async function clearConversation(): Promise<void> {
   clearButton.setDisabled(true);
   const r = await send<{ ok: boolean }>({ type: chatId ? 'chatClear' : 'chatNew', chatId });
   if (op !== operation) return;
-  if (!r?.ok) { clearButton.setDisabled(false); inlineError('清空失败，请重试'); return; }
+  if (!r?.ok) { clearButton.setDisabled(false); inlineError(message('清空失败，请重试')); return; }
   const active = await send<ChatActiveResult>({ type: 'chatActive' });
   if (active?.ok && active.chat && op === operation) { noteSourceTab(active); await acceptRecord(active.chat); }
 }
@@ -1055,9 +1059,9 @@ async function refreshAttachMenu(): Promise<void> {
     const summary = document.getElementById('chat-attach-selection-summary')!;
     const candidate = got?.ok ? got.candidate : null;
     if (candidate && info && !candidateStale(candidate, info)) {
-      summary.textContent = `${candidate.text.replace(/\s+/g, ' ').slice(0, 40)}${candidate.text.length > 40 ? '…' : ''} · ${candidate.source.sourceType === 'youtube' ? '视频字幕' : candidate.source.sourceType === 'x' ? 'X 帖子' : '网页'}`;
+      setText(summary,message('{source} · {text}',{source:message(candidate.source.sourceType==='youtube'?'视频字幕':candidate.source.sourceType==='x'?'X 帖子':'网页'),text:`${candidate.text.replace(/\s+/g,' ').slice(0,40)}${candidate.text.length>40?'…':''}`}));
     } else {
-      summary.textContent = candidate ? '选区与当前页面不一致，请重新选择' : selectionMissingReason(info ?? ({ type: 'blc-chat-source-info', source: null, canMaterial: false, hint: '', pageUrl: '' } satisfies ChatSourceInfo));
+      setText(summary, candidate ? message('选区与当前页面不一致，请重新选择') : selectionMissingReason(info ?? ({ type: 'blc-chat-source-info', source: null, canMaterial: false, hint: '', pageUrl: '' } satisfies ChatSourceInfo)));
     }
   } finally {
     attachMenuBusy = false;
@@ -1087,7 +1091,7 @@ export function initChatView(d: ChatViewDeps): void {
     clearInlineError();
     const r = await send<{ ok: boolean; chat: ChatRecordView }>({ type: 'chatRemoveMaterial', chatId });
     if (r?.ok && op === operation) { chatQuote = null; chatSegmentIndex = 0; attachmentExpanded = false; resetCitePanel(); await acceptRecord(r.chat); }
-    else if (op === operation) inlineError('移除失败，请重试');
+    else if (op === operation) inlineError(message('移除失败，请重试'));
   });
   document.getElementById('chat-settings')?.addEventListener('click', () => deps?.switchView('settings'));
   void browser.windows.getCurrent().then(w => {

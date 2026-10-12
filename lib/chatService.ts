@@ -12,6 +12,8 @@ import { enqueueChatWrite, flushVaultWrites } from './vault/sync';
 import { chatCompletionStream } from './aiClient';
 import { getAiConfig } from './aiTransport';
 import { validateAiProfile, type AiConfig } from '@/shared/aiConfig';
+import { isDisplayLanguage, resolveDisplayLocale } from '@/shared/i18n';
+import { DEFAULT_SETTINGS } from '@/shared/settings';
 import { openPanel } from './panelService';
 import { readChatEdit, writeChatEdit, replaceChatEdit, activateChatEdit, beginChatOperation, chatOperation, ownsChatEdit } from './chatWorkspace';
 import {
@@ -212,7 +214,13 @@ async function runTurn(active: ActiveChat): Promise<void> {
       : buildSegments(snapshot.blocks, snapshot.source.sourceType)) : [];
     const segment = segments[userMsg.segmentIndex ?? 0] ?? null;
     const history = historyForTurn(record.messages, turnId, userMsg.snapshotVersion ?? 0);
+    const preferences = await browser.storage.local.get('displayLanguage');
+    const responseLanguage = resolveDisplayLocale(
+      isDisplayLanguage(preferences.displayLanguage) ? preferences.displayLanguage : DEFAULT_SETTINGS.displayLanguage,
+      browser.i18n.getUILanguage(),
+    );
     const messages = buildChatMessages({
+      responseLanguage,
       snapshot,
       segment,
       question: userMsg.text,

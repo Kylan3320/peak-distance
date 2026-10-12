@@ -3,10 +3,11 @@ node_modules/
 .wxt/
 .upstream/
 .chrome-profile/
+*.log
 .env
 .env.*
+!.env.example
 .npmrc
-*.log
 *.pem
 *.key
 *.p12

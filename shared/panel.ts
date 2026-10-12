@@ -27,8 +27,8 @@ export interface SelectionSnapshot {
 }
 
 export const MAX_SELECTION_CHARS = 5000;
-export function selectionError(text: unknown): string | null {
-  if (typeof text !== 'string' || !text.trim()) return '请选择要翻译的英文';
-  if (text.length > MAX_SELECTION_CHARS) return `最多翻译 ${MAX_SELECTION_CHARS} 字符，请缩小选区`;
+export function selectionError(text: unknown): 'empty-selection' | 'selection-too-long' | null {
+  if (typeof text !== 'string' || !text.trim()) return 'empty-selection';
+  if (text.length > MAX_SELECTION_CHARS) return 'selection-too-long';
   return null;
 }
