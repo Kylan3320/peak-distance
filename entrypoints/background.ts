@@ -5,6 +5,7 @@ import { selectionError } from '@/shared/panel';
 import { translateRegularText } from '@/lib/regularTranslation';
 import { cached, cacheGet, cachePut, trimCache } from '@/lib/onlineCache';
 import { comprehensionLangFor, DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
+import { resolveDisplayLocale, translate } from '@/shared/i18n';
 import type { LearningResult, ContextExplanation } from '@/shared/vocab';
 // background：词汇 / 翻译消息路由、IndexedDB 存取、AI 请求、广播。
 // 凭据仅在本上下文读取；content script 只传查词材料与词汇操作，
@@ -181,6 +182,11 @@ function broadcast(evt: BroadcastEvent): void {
 async function getSettings(): Promise<SettingsView> {
   const got = await browser.storage.local.get(Object.keys(DEFAULT_SETTINGS));
   return Object.fromEntries(Object.entries(DEFAULT_SETTINGS).map(([key, value]) => [key, validSetting(key, got[key]) ? got[key] : value])) as unknown as SettingsView;
+}
+async function updateActionTitle() {
+  const settings=await getSettings();
+  const locale=resolveDisplayLocale(settings.displayLanguage,browser.i18n.getUILanguage());
+  await browser.action.setTitle({title:translate(locale,'打开 {name}',{name:'Peak Distance'})});
 }
 
 const onlineRequests = new Map<string, AbortController>();
@@ -565,6 +571,7 @@ async function handle(
 }
 
 export default defineBackground(() => {
+  void updateActionTitle();
   // storage.local 收紧为受信任上下文（扩展页面 / SW），content script 不可读。
   void browser.storage.local
     .setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
@@ -598,6 +605,7 @@ export default defineBackground(() => {
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if ('cacheLimit' in changes) void trimCache();
+    if ('displayLanguage' in changes) void updateActionTitle();
     if (Object.keys(changes).some(k => k in DEFAULT_SETTINGS)) broadcast({ type: 'settings-changed' });
     // 语言偏好双向生效：设置变化即排队写回 偏好.md（幂等键，重复无害）
     if ('defaultComprehensionLang' in changes || 'comprehensionOverrides' in changes) {

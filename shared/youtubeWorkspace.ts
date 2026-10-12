@@ -1,3 +1,4 @@
+import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 import { brandTokens, brandControls } from './brand';
 import type { Cue } from './protocol';
 import type { Settings } from './settings';
@@ -52,7 +53,9 @@ export function createYoutubeWorkspace(actions: {
 }, mount: HTMLElement) {
   const host = document.createElement('aside'); host.id = 'blc-learning-panel';
   const root = host.attachShadow({ mode: 'open' });
-  root.innerHTML = `<style>${css}</style><section class="panel" aria-label="视频学习侧栏"><div class="head"></div><div class="controls"></div><div class="body"></div></section>`;
+  onDisplayLanguageChange(()=>localize(root));
+  root.innerHTML = `<style>${css}</style><section class="panel" data-i18n-aria-label="视频学习侧栏" aria-label="${tr("视频学习侧栏")}"><div class="head"></div><div class="controls"></div><div class="body"></div></section>`;
+  localize(root);
   const head = root.querySelector<HTMLDivElement>('.head')!;
   const controls = root.querySelector<HTMLDivElement>('.controls')!;
   const body = root.querySelector<HTMLDivElement>('.body')!;
@@ -63,18 +66,18 @@ export function createYoutubeWorkspace(actions: {
   let lastSentences: SavedSentence[] | null = null, lastEntries: EntryView[] | null = null;
   let lastStatuses: Map<string, string> | null = null;
   let lastCurrent = -1;
-  const button = (parent: HTMLElement, label: string, action: () => void) => {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.addEventListener('click', action); parent.append(b); return b;
+  const button = (parent: HTMLElement, label: string | UiText, action: () => void) => {
+    const b = document.createElement('button'); b.type = 'button'; setText(b,label); b.addEventListener('click', action); parent.append(b); return b;
   };
-  for (const [id, label] of [['subs', '字幕'], ['words', '词语'], ['saved', '已保存']]) {
+  for (const [id, label] of [['subs', message('字幕')], ['words', message('词语')], ['saved', message('已保存〔视频〕')]] as const) {
     const b = button(head, label!, () => { scrollPositions.set(tab, body.scrollTop); tab = id!; render(); }); b.dataset.tab = id;
   }
 
-  button(controls, '上一句', () => actions.seek(Math.max(0, state.current - 1)));
-  button(controls, '重播', () => actions.seek(Math.max(0, state.current), true));
-  button(controls, '下一句', () => actions.seek(Math.min(state.cues.length - 1, state.current + 1)));
+  button(controls, message('上一句'), () => actions.seek(Math.max(0, state.current - 1)));
+  button(controls, message('重播'), () => actions.seek(Math.max(0, state.current), true));
+  button(controls, message('下一句'), () => actions.seek(Math.min(state.cues.length - 1, state.current + 1)));
   controls.querySelectorAll('button').forEach(b => b.dataset.playback = '');
-  const back = button(controls, '回到当前句', () => { follow = true; highlight(true); });
+  const back = button(controls, message('回到当前句'), () => { follow = true; highlight(true); });
   back.hidden = true;
   for (const event of ['wheel', 'touchmove', 'pointerdown']) body.addEventListener(event, () => { follow = false; back.hidden = false; }, { passive: true });
   host.addEventListener('keydown', e => {
@@ -91,7 +94,7 @@ export function createYoutubeWorkspace(actions: {
     return row;
   }
   function meta(row: HTMLElement) { const el = document.createElement('div'); el.className = 'meta'; row.append(el); return el; }
-  function empty(text: string) { const el = document.createElement('p'); el.className = 'muted'; el.textContent = text; body.append(el); }
+  function empty(text: string | UiText) { const el = document.createElement('p'); el.className = 'muted'; setText(el,text); body.append(el); }
   function render() {
     if (!state) return;
     head.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -102,21 +105,21 @@ export function createYoutubeWorkspace(actions: {
       const top = renderedTab === tab ? body.scrollTop : scrollPositions.get(tab) ?? 0;
       body.replaceChildren();
       if (tab === 'subs') {
-        if (!state.cues.length) empty(state.notice || '正在读取字幕…');
+        if (!state.cues.length) empty(message(state.notice || '正在读取字幕…'));
         state.cues.forEach((cue, i) => {
           const row = line(i), tools = meta(row);
           button(tools, fmtClock(cue.start), () => actions.seek(i)).dataset.playback = '';
           const saved = state.sentences.some(s => sentenceId(s.video, s.text) === sentenceId({ ...state.videoRef, startMs: cue.start }, cue.text));
-          button(tools, saved ? '已收藏' : '收藏整句', () => actions.save(i));
-          button(tools, '问 AI', () => actions.ask(i)); body.append(row);
+          button(tools, saved ? message('已收藏') : message('收藏整句'), () => actions.save(i));
+          button(tools, message('问 AI'), () => actions.ask(i)); body.append(row);
         });
       } else if (tab === 'words') {
-        if (!state.cues.length) empty(state.notice || '字幕尚未就绪');
+        if (!state.cues.length) empty(message(state.notice || '字幕尚未就绪'));
         for (const item of cueWords(state.cues, state.trackLang || undefined)) {
           const row = document.createElement('div'); row.className = 'row';
-          const word = button(row, `${item.word} · ${item.count} 次`, () => { details.open = true; actions.lookup(item.word, item.positions[0]!, word); });
+          const word = button(row, message('{word} · {count} 次',{word:item.word,count:item.count}), () => { details.open = true; actions.lookup(item.word, item.positions[0]!, word); });
           word.className = 'word'; word.dataset.word = item.word;
-          const details = document.createElement('details'), summary = document.createElement('summary'); summary.textContent = '字幕位置'; details.append(summary);
+          const details = document.createElement('details'), summary = document.createElement('summary'); setText(summary, message('字幕位置')); details.append(summary);
           for (const i of item.positions) {
             const cue = state.cues[i]!, place = meta(details);
             button(place, fmtClock(cue.start), () => actions.seek(i)).dataset.playback = '';
@@ -126,14 +129,14 @@ export function createYoutubeWorkspace(actions: {
         }
       } else {
         const nav = document.createElement('div'); nav.className = 'controls'; body.append(nav);
-        button(nav, '全部词语', () => actions.open('list')); button(nav, '全部句子', () => actions.open('sentences')); button(nav, '复习', () => actions.open('review'));
+        button(nav, message('全部词语'), () => actions.open('list')); button(nav, message('全部句子'), () => actions.open('sentences')); button(nav, message('复习'), () => actions.open('review'));
         let count = 0;
         for (const entry of state.entries) for (const c of entry.contexts.filter(c => c.video?.videoId === state.videoId)) {
           count++;
           const row = document.createElement('div'); row.className = 'row';
           const expr = button(row, entry.expression, () => { const i = state.cues.findIndex(cue => cue.start === c.video?.startMs && cue.text === c.sentence); if (i >= 0) actions.lookup(entry.expression, i, expr); else actions.open('list'); }); expr.dataset.word = entry.expression;
-          const status = document.createElement('select'); status.setAttribute('aria-label', `${entry.expression} 学习状态`);
-          for (const [value, label] of [['saved','已收藏'],['learning','在学'],['known','已掌握']]) { const option = document.createElement('option'); option.value = value!; option.textContent = label!; status.append(option); }
+          const status = document.createElement('select'); setLocalizedAttribute(status, 'aria-label', message('{expression} 学习状态',{expression:entry.expression}));
+          for (const [value, label] of [['saved',message('已收藏')],['learning',message('在学')],['known',message('已掌握')]] as const) { const option = document.createElement('option'); option.value = value!; setText(option,label!); status.append(option); }
           status.value = entry.status; status.addEventListener('change', () => actions.status(entry.key, status.value)); row.append(status);
           const sentence = document.createElement('div'); sentence.textContent = c.sentence; row.append(sentence);
           const link = document.createElement('a'); link.href = c.url; link.textContent = fmtClock(c.video!.startMs); link.style.color = 'var(--pd-blue)';
@@ -146,12 +149,12 @@ export function createYoutubeWorkspace(actions: {
           const text = document.createElement('div'); text.textContent = saved.text; row.append(text);
           if (saved.zh) { const zh = document.createElement('div'); zh.className = 'zh'; zh.textContent = saved.zh; row.append(zh); }
           const tools = meta(row);
-          const link = document.createElement('a'); link.href = `https://www.youtube.com/watch?v=${encodeURIComponent(saved.video.videoId)}&t=${saved.video.startMs / 1000}s`; link.textContent = `整句 · ${fmtClock(saved.video.startMs)}`; link.style.color = 'var(--pd-blue)';
+          const link = document.createElement('a'); link.href = `https://www.youtube.com/watch?v=${encodeURIComponent(saved.video.videoId)}&t=${saved.video.startMs / 1000}s`; setText(link,message('{source} · {text}',{source:message('整句'),text:fmtClock(saved.video.startMs)})); link.style.color = 'var(--pd-blue)';
           link.dataset.playback = ''; link.addEventListener('click', e => { const i = state.cues.findIndex(cue => cue.start === saved.video.startMs); if (i >= 0) { e.preventDefault(); actions.seek(i); } });
           tools.append(link);
-          button(tools, '取消收藏', () => actions.remove(saved.id)); body.append(row);
+          button(tools, message('取消收藏'), () => actions.remove(saved.id)); body.append(row);
         }
-        if (!count) empty('本视频还没有收藏。可在词卡保存词语，或在字幕行收藏整句。');
+        if (!count) empty(message('本视频还没有收藏。可在词卡保存词语，或在字幕行收藏整句。'));
       }
       body.scrollTop = top;
       renderedTab = tab; lastCues = state.cues; lastSentences = state.sentences; lastEntries = state.entries;

@@ -1,3 +1,4 @@
+import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 // 选区浮条（选区查词 spec 的单层入口）：普通网页 / X 与 YouTube 页面正文共用。
 // 分类表驱动按钮：word=查词+添加到对话；phrase=查词+翻译+添加到对话；
 // sentence=翻译+添加到对话。查词用有效表达（补残缺词边界、去词外标点），
@@ -34,7 +35,7 @@ export interface SelectionPillDeps {
   /** 选区来源（X 绑定被选帖子；YouTube 页面正文按当前地址的 article 源）。 */
   buildSource: () => SourceDescriptor | null;
   /** 页面内轻提示（网页与播放器样式不同，由调用方提供）。 */
-  toast: (text: string) => void;
+  toast: (text: string | UiText) => void;
   /** 词卡「继续问」：附加词卡表达与可靠原句（可带已有释义），不发新查询。 */
   onContinueAsk?: (ctx: { snapshot: { expression: string; sentence?: string }; definition: string | null }) => void;
   /** 额外跳过条件：自身其它 UI（如字幕栏、选区操作条、词卡）内的选区不产生入口。 */
@@ -52,6 +53,7 @@ function editableTarget(sel: Selection): boolean {
 }
 
 export function createSelectionPill(deps: SelectionPillDeps) {
+  onDisplayLanguageChange(()=>{const root=document.getElementById(PILL_ID)?.shadowRoot;if(root)localize(root);});
   const { send, lookup, translation } = deps;
 
   let dismissedRange: Range | null = null;
@@ -135,11 +137,11 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       `;
       root.appendChild(style);
       const btn = document.createElement('button');
-      btn.textContent = '查词';
+      setText(btn, message('查词'));
       btn.id = 'lookup';
       root.appendChild(btn);
       const translate = document.createElement('button');
-      translate.id = 'translate'; translate.textContent = '翻译'; root.append(translate);
+      translate.id = 'translate'; setText(translate, message('翻译')); root.append(translate);
       translate.addEventListener('click', () => {
         const info = evaluate() ?? currentInfo;
         if (!info) return;
@@ -153,10 +155,11 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       const chat = document.createElement('button');
       chat.id = 'chat';
       chat.className = 'blc-chat-add';
-      chat.title = '添加到对话';
-      chat.setAttribute('aria-label', '添加到对话');
+      setLocalizedAttribute(chat, 'title', message('添加到对话'));
+      setLocalizedAttribute(chat, 'aria-label', message('添加到对话'));
       chat.innerHTML = CHAT_ADD_ICON;
       root.append(chat);
+      localize(root);
       chat.addEventListener('click', () => {
         const info = evaluate() ?? currentInfo;
         if (info) void attach(info);
@@ -219,11 +222,11 @@ export function createSelectionPill(deps: SelectionPillDeps) {
   async function attach(info: PillSelectionInfo): Promise<void> {
     const candidate = candidateOf(info);
     if (!candidate || !info.source) {
-      deps.toast('当前选区无法附加，请重新选择');
+      deps.toast(message('当前选区无法附加，请重新选择'));
       return;
     }
     const built = materialFromCandidate(candidate);
-    if (!built) { deps.toast('当前选区无法附加，请重新选择'); return; }
+    if (!built) { deps.toast(message('当前选区无法附加，请重新选择')); return; }
     const r = await send<{ ok: boolean; panelOpened?: boolean }>({
       type: 'chatEnsure',
       source: info.source,
@@ -233,8 +236,8 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     });
     remove();
     // 材料附加成功与面板打开成功分别判断；写入失败不提示已附加
-    if (!r?.ok) { deps.toast('附加失败，请重试'); return; }
-    if (!r.panelOpened) deps.toast('已附加到当前对话：点扩展图标打开侧栏继续');
+    if (!r?.ok) { deps.toast(message('附加失败，请重试')); return; }
+    if (!r.panelOpened) deps.toast(message('已附加到当前对话：点扩展图标打开侧栏继续'));
   }
 
   function remove(): void {

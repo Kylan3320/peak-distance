@@ -1,3 +1,4 @@
+import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 import { brandTokens } from './brand';
 import type { DictionarySource } from '@/lib/onlineDictionary';
 // 共用查词弹窗（网页与 YouTube 字幕共用，M1 行为原样提取）：
@@ -98,6 +99,7 @@ export function createLookupPopup(opts: {
   /** 宿主挂载点（默认 documentElement；全屏时由调用方移动节点）。 */
   mountParent?: () => HTMLElement | null;
 }): LookupPopup {
+  onDisplayLanguageChange(()=>{const root=document.getElementById(POPUP_ID)?.shadowRoot;if(root)localize(root);});
   const send = opts.send;
   let pinned: PinnedState | null = null;
   let nonce = 0;
@@ -209,6 +211,7 @@ export function createLookupPopup(opts: {
       const body = document.createElement('div');
       body.className = 'card';
       root.appendChild(body);
+      localize(root);
       // 页面内点击弹窗本身不冒泡成“新选区”
       host.addEventListener('mousedown', (e) => e.stopPropagation());
       // 按住标题行（表达 + 状态 chip）拖动整卡。
@@ -247,13 +250,13 @@ export function createLookupPopup(opts: {
     return card2;
   }
 
-  function setFeedback(ok: boolean, text: string): void {
+  function setFeedback(ok: boolean, text: string | UiText): void {
     const el = document
       .getElementById(POPUP_ID)
       ?.shadowRoot?.querySelector('#blc-feedback') as HTMLDivElement | undefined;
     if (el) {
       el.className = `feedback ${ok ? 'ok' : 'err'}`;
-      el.textContent = text;
+      setText(el,text);
     }
   }
 
@@ -271,7 +274,7 @@ export function createLookupPopup(opts: {
     if (p.status) {
       const chip = document.createElement('span');
       chip.className = `chip ${p.status}`;
-      chip.textContent = VOCAB_STATUS_LABEL[p.status];
+      setText(chip, message(VOCAB_STATUS_LABEL[p.status]));
       head.appendChild(chip);
     }
     body.appendChild(head);
@@ -279,7 +282,7 @@ export function createLookupPopup(opts: {
     // 原文上下文（视频 = 当前字幕；网页 = 所在正文片段）
     const ctx = document.createElement('div');
     ctx.className = 'ctx';
-    ctx.textContent = p.snapshot.sentence || '（无上下文）';
+    setText(ctx, p.snapshot.sentence || message('（无上下文）'));
     body.appendChild(ctx);
 
     if (p.subLine) {
@@ -301,21 +304,21 @@ export function createLookupPopup(opts: {
 
     const save = document.createElement('button');
     save.className = 'act save';
-    save.textContent = '保存';
+    setText(save, message('保存'));
     save.addEventListener('click', () => void doSave());
     row.appendChild(save);
 
     const master = document.createElement('button');
     master.className = 'act ghost';
-    master.textContent = '已掌握';
+    setText(master, message('已掌握'));
     master.addEventListener('click', () => void doSave('known'));
     row.appendChild(master);
 
     if (!p.compact && typeof p.onContinueAsk === 'function') {
       const ask = document.createElement('button');
       ask.className = 'act ghost';
-      ask.textContent = '继续问';
-      ask.title = '带着这句原文转入侧栏问答';
+      setText(ask, message('继续问'));
+      setLocalizedAttribute(ask, 'title', message('带着这句原文转入侧栏问答'));
       ask.addEventListener('click', () => {
         if (!pinned) return;
         p.onContinueAsk!({
@@ -330,11 +333,11 @@ export function createLookupPopup(opts: {
     if (p.entryExists && !p.compact) {
       const sel = document.createElement('select');
       sel.className = 'status';
-      sel.setAttribute('aria-label', '学习状态');
+      setLocalizedAttribute(sel, 'aria-label', message('学习状态'));
       for (const s of ['saved', 'learning', 'known'] as const) {
         const opt = document.createElement('option');
         opt.value = s;
-        opt.textContent = VOCAB_STATUS_LABEL[s];
+        setText(opt, message(VOCAB_STATUS_LABEL[s]));
         if (p.status === s) opt.selected = true;
         sel.appendChild(opt);
       }
@@ -344,7 +347,7 @@ export function createLookupPopup(opts: {
 
     const close = document.createElement('button');
     close.className = 'act ghost';
-    close.textContent = '关闭';
+    setText(close, message('关闭'));
     close.addEventListener('click', () => closePopup());
     row.appendChild(close);
     body.appendChild(row);
@@ -360,25 +363,25 @@ export function createLookupPopup(opts: {
   function renderDefinition(box: HTMLDivElement): void {
     if (!pinned) return;
     const p = pinned;
-    const text = (value: string, cls = 'def-text') => {
-      const n = document.createElement('p'); n.className = cls; n.textContent = value; box.appendChild(n); return n;
+    const text = (value: string | UiText, cls = 'def-text') => {
+      const n = document.createElement('p'); n.className = cls; setText(n,value); box.appendChild(n); return n;
     };
-    const button = (label: string, action: () => void) => {
-      const b = document.createElement('button'); b.className = 'link-btn'; b.textContent = label; b.addEventListener('click', action); box.appendChild(b); return b;
+    const button = (label: string | UiText, action: () => void) => {
+      const b = document.createElement('button'); b.className = 'link-btn'; setText(b,label); b.addEventListener('click', action); box.appendChild(b); return b;
     };
     if (p.compact) {
       if (p.result?.kind === 'dictionary') {
         const sense = p.result.entry.senses[0];
         text(`${sense?.partOfSpeech ?? ''} ${sense?.definition ?? ''}`);
-        text(p.result.entry.source === 'youdao' ? '有道' : '剑桥英汉', 'def-label');
-      } else if (p.result?.kind === 'translation') { text(p.result.text); text('翻译 · Google', 'def-label'); }
-      else text(p.lookupError ? (p.lookupError === 'not-found' ? '未查到该表达' : '暂时无法查询') : '正在查询…', 'def-state');
-      button('展开详情', () => { p.compact = false; renderPopup(); });
+        text(p.result.entry.source === 'youdao' ? message('有道') : message('剑桥英汉'), 'def-label');
+      } else if (p.result?.kind === 'translation') { text(p.result.text); text(message('翻译 · Google'), 'def-label'); }
+      else text(p.lookupError ? (p.lookupError === 'not-found' ? message('未查到该表达') : message('暂时无法查询')) : message('正在查询…'), 'def-state');
+      button(message('展开详情'), () => { p.compact = false; renderPopup(); });
       return;
     }
     if (p.result?.kind === 'dictionary') {
       const entry = p.result.entry;
-      text(`${entry.source === 'youdao' ? '有道' : '剑桥英汉'} · ${entry.headword}${entry.phonetic ? ` /${entry.phonetic}/` : ''}`, 'def-label');
+      text(message('{source} · {word}{phonetic}',{source:message(entry.source==='youdao'?'有道':'剑桥英汉'),word:entry.headword,phonetic:entry.phonetic?` /${entry.phonetic}/`:''}), 'def-label');
       const renderSense = (index: number, parent: HTMLElement) => {
         const sense = entry.senses[index]!;
         const line = document.createElement('div'); line.className = 'sense';
@@ -392,28 +395,28 @@ export function createLookupPopup(opts: {
       };
       renderSense(0, box);
       if (entry.senses.length > 1) {
-        const more = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = '其它义项'; more.appendChild(summary);
+        const more = document.createElement('details'); const summary = document.createElement('summary'); setText(summary, message('其它义项')); more.appendChild(summary);
         for (let i = 1; i < entry.senses.length; i++) renderSense(i, more);
         box.appendChild(more);
       }
-      if (entry.forms?.length) text(`来源词形：${entry.forms.join('、')}`, 'def-label');
-      if (entry.lemmaCandidates?.length) text(`原形候选：${entry.lemmaCandidates.join('、')}`, 'def-label');
+      if (entry.forms?.length) text(message('来源词形：{forms}',{forms:entry.forms.join('、')}), 'def-label');
+      if (entry.lemmaCandidates?.length) text(message('原形候选：{forms}',{forms:entry.lemmaCandidates.join('、')}), 'def-label');
       if (entry.audioUrl && /^https:\/\//.test(entry.audioUrl)) { const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = entry.audioUrl; box.appendChild(audio); }
     } else if (p.result?.kind === 'translation') {
-      text('翻译 · Google', 'def-label'); text(p.result.text);
+      text(message('翻译 · Google'), 'def-label'); text(p.result.text);
     } else if (p.lookupError) {
-      text(p.lookupError === 'not-found' ? '未查到该表达' : '暂时无法查询', 'def-state');
-      button('重试', () => void requestLookup(p.source));
-    } else text('正在查询释义…（此时也可保存）', 'def-state');
+      text(p.lookupError === 'not-found' ? message('未查到该表达') : message('暂时无法查询'), 'def-state');
+      button(message('重试'), () => void requestLookup(p.source));
+    } else text(message('正在查询释义…（此时也可保存）'), 'def-state');
     const row = document.createElement('div'); row.className = 'row sources';
-    const choose = document.createElement('select'); choose.setAttribute('aria-label', '词典');
-    for (const [value, label] of [['', '首选词典'], ['youdao', '有道'], ['cambridge', '剑桥英汉']]) { const opt = document.createElement('option'); opt.value = value!; opt.textContent = label!; choose.appendChild(opt); }
+    const choose = document.createElement('select'); setLocalizedAttribute(choose, 'aria-label', message('词典'));
+    for (const [value, label] of [['', message('首选词典')], ['youdao', message('有道')], ['cambridge', message('剑桥英汉')]] as const) { const opt = document.createElement('option'); opt.value = value; setText(opt,label); choose.appendChild(opt); }
     choose.value = p.source ?? ''; choose.addEventListener('change', () => void requestLookup(choose.value as DictionarySource || undefined)); row.appendChild(choose);
     const source = p.result?.kind === 'dictionary' ? p.result.entry.source : p.source ?? 'youdao';
-    const link = document.createElement('a'); link.textContent = '查看原文'; link.target = '_blank'; link.rel = 'noopener';
+    const link = document.createElement('a'); setText(link, message('查看原文')); link.target = '_blank'; link.rel = 'noopener';
     link.href = p.result?.kind === 'dictionary' ? p.result.entry.url : source === 'youdao' ? `https://dict.youdao.com/w/${encodeURIComponent(p.snapshot.expression)}/` : `https://dictionary.cambridge.org/dictionary/english-chinese-simplified/${encodeURIComponent(p.snapshot.expression.replace(/\s+/g, '-'))}`;
     row.appendChild(link);
-    const oxford = document.createElement('a'); oxford.textContent = '牛津原站'; oxford.href = `https://www.oxfordlearnersdictionaries.com/definition/english/${encodeURIComponent(p.snapshot.expression.replace(/\s+/g, '-'))}`; oxford.target = '_blank'; oxford.rel = 'noopener'; row.appendChild(oxford);
+    const oxford = document.createElement('a'); setText(oxford, message('牛津原站')); oxford.href = `https://www.oxfordlearnersdictionaries.com/definition/english/${encodeURIComponent(p.snapshot.expression.replace(/\s+/g, '-'))}`; oxford.target = '_blank'; oxford.rel = 'noopener'; row.appendChild(oxford);
     for (const sourceLink of [link, oxford]) {
       const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       icon.setAttribute('viewBox', '0 0 16 16'); icon.setAttribute('aria-hidden', 'true');
@@ -422,9 +425,9 @@ export function createLookupPopup(opts: {
       icon.appendChild(path); sourceLink.appendChild(icon);
     }
     box.appendChild(row);
-    const ai = button(p.aiRequest ? '正在解释语境…' : '解释语境', () => void explainContext()); ai.disabled = !!p.aiRequest;
-    if (p.explanation) { text('AI 语境解释 · 当前原句', 'def-label'); text(p.explanation.text); }
-    if (p.aiError) { text(ERROR_LABEL[p.aiError] ?? '解释失败，请重试', 'def-state'); if (p.aiError === 'no-key') button('打开设置填写 API key', () => void send({ type: 'openSettings' })); }
+    const ai = button(p.aiRequest ? message('正在解释语境…') : message('解释语境'), () => void explainContext()); ai.disabled = !!p.aiRequest;
+    if (p.explanation) { text(message('AI 语境解释 · 当前原句'), 'def-label'); text(p.explanation.text); }
+    if (p.aiError) { text(message(ERROR_LABEL[p.aiError] ?? '解释失败，请重试'), 'def-state'); if (p.aiError === 'no-key') button(message('打开设置填写 API key'), () => void send({ type: 'openSettings' })); }
   }
 
   // ---- 与 background 的交互 ---------------------------------------------------
@@ -510,7 +513,7 @@ export function createLookupPopup(opts: {
   async function doSave(status?: VocabStatus): Promise<void> {
     if (!pinned) return;
     const p = pinned;
-    setFeedback(false, '保存中…');
+    setFeedback(false, message('保存中…'));
     const r = await send<SaveResult | BgcError>({
       type: 'save',
       snapshot: p.snapshot,
@@ -527,9 +530,9 @@ export function createLookupPopup(opts: {
       p.entryExists = true;
       // 先重建卡片再写反馈：renderPopup 会清空卡片内容
       renderPopup();
-      setFeedback(true, r.appended ? '已保存 ✓' : '该上下文已存在，未重复追加');
+      setFeedback(true, r.appended ? message('已保存 ✓') : message('该上下文已存在，未重复追加'));
     } else {
-      setFeedback(false, '保存失败，请重试');
+      setFeedback(false, message('保存失败，请重试'));
     }
   }
 
@@ -542,9 +545,9 @@ export function createLookupPopup(opts: {
     if (r?.ok) {
       pinned.status = status;
       renderPopup();
-      setFeedback(true, '状态已更新');
+      setFeedback(true, message('状态已更新'));
     } else {
-      setFeedback(false, '状态更新失败');
+      setFeedback(false, message('状态更新失败'));
     }
   }
 

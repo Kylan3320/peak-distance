@@ -1,6 +1,7 @@
 // NativeDelete by Moumen Soliman, user-supplied source: docs/references/native-delete.tsx.txt.
 // DOM adaptation; provenance and license availability: docs/REFERENCES.md.
 import './deleteButton.css';
+import { t, onDisplayLanguageChange } from './i18n';
 
 const paths = {
   trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
@@ -26,17 +27,17 @@ export function createDeleteButton(args: { buttonText?: string; onDelete(): void
   element.style.setProperty('--native-delete-spring', `linear(${spring.join(',')})`);
   const main = document.createElement('button'); main.type = 'button'; main.className = 'native-delete-main';
   const graphic = document.createElement('span'); graphic.className = 'native-delete-icon'; graphic.innerHTML = icon('trash');
-  const text = document.createElement('span'); text.textContent = args.buttonText ?? 'Delete';
+  const text = document.createElement('span'); text.textContent = t(args.buttonText ?? 'Delete');
   main.append(graphic, text); main.setAttribute('aria-label', text.textContent);
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'native-delete-cancel';
-  cancel.setAttribute('aria-label', 'Cancel delete'); cancel.innerHTML = icon('x'); cancel.hidden = true;
+  cancel.setAttribute('aria-label', t('Cancel delete')); cancel.innerHTML = icon('x'); cancel.hidden = true;
   element.append(main, cancel);
   let expanded = false, version = 0;
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
   function animateState(next: boolean) {
     expanded = next;
     const current = ++version;
-    const label = next ? 'Confirm' : args.buttonText ?? 'Delete';
+    const label = t(next ? 'Confirm' : args.buttonText ?? 'Delete');
     main.setAttribute('aria-label', label);
     const oldWidth = main.getBoundingClientRect().width;
     const oldLayoutWidth = element.getBoundingClientRect().width;
@@ -78,5 +79,14 @@ export function createDeleteButton(args: { buttonText?: string; onDelete(): void
     else { animateState(false); args.onDelete(); }
   });
   cancel.addEventListener('click', () => animateState(false));
-  return { element, setDisabled(disabled: boolean) { main.disabled = disabled; } };
+  const dispose=onDisplayLanguageChange(()=>{
+    version++;
+    for(const node of [element,main,graphic,text,cancel])for(const animation of node.getAnimations())animation.cancel();
+    const label=t(expanded?'Confirm':args.buttonText??'Delete');
+    graphic.innerHTML=icon(expanded?'check':'trash');text.textContent=label;
+    main.setAttribute('aria-label',label);cancel.setAttribute('aria-label',t('Cancel delete'));
+    main.style.width='';element.style.width='';
+    cancel.hidden=!expanded;cancel.classList.toggle('exiting',false);
+  });
+  return { element, dispose, setDisabled(disabled: boolean) { main.disabled = disabled; } };
 }

@@ -1,8 +1,10 @@
+import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 // 页面外壳只负责定位，设置与工作区运行在扩展源 iframe 内。
 import type { PanelFrameState } from './panel';
 export function initFloatingPanel() {
   const hostId=crypto.randomUUID();
   let host: HTMLElement | null = null;
+  onDisplayLanguageChange(()=>{if(host)localize(host.shadowRoot!);});
   let normalOpen = false;
   let x: number | null = null, y = 24;
   let frameReady=false;
@@ -24,7 +26,7 @@ export function initFloatingPanel() {
     const root = host?.shadowRoot;
     if (!root) return;
     root.querySelector<HTMLElement>('.status')!.hidden = !text;
-    root.querySelector<HTMLElement>('.status-text')!.textContent = text;
+    setText(root.querySelector<HTMLElement>('.status-text')!,text ? message(text) : '');
     root.querySelector<HTMLButtonElement>('.retry')!.hidden = !failed;
   };
   const finishReady = (ok: boolean) => { for (const done of [...readyCallbacks]) done(ok); };
@@ -70,8 +72,9 @@ export function initFloatingPanel() {
       host = document.createElement('aside'); host.id = 'pd-floating-panel';
       host.style.cssText = 'position:fixed;width:min(400px,calc(100vw - 24px));height:min(720px,calc(100dvh - 32px));z-index:2147483645;';
       const root = host.attachShadow({mode:'open'});
-      root.innerHTML = `<style>:host{color-scheme:light}[hidden]{display:none!important}.shell{height:100%;display:flex;flex-direction:column;overflow:hidden;border:1px solid #ddd9cf;border-radius:12px;background:#f7f4ec;box-shadow:0 12px 40px #0003}.drag{border:0;background:#e9e6df;color:#59636b;height:16px;flex:none;cursor:move;touch-action:none;font:12px/12px system-ui}.drag:focus-visible,.retry:focus-visible{outline:2px solid #1a5fc4;outline-offset:-2px}.status{display:flex;align-items:center;gap:12px;flex:none;padding:12px;color:#59636b;font:13px/1.6 system-ui}.status-text{flex:1}.retry{font:inherit;cursor:pointer;padding:6px 10px;color:#1a5fc4;background:#fffdfa;border:1px solid #ddd9cf;border-radius:6px}iframe{border:0;width:100%;flex:1;min-height:0;background:#f7f4ec}</style><div class="shell"><button class="drag" aria-label="拖动面板，方向键移动">⋯</button><div class="status" role="status" hidden><span class="status-text"></span><button class="retry" hidden>重试</button></div><iframe title="Peak Distance 学习面板" allow="clipboard-write"></iframe></div>`;
+      root.innerHTML = `<style>:host{color-scheme:light}[hidden]{display:none!important}.shell{height:100%;display:flex;flex-direction:column;overflow:hidden;border:1px solid #ddd9cf;border-radius:12px;background:#f7f4ec;box-shadow:0 12px 40px #0003}.drag{border:0;background:#e9e6df;color:#59636b;height:16px;flex:none;cursor:move;touch-action:none;font:12px/12px system-ui}.drag:focus-visible,.retry:focus-visible{outline:2px solid #1a5fc4;outline-offset:-2px}.status{display:flex;align-items:center;gap:12px;flex:none;padding:12px;color:#59636b;font:13px/1.6 system-ui}.status-text{flex:1}.retry{font:inherit;cursor:pointer;padding:6px 10px;color:#1a5fc4;background:#fffdfa;border:1px solid #ddd9cf;border-radius:6px}iframe{border:0;width:100%;flex:1;min-height:0;background:#f7f4ec}</style><div class="shell"><button class="drag" data-i18n-aria-label="拖动面板，方向键移动" aria-label="${tr("拖动面板，方向键移动")}">⋯</button><div class="status" role="status" hidden><span class="status-text"></span><button class="retry" hidden data-i18n="重试">${tr("重试")}</button></div><iframe data-i18n-title="Peak Distance 学习面板" title="${tr("Peak Distance 学习面板")}" allow="clipboard-write"></iframe></div>`;
       const frame = root.querySelector('iframe')!;
+      localize(root);
       frame.addEventListener('load',()=>{frameEpoch++;frameLoaded=true;expectReady();void probe('load');});
       frame.addEventListener('error',()=>{clearTimeout(readyTimer);frameReady=false;readyExpired=true;status('工作区加载失败，请重试',true);finishReady(false);console.warn('[pd] floating workspace iframe load failed');});
       root.querySelector<HTMLButtonElement>('.retry')!.addEventListener('click',async()=>{

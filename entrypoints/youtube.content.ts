@@ -1,3 +1,4 @@
+import { t as tr, localize, onDisplayLanguageChange, setDisplayLanguage , message, setText, setLocalizedAttribute, languageLabel, type UiText } from '@/shared/i18n';
 import { initFloatingPanel } from '@/shared/floatingPanel';
 import { createTranslationPopup } from '@/shared/translationPopup';
 import { shadowSelection, classifyRangeIn, clampRangeToElement } from '@/shared/selection';
@@ -67,6 +68,9 @@ export default defineContentScript({
   matches: ['https://www.youtube.com/*'],
   runAt: 'document_idle',
   main() {
+    onDisplayLanguageChange(()=>{
+      for(const id of [SUBS_ID,SWITCH_ID,'pd-phrase-actions']) {const root=document.getElementById(id)?.shadowRoot;if(root)localize(root);}
+    });
     const floatingPanel = initFloatingPanel();
     const translationPopup = createTranslationPopup(send);
     document.addEventListener('pd-panel-layout', () => renderBar());
@@ -463,25 +467,26 @@ export default defineContentScript({
           ${brandTokens}
           #menu { color:var(--pd-ink);position:absolute; right:0; bottom:calc(100% + 12px); width:280px; box-sizing:border-box; max-height:calc(var(--blc-player-height,360px) - 72px); overflow-y:auto; background:var(--pd-paper); border:1px solid var(--pd-line); border-radius:8px; padding:12px; box-shadow:0 6px 24px #0008; }
           [hidden] { display:none!important; } label { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:7px 0; } small { color:var(--pd-muted); } #menu button,#menu select { background:var(--pd-surface);border-color:var(--pd-line);color:var(--pd-ink); } #menu input {accent-color:var(--pd-blue)}
-          .menu-actions {display:grid;grid-template-columns:1fr auto;gap:8px;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--pd-line)}
-          .menu-actions button {display:flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:7px 12px;border-radius:7px;font-size:13px;box-sizing:border-box}
+          label:has(select) {display:grid;grid-template-columns:minmax(0,1fr);gap:4px} #menu select {width:100%;min-width:0}
+          .menu-actions {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--pd-line)}
+          .menu-actions button {display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;min-height:38px;padding:7px 8px;border-radius:7px;font-size:13px;box-sizing:border-box}
           .menu-actions svg {width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
           #menu #panel {color:var(--pd-blue);background:var(--pd-selected);border-color:transparent}
           #menu .menu-actions button:hover {background:#d6e5f1;border-color:var(--pd-mist);color:var(--pd-blue)}
           #menu .menu-actions button:active {background:#c9dcec}
           #menu .menu-actions button:focus-visible {outline:2px solid var(--pd-blue);outline-offset:2px}
-        </style><button id="learning" aria-expanded="false" title="双语字幕与学习面板">双语</button><div id="menu" hidden>
+        </style><button id="learning" aria-expanded="false" data-i18n-title="双语字幕与学习面板" title="${tr("双语字幕与学习面板")}" data-i18n="双语">${tr("双语")}</button><div id="menu" hidden>
           <div class="menu-actions">
-            <button id="panel" aria-label="打开学习面板" title="打开学习面板"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M7 9h4M7 13h4"/></svg><span>学习面板</span></button>
-            <button id="settings" aria-label="打开设置" title="打开设置"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3m4 0h9M4 17h9m4 0h3"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg><span>设置</span></button>
+            <button id="panel" data-i18n-aria-label="打开学习面板" aria-label="${tr("打开学习面板")}" data-i18n-title="打开学习面板" title="${tr("打开学习面板")}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M7 9h4M7 13h4"/></svg><span data-i18n="学习面板">${tr("学习面板")}</span></button>
+            <button id="settings" data-i18n-aria-label="打开设置" aria-label="${tr("打开设置")}" data-i18n-title="打开设置" title="${tr("打开设置")}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3m4 0h9M4 17h9m4 0h3"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg><span data-i18n="设置">${tr("设置")}</span></button>
           </div>
-          <label>双语字幕<input id="bilingual" type="checkbox"></label><label>显示中文<input id="chinese" type="checkbox"></label>
-          <label>原文语言<select id="source-track" aria-label="原文字幕语言" style="max-width:180px"></select></label>
+          <label><span data-i18n="双语字幕">${tr("双语字幕")}</span><input id="bilingual" type="checkbox"></label><label><span data-i18n="显示中文">${tr("显示中文")}</span><input id="chinese" type="checkbox"></label>
+          <label><span data-i18n="原文语言">${tr('原文语言')}</span><select id="source-track" data-i18n-aria-label="原文字幕语言" aria-label="${tr("原文字幕语言")}"></select></label>
           <small id="source-track-status" role="status"></small>
-          <label>本视频翻译<select id="translation-mode" aria-label="本视频翻译方式"><option value="regular">常规</option><option value="ai">AI（LLM）</option></select></label>
-          <small>默认方式在设置中修改</small>
-          <label>字幕字号<select id="size" aria-label="字幕字号"><option value="small">小</option><option value="standard">标准</option><option value="large">大</option></select></label>
-          <label>逐句暂停（AP）<input id="ap" type="checkbox"></label>
+          <label><span data-i18n="本视频翻译">${tr('本视频翻译')}</span><select id="translation-mode" data-i18n-aria-label="本视频翻译方式" aria-label="${tr("本视频翻译方式")}"><option value="regular" data-i18n="常规">${tr("常规")}</option><option value="ai" data-i18n="AI（LLM）">${tr("AI（LLM）")}</option></select></label>
+          <small data-i18n="默认方式在设置中修改">${tr("默认方式在设置中修改")}</small>
+          <label><span data-i18n="字幕字号">${tr('字幕字号')}</span><select id="size" data-i18n-aria-label="字幕字号" aria-label="${tr("字幕字号")}"><option value="small" data-i18n="小">${tr("小")}</option><option value="standard" data-i18n="标准">${tr("标准")}</option><option value="large" data-i18n="大">${tr("大")}</option></select></label>
+          <label><span data-i18n="逐句暂停（AP）">${tr('逐句暂停（AP）')}</span><input id="ap" type="checkbox"></label>
         </div>`;
         const menu = root.querySelector<HTMLElement>('#menu')!;
         const close = () => { menu.hidden = true; host!.removeAttribute('data-open'); root.querySelector('#learning')!.setAttribute('aria-expanded', 'false'); };
@@ -530,15 +535,19 @@ export default defineContentScript({
       if (currentTrack && !tracks.some(t => t.id === currentTrack.id)) tracks.push(currentTrack);
       const trackKey = JSON.stringify(tracks);
       if (sourceTrack.dataset.tracks !== trackKey) {
-        sourceTrack.replaceChildren(new Option('沿用播放器', ''));
-        for (const t of tracks) sourceTrack.add(new Option(`${langDisplayName(t.lang)}（${t.kind === 'asr' ? '自动' : '人工'}）${t.name ? ` · ${t.label || t.name}` : ''}`, t.id));
+        const current=new Option('', '');setText(current,message('沿用播放器'));sourceTrack.replaceChildren(current);
+        for (const track of tracks) {
+          const option=new Option('',track.id);
+          setText(option,message('{language} ({kind}){name}',{language:languageLabel(track.lang),kind:message(track.kind==='asr'?'自动':'人工'),name:track.name?` · ${track.label||track.name}`:''}));
+          sourceTrack.add(option);
+        }
         sourceTrack.dataset.tracks = trackKey;
       }
       sourceTrack.value = pendingTrack?.id ?? currentTrack?.id ?? '';
       if (sourceTrack.selectedIndex < 0) sourceTrack.value = '';
       sourceTrack.options[0]!.disabled = true;
       sourceTrack.disabled = !tracks.length;
-      root.querySelector('#source-track-status')!.textContent = pendingTrack ? '正在切换原文字幕…' : notice;
+      setText(root.querySelector('#source-track-status')!, pendingTrack ? message('正在切换原文字幕…') : notice?message(notice):'');
       if (!modeBusy) (root.querySelector('#translation-mode') as HTMLSelectElement).value = translationMode;
       (root.querySelector('#translation-mode') as HTMLSelectElement).disabled = modeBusy || !modeReady;
       if (!modeBusy) (root.querySelector('#ap') as HTMLInputElement).checked = autoPause;
@@ -673,12 +682,12 @@ export default defineContentScript({
       const source = buildVideoSource();
       const candidate = subtitleCandidate(info);
       const built = candidate ? materialFromCandidate(candidate) : null;
-      if (!source || !candidate || !built) { playerToast('字幕尚未就绪，稍后再试'); return; }
+      if (!source || !candidate || !built) { playerToast(message('字幕尚未就绪，稍后再试')); return; }
       const r = await send<{ ok: boolean; panelOpened?: boolean }>({
         type: 'chatEnsure', source, material: built.material, quote: built.quote, openPanel: true,
       });
-      if (!r?.ok) { playerToast('附加失败，请重试'); return; }
-      if (!r.panelOpened) playerToast('已附加到当前对话：点扩展图标打开侧栏继续');
+      if (!r?.ok) { playerToast(message('附加失败，请重试')); return; }
+      if (!r.panelOpened) playerToast(message('已附加到当前对话：点扩展图标打开侧栏继续'));
     }
 
     function showSelectionActions(info: SubtitleSelectionInfo) {
@@ -688,7 +697,7 @@ export default defineContentScript({
       host.style.left=Math.max(12,Math.min(info.rect?.left??24,innerWidth-196))+'px';
       host.style.top=Math.min((info.rect?.bottom??64)+6,innerHeight-60)+'px';
       const root=host.attachShadow({mode:'open'});
-      root.innerHTML=`<style>${brandTokens}:host{font:14px system-ui}div{display:flex;gap:4px;padding:4px;border-radius:8px;background:var(--pd-paper)}${brandControls}${CHAT_ADD_BUTTON_STYLE}</style><div><button id="lookup" hidden>查词</button><button id="translate" hidden>翻译</button><button id="chat" class="blc-chat-add" title="添加到对话" aria-label="添加到对话">${CHAT_ADD_ICON}</button></div>`;
+      root.innerHTML=`<style>${brandTokens}:host{font:14px system-ui}div{display:flex;gap:4px;padding:4px;border-radius:8px;background:var(--pd-paper)}${brandControls}${CHAT_ADD_BUTTON_STYLE}</style><div><button id="lookup" hidden data-i18n="查词">${tr("查词")}</button><button id="translate" hidden data-i18n="翻译">${tr("翻译")}</button><button id="chat" class="blc-chat-add" data-i18n-title="添加到对话" title="${tr("添加到对话")}" data-i18n-aria-label="添加到对话" aria-label="${tr("添加到对话")}">${CHAT_ADD_ICON}</button></div>`;
       (document.fullscreenElement??document.documentElement).append(host);
       // 分类表：word=查词+对话；phrase=查词+翻译+对话；sentence=翻译+对话
       root.querySelector<HTMLElement>('#lookup')!.hidden = info.kind === 'sentence' || !info.hasWord;
@@ -743,11 +752,11 @@ export default defineContentScript({
       if (!cues.length) {
         const n = document.createElement('div');
         n.className = 'notice';
-        n.textContent = notice || '正在获取字幕…';
+        setText(n,message(notice || '正在获取字幕…'));
         bar.appendChild(n);
         if (notice) {
           const retry = document.createElement('button');
-          retry.textContent = '重试字幕';
+          setText(retry, message('重试字幕'));
           retry.addEventListener('click', () => {
             notice = ''; nocuesReason = ''; nocuesRetries = 0;
             sendConfig();
@@ -764,7 +773,7 @@ export default defineContentScript({
       if (notice) {
         const n = document.createElement('div');
         n.className = 'notice';
-        n.textContent = notice;
+        setText(n,message(notice));
         bar.appendChild(n);
       }
 
@@ -786,18 +795,18 @@ export default defineContentScript({
             z.textContent = zh;
             bar.appendChild(z);
           } else if (settingsFailed) {
-            const error = document.createElement('div'); error.className = 'notice'; error.textContent = '无法连接扩展，请刷新页面'; bar.appendChild(error);
-            const reload = document.createElement('button'); reload.textContent = '刷新页面'; reload.addEventListener('click', () => location.reload()); bar.appendChild(reload);
+            const error = document.createElement('div'); error.className = 'notice'; setText(error, message('无法连接扩展，请刷新页面')); bar.appendChild(error);
+            const reload = document.createElement('button'); setText(reload, message('刷新页面')); reload.addEventListener('click', () => location.reload()); bar.appendChild(reload);
           } else if (failedCues.has(currentIdx)) {
-            const error = document.createElement('div'); error.className = 'notice'; error.textContent = '翻译暂不可用'; bar.appendChild(error);
-            const ai = document.createElement('button'); ai.textContent = '用 AI 翻译'; ai.addEventListener('click', () => void setTranslationMode('ai')); bar.appendChild(ai);
-            const retry = document.createElement('button'); retry.textContent = '重试'; retry.addEventListener('click', () => {
+            const error = document.createElement('div'); error.className = 'notice'; setText(error, message('翻译暂不可用')); bar.appendChild(error);
+            const ai = document.createElement('button'); setText(ai, message('用 AI 翻译')); ai.addEventListener('click', () => void setTranslationMode('ai')); bar.appendChild(ai);
+            const retry = document.createElement('button'); setText(retry, message('重试')); retry.addEventListener('click', () => {
               for (let i = Math.max(0, currentIdx - 1); i <= Math.min(cues.length - 1, currentIdx + 4); i++) failedCues.delete(i);
               scheduleTranslate(); renderBar();
             }); bar.appendChild(retry);
           } else {
             const pending = document.createElement('div'); pending.className = 'notice'; pending.setAttribute('role', 'status');
-            pending.textContent = !settingsReady ? '正在读取翻译设置…' : platformState === 'waiting' ? `正在获取${langDisplayName(targetLangOf())}译文…` : '正在翻译…';
+            setText(pending, !settingsReady ? message('正在读取翻译设置…') : platformState === 'waiting' ? message('正在获取{language}译文…',{language:langDisplayName(targetLangOf())}) : message('正在翻译…'));
             bar.appendChild(pending);
           }
         }
@@ -879,7 +888,7 @@ export default defineContentScript({
           ...(lastTrackLang ? { language: lastTrackLang } : {}),
           endMs:cue.start + cue.dur, title:document.title, createdAt:Date.now() },
       });
-      if (!r?.ok) playerToast('收藏失败，请重试');
+      if (!r?.ok) playerToast(message('收藏失败，请重试'));
     }
     function seekCue(index: number, play = false): void {
       const v = getVideo(), cue = cues[index]; if (!v || !cue) return;
@@ -955,14 +964,14 @@ export default defineContentScript({
     }
 
     // 播放器内轻提示（全屏时侧栏打不开等场景）
-    function playerToast(text: string): void {
+    function playerToast(text: string | UiText): void {
       const host = document.createElement('div');
       host.style.cssText =
         'position:absolute;left:50%;bottom:110px;transform:translateX(-50%);z-index:70;pointer-events:none;';
       const box = document.createElement('div');
       box.style.cssText =
         'background:rgba(8,8,8,.85);color:#e8eaed;padding:8px 14px;border-radius:8px;font:13px/1.4 system-ui,"Microsoft YaHei",sans-serif;';
-      box.textContent = text;
+      setText(box,text);
       host.appendChild(box);
       (document.fullscreenElement ?? playerRoot()).appendChild(host);
       setTimeout(() => host.remove(), 3200);
@@ -975,7 +984,7 @@ export default defineContentScript({
     }): Promise<void> {
       const source = buildVideoSource();
       if (!source) {
-        playerToast('字幕尚未就绪，等字幕出现后再继续问');
+        playerToast(message('字幕尚未就绪，等字幕出现后再继续问'));
         return;
       }
       const expression = ctx.snapshot.expression.trim();
@@ -994,7 +1003,7 @@ export default defineContentScript({
         ...(ctx.definition ? { definition: ctx.definition } : {}),
       };
       const built = materialFromCandidate(candidate);
-      if (!built) { playerToast('字幕尚未就绪，等字幕出现后再继续问'); return; }
+      if (!built) { playerToast(message('字幕尚未就绪，等字幕出现后再继续问')); return; }
       const r = await send<{ ok: boolean; panelOpened?: boolean }>({
         type: 'chatEnsure',
         source,
@@ -1003,11 +1012,11 @@ export default defineContentScript({
         openPanel: true,
       });
       popup.close(); // 沿用弹窗关闭后的播放恢复规则
-      if (!r?.ok) { playerToast('附加失败，请重试'); return; }
+      if (!r?.ok) { playerToast(message('附加失败，请重试')); return; }
       if (!r.panelOpened) {
         // Chrome 不总允许从内容脚本消息代开侧栏；全屏时同样如此。
         // 引用已保存，退出全屏点扩展图标即可续上。
-        playerToast('已带入引用：点浏览器工具栏的扩展图标打开侧栏继续');
+        playerToast(message('已带入引用：点浏览器工具栏的扩展图标打开侧栏继续'));
       }
     }
 
@@ -1033,7 +1042,7 @@ export default defineContentScript({
         ...(ctx.definition ? { definition: ctx.definition } : {}),
       };
       const built = materialFromCandidate(candidate);
-      if (!built) { playerToast('无法提取材料：先在正文里选中一段文字'); return; }
+      if (!built) { playerToast(message('无法提取材料：先在正文里选中一段文字')); return; }
       const r = await send<{ ok: boolean; panelOpened?: boolean }>({
         type: 'chatEnsure',
         source,
@@ -1042,9 +1051,9 @@ export default defineContentScript({
         openPanel: true,
       });
       popup.close();
-      if (!r?.ok) { playerToast('附加失败，请重试'); return; }
+      if (!r?.ok) { playerToast(message('附加失败，请重试')); return; }
       if (!r.panelOpened) {
-        playerToast('已带入引用：点浏览器工具栏的扩展图标打开侧栏继续');
+        playerToast(message('已带入引用：点浏览器工具栏的扩展图标打开侧栏继续'));
       }
     }
 
@@ -1086,7 +1095,7 @@ export default defineContentScript({
       activeWord = anchor ?? null;
       popup.open({
         snapshot, anchor, compact,
-        subLine: `YouTube · ${fmtClock(cue.start)} · ${lastTrackLang}${lastTrack === 'asr' ? '(自动)' : '(人工)'}`,
+        subLine: `YouTube · ${fmtClock(cue.start)} · ${lastTrackLang}${lastTrack === 'asr' ? `(${tr('自动')})` : `(${tr('人工')})`}`,
         onContinueAsk: (ctx) => void continueAskFromVideo(ctx),
         onClose: () => {
           // 只恢复：由本次查词暂停 && 仍是同一视频 && 仍处于暂停
@@ -1172,6 +1181,7 @@ export default defineContentScript({
       // 在途写入不回滚：广播读到旧值时保留本地刚写的状态
       if (pendingWriteBlocks('subtitleSize', next.subtitleSize)) next.subtitleSize = settings.subtitleSize;
       settings = next; settingsReady = true;
+      setDisplayLanguage(settings.displayLanguage,browser.i18n.getUILanguage());
       if (!pendingWriteBlocks('bilingualEnabled', settings.bilingualEnabled)) bilingualOn = settings.bilingualEnabled;
       if (!pendingWriteBlocks('chineseVisible', settings.chineseVisible)) zhVisible = settings.chineseVisible;
       if (!modeReady) await updateVideoSession();
@@ -1210,7 +1220,7 @@ export default defineContentScript({
 
     function applyPlatformCues(translated: Cue[]): void {
       const byTime = new Map(translated.filter(c => c.zh).map(c => [`${c.start}|${c.text}`, c.zh!]));
-      const sourceLabel = `YouTube ${langDisplayName(targetLangOf())}译文 / 平台翻译`;
+      const sourceLabel = `YouTube · ${langDisplayName(targetLangOf())} · ${tr('平台翻译')}`;
       cues.forEach((cue, id) => { const zh = byTime.get(`${cue.start}|${cue.text}`); if (zh) { translations.set(id, zh); translationSources.set(id, sourceLabel); } });
       queueRender();
     }
@@ -1242,7 +1252,7 @@ export default defineContentScript({
         requestId = null; translating = false;
         for (const id of win) failedCues.add(id);
         if (r?.ok) for (const t of r.translations ?? []) {
-          if (win.includes(t.id) && t.text) { translations.set(t.id, t.text); translationSources.set(t.id, translationMode === 'ai' ? 'AI 翻译' : 'Google 常规翻译'); failedCues.delete(t.id); }
+          if (win.includes(t.id) && t.text) { translations.set(t.id, t.text); translationSources.set(t.id, translationMode === 'ai' ? tr('AI 翻译') : tr('Google 常规翻译')); failedCues.delete(t.id); }
         }
         queueRender();
       });
