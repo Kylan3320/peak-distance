@@ -77,6 +77,7 @@ interface PinnedState {
   aiError?: string;
   note: string | undefined;
   lookupError: string | undefined;
+  degraded?: Extract<OnlineLookupResult, { ok: true }>['degraded'];
   status: VocabStatus | null;
   entryExists: boolean;
   /** 保存成功后回填的词条键；后续状态查询 / 更新优先用它。 */
@@ -92,6 +93,10 @@ const ERROR_LABEL: Record<string, string> = {
   network: '网络错误',
   http: '服务返回异常',
   'bad-response': '服务响应无法解析',
+};
+const LOOKUP_ERROR_LABEL: Record<string, string> = {
+  'not-found': '未查到该表达',
+  'extension-context-invalidated': '扩展已更新，请刷新当前网页',
 };
 
 export function createLookupPopup(opts: {
@@ -369,13 +374,18 @@ export function createLookupPopup(opts: {
     const button = (label: string | UiText, action: () => void) => {
       const b = document.createElement('button'); b.className = 'link-btn'; setText(b,label); b.addEventListener('click', action); box.appendChild(b); return b;
     };
+    if (p.degraded) text(message({
+      'dictionary-failure': '词典暂不可用，当前显示免费译文',
+      'ai-failed': 'AI 释义失败，当前显示免费译文',
+      'ai-unconfigured': '尚未配置 AI，当前显示免费译文',
+    }[p.degraded]), 'def-state');
     if (p.compact) {
       if (p.result?.kind === 'dictionary') {
         const sense = p.result.entry.senses[0];
         text(`${sense?.partOfSpeech ?? ''} ${sense?.definition ?? ''}`);
         text(p.result.entry.source === 'youdao' ? message('有道') : message('剑桥英汉'), 'def-label');
-      } else if (p.result?.kind === 'translation') { text(p.result.text); text(message('翻译 · Google'), 'def-label'); }
-      else text(p.lookupError ? (p.lookupError === 'not-found' ? message('未查到该表达') : message('暂时无法查询')) : message('正在查询…'), 'def-state');
+      } else if (p.result) { text(p.result.text); text(message(p.result.kind === 'translation' ? '翻译 · Google' : 'AI 释义'), 'def-label'); }
+      else text(p.lookupError ? message(LOOKUP_ERROR_LABEL[p.lookupError] ?? '暂时无法查询') : message('正在查询…'), 'def-state');
       button(message('展开详情'), () => { p.compact = false; renderPopup(); });
       return;
     }
@@ -404,9 +414,11 @@ export function createLookupPopup(opts: {
       if (entry.audioUrl && /^https:\/\//.test(entry.audioUrl)) { const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = entry.audioUrl; box.appendChild(audio); }
     } else if (p.result?.kind === 'translation') {
       text(message('翻译 · Google'), 'def-label'); text(p.result.text);
+    } else if (p.result?.kind === 'ai-definition') {
+      text(message('AI 释义'), 'def-label'); text(p.result.text);
     } else if (p.lookupError) {
-      text(p.lookupError === 'not-found' ? message('未查到该表达') : message('暂时无法查询'), 'def-state');
-      button(message('重试'), () => void requestLookup(p.source));
+      text(message(LOOKUP_ERROR_LABEL[p.lookupError] ?? '暂时无法查询'), 'def-state');
+      if (p.lookupError !== 'extension-context-invalidated') button(message('重试'), () => void requestLookup(p.source));
     } else text(message('正在查询释义…（此时也可保存）'), 'def-state');
     const row = document.createElement('div'); row.className = 'row sources';
     const choose = document.createElement('select'); setLocalizedAttribute(choose, 'aria-label', message('词典'));
@@ -475,7 +487,7 @@ export function createLookupPopup(opts: {
     const p = pinned;
     if (p.lookupRequest) void send({ type: 'cancelOnline', requestId: p.lookupRequest });
     const requestId = `lookup-${Date.now()}-${++requestCounter}`;
-    p.lookupRequest = requestId; p.source = source; p.lookupError = undefined; p.result = undefined; p.definition = null;
+    p.lookupRequest = requestId; p.source = source; p.lookupError = undefined; p.degraded = undefined; p.result = undefined; p.definition = null;
     renderPopup();
     // 查询意图：紧凑卡即 hover 路径（永不触发 AI 兜底）；展开后 /
     // 主动打开的卡片按主动查词处理（background 缺省 active）。
@@ -490,6 +502,7 @@ export function createLookupPopup(opts: {
     p.lookupRequest = undefined;
     if (r?.ok) {
       p.result = r.result;
+      p.degraded = r.degraded;
       p.definition = r.result.kind === 'dictionary' ? r.result.entry.senses[0]?.definition ?? null : r.result.text;
       await backfill(p);
     } else p.lookupError = r && !r.ok ? r.error : 'network';

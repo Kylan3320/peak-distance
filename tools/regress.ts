@@ -800,6 +800,12 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
     if (ai.ok && ai.result.kind === 'ai-definition') {
       check('AI 结果区分于词典与译文', ai.result.lang.source === 'en' && ai.result.text.includes('学习'));
     }
+    seenUrls.length = 0;
+    const aiAgain = await lookupOnline('flumberration3', DEFAULT_SETTINGS, undefined, undefined, {
+      lang: { source: 'en', target: 'zh-Hans' },
+      aiFallback: { enabled: true, config: aiConfig }, sentence: 'A flumberration of options.',
+    });
+    check('AI 缓存与首次结果同形且不再调用 AI', JSON.stringify(aiAgain) === JSON.stringify(ai) && !seenUrls.some(u => u.includes('/chat/completions')));
 
     // 主动 + 开关开但未配置 → 免费路径 + ai-unconfigured 提示
     stubFetch(seenUrls);
@@ -822,6 +828,24 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
     });
     check('词典故障不触发 AI', !seenUrls.some(u => u.includes('/chat/completions')));
     check('词典故障标明降级仍给译文', restricted.ok && restricted.result.kind === 'translation' && restricted.degraded === 'dictionary-failure');
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input instanceof URL ? input : input?.url ?? input);
+      seenUrls.push(url);
+      if (url.includes('youdao')) return new Response('{}', { status: 429 });
+      if (url.includes('cambridge')) return new Response('<div class="entry-body"><div class="entry-body__el"><span class="headword">fitbackup</span><div class="def-block"><span class="trans dtrans">健康的</span></div></div></div>');
+      throw new Error(`Unexpected fallback: ${url}`);
+    }) as typeof fetch;
+    seenUrls.length = 0;
+    const backup = await lookupOnline('fitbackup', DEFAULT_SETTINGS);
+    check('首选限流仍查询独立备用词典', backup.ok && backup.result.kind === 'dictionary' && backup.result.entry.source === 'cambridge');
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input instanceof URL ? input : input?.url ?? input);
+      if (url.includes('youdao')) return new Response('{}', { status: 429 });
+      if (url.includes('cambridge')) return new Response('<html></html>');
+      return new Response('{}', { status: 503 });
+    }) as typeof fetch;
+    const mixedFailure = await lookupOnline('fitmixedfailure', DEFAULT_SETTINGS);
+    check('备用未命中不掩盖首选服务故障', !mixedFailure.ok && mixedFailure.error === 'restricted');
   } finally {
     globalThis.fetch = originalFetch;
   }

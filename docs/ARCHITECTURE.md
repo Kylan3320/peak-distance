@@ -21,6 +21,7 @@
 | `shared/translationPopup.ts`、`shared/settingsView.ts` | 选区翻译浮层与扩展源内的共用设置组件 |
 | `shared/tokens.css`、`shared/theme.css` | 跨扩展页面和 Shadow DOM 的视觉变量与基础样式 |
 | `shared/lookupPopup.ts`、`shared/marker.ts` | 共用查词弹窗、正文词汇标记 |
+| `shared/runtime.ts` | 网页与 YouTube 的消息发送边界：保留传输失败原因，失效内容脚本提示刷新网页 |
 | `entrypoints/sidepanel/`、`entrypoints/options/` | 生词本、字幕、复习、问答和设置 |
 | `entrypoints/background.ts`、`lib/chatService.ts` | 扩展消息、网络请求与问答生命周期 |
 | `lib/db.ts` | 扩展源下的 IndexedDB，集中读写与增量升级 |
