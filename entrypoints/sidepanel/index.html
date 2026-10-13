@@ -38,6 +38,7 @@
       <div id="chat-list"></div>
       <button id="chat-latest" type="button" hidden>↓ <span data-i18n="回到最新">回到最新</span></button>
       <div id="chat-input-row">
+        <button id="chat-resize" type="button" data-i18n-aria-label="调整输入框高度（上下方向键）" aria-label="调整输入框高度（上下方向键）" data-i18n-title="拖动上边缘调整输入框高度" title="拖动上边缘调整输入框高度"></button>
         <div id="chat-attachment" hidden>
           <div class="chat-attachment-row">
             <button id="chat-attachment-chip" type="button" aria-expanded="false">
@@ -46,14 +47,13 @@
             </button>
             <button id="chat-attachment-remove" type="button" data-i18n-aria-label="移除材料" aria-label="移除材料" data-i18n-title="移除材料（保留问题）" title="移除材料（保留问题）">×</button>
           </div>
-          <div id="chat-attachment-focus" class="chat-attachment-focus"></div>
-          <div id="chat-attachment-detail" hidden></div>
+          <div id="chat-attachment-detail" hidden><div id="chat-attachment-focus" class="chat-attachment-focus"></div></div>
           <div id="chat-segments"></div>
         </div>
         <div id="chat-starters"></div>
         <textarea
           id="chat-input"
-          rows="3"
+          rows="1"
           data-i18n-aria-label="向 AI 提问" aria-label="向 AI 提问"
           data-i18n-placeholder="想弄懂什么？" placeholder="想弄懂什么？"
         ></textarea>
@@ -67,7 +67,7 @@
             </div>
           </details>
           <button id="chat-settings" class="chat-tool" data-i18n="AI 设置">AI 设置</button>
-          <button id="chat-send" type="button" data-i18n-aria-label="发送" aria-label="发送" data-i18n-title="Ctrl / ⌘ + Enter 发送" title="Ctrl / ⌘ + Enter 发送"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M4 10l6-6 6 6"/></svg></button>
+          <button id="chat-send" type="button" data-i18n-aria-label="发送" aria-label="发送" data-i18n-title="Enter 发送，Shift + Enter 换行" title="Enter 发送，Shift + Enter 换行"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M4 10l6-6 6 6"/></svg></button>
           <button id="chat-stop" type="button" hidden data-i18n="停止">停止</button>
         </div>
         <div id="chat-input-meta">

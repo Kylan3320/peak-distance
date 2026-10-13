@@ -50,7 +50,8 @@ try {
   assert.equal(await page.locator('.chat-welcome p').count(), 0);
   const natural = await page.evaluate(async () => {
     const samples = [];
-    for (let i = 0; i < 30; i++) {
+    // Include the second full title: 6s loop plus 1.5s typing, independent of boot timing.
+    for (let i = 0; i < 40; i++) {
       const text = document.querySelector('.chat-welcome-text');
       samples.push({ clip: getComputedStyle(text).clipPath, time: text.getAnimations()[0]?.currentTime,
         state: getComputedStyle(text).animationPlayState });
