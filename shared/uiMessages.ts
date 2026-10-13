@@ -374,7 +374,7 @@ export const UI_MESSAGES: Record<string, readonly [string, string, string, strin
   '引用：{text}': ['原文：{text}', '原文：{text}', 'Original: {text}', 'Original: {text}', 'Original : {text}'],
   '{prompt}（材料中你最关注的部分）': ['{prompt}（材料中你最关注的部分）', '{prompt}（資料中你最關注的部分）', '{prompt} (the part you find most relevant)', '{prompt} (der für dich wichtigste Teil)', '{prompt} (la partie qui vous intéresse le plus)'],
   '{count} / {limit}（超限）': ['{count} / {limit}（超限）', '{count} / {limit}（超限）', '{count} / {limit} (too long)', '{count} / {limit} (zu lang)', '{count} / {limit} (trop long)'],
-  'Ctrl / ⌘ + Enter 发送': ['Ctrl / ⌘ + Enter 发送', 'Ctrl / ⌘ + Enter 傳送', 'Ctrl / ⌘ + Enter to send', 'Ctrl / ⌘ + Enter zum Senden', 'Ctrl / ⌘ + Entrée pour envoyer'],
+  'Enter 发送，Shift + Enter 换行': ['Enter 发送，Shift + Enter 换行', 'Enter 傳送，Shift + Enter 換行', 'Enter to send, Shift + Enter for a new line', 'Enter zum Senden, Shift + Enter für eine neue Zeile', 'Entrée pour envoyer, Maj + Entrée pour une nouvelle ligne'],
   '删除「{expression}」及其 {count} 条上下文？': ['删除“{expression}”及其 {count} 条原句？', '刪除「{expression}」及其 {count} 條原句？', 'Delete “{expression}” and its {count} saved sentences?', '„{expression}“ und {count} Originalsätze löschen?', 'Supprimer « {expression} » et ses {count} phrases ?'],
   '{expression} 我的笔记': ['{expression}：我的笔记', '{expression}：我的筆記', 'My notes: {expression}', 'Meine Notizen: {expression}', 'Mes notes : {expression}'],
   '移除词形关联「{form}」': ['移除“{form}”的关联', '移除「{form}」的關聯', 'Unlink “{form}”', '„{form}“ nicht mehr verknüpfen', 'Dissocier « {form} »'],
