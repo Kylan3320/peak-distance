@@ -496,7 +496,7 @@ async function doSend(): Promise<void> {
     inlineError(message(ERROR_LABEL['question-too-long']!,{limit:CHAT_QUESTION_MAX_CHARS}));
     return;
   }
-  if (!chatRecord || sending === chatId) return;
+  if (!chatRecord || sending === chatId || chatRecord.messages.some(m => m.state === 'streaming')) return;
   const id = chatId;
   const snapshotVersion = latestSnapshot()?.version ?? 0;
   const quote = chatQuote;
@@ -985,7 +985,7 @@ function updateCount(): void {
   const count = document.getElementById('chat-count');
   if (!input || !count) return;
   const n = input.value.length;
-  setText(count, n > CHAT_QUESTION_MAX_CHARS ? message('{count} / {limit}（超限）',{count:n,limit:CHAT_QUESTION_MAX_CHARS}) : n ? `${n} / ${CHAT_QUESTION_MAX_CHARS}` : message('Ctrl / ⌘ + Enter 发送'));
+  setText(count, n > CHAT_QUESTION_MAX_CHARS ? message('{count} / {limit}（超限）',{count:n,limit:CHAT_QUESTION_MAX_CHARS}) : n ? `${n} / ${CHAT_QUESTION_MAX_CHARS}` : message('Enter 发送，Shift + Enter 换行'));
   count.classList.toggle('over', n > CHAT_QUESTION_MAX_CHARS);
 }
 
@@ -1108,7 +1108,7 @@ export function initChatView(d: ChatViewDeps): void {
     clearButton.setDisabled(false);
   });
   input?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       void doSend();
     }
