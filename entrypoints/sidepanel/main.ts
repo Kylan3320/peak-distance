@@ -846,7 +846,8 @@ async function boot(){
  const hash=location.hash.slice(1);switchView(isPanelView(hash)?hash:isPanelView(stored?.view)?stored.view:'subs');
  await restoreChat(stored?.chat);
  if(stored?.video){await pollSubs();videoWorkspace.restore(stored.video);}
- ready=activePanel;document.body.inert=!activePanel;
+ // 启动时不由可见性事件打断恢复；就绪后按实际可见性同步聊天状态。
+ ready=activePanel;setChatActive(activePanel&&document.visibilityState!=='hidden');document.body.inert=!activePanel;
  workspaceInitialized=true;
  browser.runtime.onMessage.addListener((m:unknown)=>{const v=m as {type?:string;windowId?:number;tabId?:number;mode?:string;view?:unknown;origin?:string;at?:number};if(v.type==='pd-popup-outside'&&v.windowId===panelWindow&&v.origin==='page'){document.dispatchEvent(new CustomEvent('pd-popup-outside',{detail:{at:v.at}}));return;}if(v.type==='pd-panel-closed'&&v.windowId===panelWindow){void restoreChat();return;}if(v.type==='pd-panel-view'&&v.windowId===panelWindow){activePanel=v.mode===(floating?'floating':'fixed')&&(!floating||v.tabId===panelTabId);setChatActive(false);restoreVersion++;ready=false;document.body.inert=true;if(activePanel)void restorePanel(v.view).catch(error=>workspaceFailed('restore',error));}});
  if(floating)void send({type:'panelReady'});
@@ -870,7 +871,7 @@ async function restorePanel(view?:unknown) {
     currentMain()?.scrollTo(0,savedScroll[currentView]??0);
   }
   if(version!==restoreVersion)return;
-  workspaceFailureStage='';setChatActive(activePanel);ready=true;document.body.inert=false;
+  workspaceFailureStage='';setChatActive(activePanel&&document.visibilityState!=='hidden');ready=true;document.body.inert=false;
 }
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){void saveDraft(true);void persistPanel();setChatActive(false);}else setChatActive(activePanel&&ready);});
+document.addEventListener('visibilitychange',()=>{if(!ready)return;if(document.visibilityState==='hidden'){void saveDraft(true);void persistPanel();setChatActive(false);}else setChatActive(activePanel);});
 void boot().catch(error=>workspaceFailed('boot',error));

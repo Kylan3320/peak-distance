@@ -17,6 +17,7 @@ import { initFloatingPanel } from '@/shared/floatingPanel';
 import { createMarker } from '@/shared/marker';
 import { createSelectionPill, PILL_ID } from '@/shared/selectionPill';
 import { detectTextLanguage } from '@/shared/tokenize';
+import { sendRuntime as send } from '@/shared/runtime';
 import {
   materialFromCandidate,
   sourceKeyOf,
@@ -36,20 +37,6 @@ export default defineContentScript({
     await initDisplayLanguage();
     // 注入标记：供自动化断言 content script 已就绪（与 M0 徽标 data-blc-* 同一做法）
     document.documentElement.setAttribute('data-blc-web', '1');
-
-    function send<T>(msg: unknown): Promise<T> {
-      return new Promise((resolve) => {
-        try {
-          browser.runtime.sendMessage(msg, (r: unknown) => {
-            void browser.runtime.lastError; // 扩展重载等场景：按失败处理
-            resolve(r as T);
-          });
-        } catch {
-          // 扩展禁用/重载瞬间 context invalidated：按失败处理，不产生未捕获报错
-          resolve(undefined as T);
-        }
-      });
-    }
 
     const popup = createLookupPopup({ send });
     const translation = createTranslationPopup(send);

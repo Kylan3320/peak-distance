@@ -11,7 +11,6 @@ import { translateRegularText } from './regularTranslation';
 import { cached, cacheGet } from './onlineCache';
 import { lookupExpression } from './aiClient';
 import type { DictionaryResult } from './onlineDictionary';
-import type { RegularTranslationResult } from './regularTranslation';
 import type { Settings } from '@/shared/settings';
 import type { OnlineLookupResult } from '@/shared/messages';
 import type { AiConfig } from '@/shared/aiConfig';
@@ -48,10 +47,6 @@ async function freeTranslation(
   ctx: LookupRequestContext,
   signal?: AbortSignal,
 ): Promise<OnlineLookupResult> {
-  const hit = await cacheGet<RegularTranslationResult>(
-    JSON.stringify(['translation', 'google-gtx', pairOf(ctx.lang.source, ctx.lang.target), expression]),
-  );
-  if (hit?.ok) return { ok: true, result: { kind: 'translation', source: hit.source, text: hit.text } };
   const r = await cached(
     JSON.stringify(['translation', 'google-gtx', pairOf(ctx.lang.source, ctx.lang.target), expression]),
     (s) =>
@@ -79,8 +74,6 @@ async function aiDefinitionFallback(
     expression,
     ctx.sentence ?? '',
   ]);
-  const hit = await cacheGet<OnlineLookupResult>(cacheKey);
-  if (hit?.ok) return hit;
   const r = await cached(cacheKey, (s) =>
     lookupExpression(
       config,
@@ -160,13 +153,6 @@ export async function lookupOnline(
     const hit = await cacheGet<DictionaryResult>(JSON.stringify(['dictionary', dictionary, dictScope, query]));
     if (hit?.ok) return { ok: true, result: { kind: 'dictionary', entry: hit.entry } };
   }
-  if (!source) {
-    const hit = await cacheGet<RegularTranslationResult>(
-      JSON.stringify(['translation', 'google-gtx', pairOf(lang.source, lang.target), query]),
-    );
-    if (hit?.ok) return { ok: true, result: { kind: 'translation', source: hit.source, text: hit.text } };
-  }
-
   let failure = 'not-found';
   let allMissing = true;
   for (const dictionary of sources) {
@@ -176,9 +162,8 @@ export async function lookupOnline(
       signal,
     );
     if (result.ok) return { ok: true, result: { kind: 'dictionary', entry: result.entry } };
-    failure = result.error;
-    if (result.error !== 'not-found') allMissing = false;
-    if (result.error === 'aborted' || result.error === 'restricted') break;
+    if (result.error !== 'not-found') { failure = result.error; allMissing = false; }
+    if (result.error === 'aborted') return { ok: false, error: 'aborted' };
   }
 
   if (allMissing) return missFallback();

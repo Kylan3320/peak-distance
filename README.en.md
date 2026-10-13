@@ -18,7 +18,7 @@ The interface supports Simplified Chinese, Traditional Chinese, English, German 
 
 ## Installation
 
-Requires desktop **Chrome 142 or newer**. The current release is [v0.6.5](https://github.com/Rayyy3320/peak-distance/releases/tag/v0.6.5).
+Requires desktop **Chrome 142 or newer**. The current release is [v0.6.6](https://github.com/Rayyy3320/peak-distance/releases/tag/v0.6.6).
 
 `main` contains the complete project with the latest locally verified changes. This README describes main-branch features, which may be newer than the release above. Download installable packages from Releases. `npm run zip:source` creates a source archive using `.gitattributes` to exclude design and process documentation.
 

@@ -5,7 +5,7 @@ import os from 'node:os';
 import { chromium } from 'playwright-core';
 
 // Run while WXT's development server is running. Uses an isolated profile and fake AI responses.
-const extension=path.resolve('.output/chrome-mv3-dev');
+const extension=path.resolve(process.env.PEAK_DISTANCE_UI_EXTENSION || '.output/chrome-mv3-dev');
 const profile=await mkdtemp(path.join(os.tmpdir(),'peak-distance-ui-'));
 const output=process.env.PEAK_DISTANCE_UI_OUTPUT;
 if(output)await mkdir(output,{recursive:true});
