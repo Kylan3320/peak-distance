@@ -36,3 +36,10 @@
 - 截图保存在 `.upstream/chat-interactions/`，工程检查日志在 `.upstream/chat-interaction/verify-local.log`。
 
 这是本地修复，未更改正式发布标签或 GitHub Release。已更新并重新加载当前安装目录，旧文件保留在 `/Users/boohee/Downloads/peak-distance-0.6.5-chrome-before-chat-fix-20261013`。实机仅读取已保存问答并移除临时材料，未发送新的 AI 请求；发送键盘组合、输入法、流式回答及续聊通过隔离浏览器的受控流验证。
+
+## 追加：输入区高度
+
+- 原输入框默认三行，并受到普通／矮窗口的最小高度限制。虽然启用了原生竖向 resize，向下压缩时仍会被最小高度拦住。
+- 默认改为单行，允许通过右下角原生手柄拉大和缩回；高度上限随视口调整。沿用现有输入、换行与发送逻辑，设计约定更新于 `design.md`。
+- 类型检查、构建和问答浏览器检查通过。浏览器检查使用真实鼠标拖拽，覆盖窄、矮及宽窗口，验证增大／缩小及正文区域恢复；截图沿用 `.upstream/chat-interactions/`。
+- 本轮构建已写回现有安装目录；原文件备份在 `/Users/boohee/Downloads/peak-distance-0.6.5-chrome-before-compact-input-20261013`。Chrome 窗口在实机重载操作前被用户切换，本轮重载尚未确认。

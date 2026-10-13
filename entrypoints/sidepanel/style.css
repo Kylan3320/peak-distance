@@ -114,7 +114,7 @@ main {min-height:0;min-width:0;overflow:auto;padding:20px 16px;flex:1;overscroll
 #chat-input-row {flex:none;background:var(--pd-surface);border:1px solid #b9b4a8;border-radius:16px;padding:12px 16px 8px;position:relative}
 #chat-input-row:focus-within {border-color:var(--pd-mist)}
 #chat-input-row:has(#chat-input:focus-visible) {outline:2px solid var(--pd-blue);outline-offset:2px}
-#chat-input {display:block;width:100%;min-height:80px;max-height:180px;border:0;background:transparent;border-radius:6px;resize:vertical;padding:8px 0;font:15px/1.7 system-ui,'Segoe UI','Microsoft YaHei',sans-serif;caret-color:var(--pd-blue)}
+#chat-input {display:block;width:100%;min-height:40px;max-height:min(240px,30dvh);border:0;background:transparent;border-radius:6px;resize:vertical;padding:8px 0;font:15px/1.7 system-ui,'Segoe UI','Microsoft YaHei',sans-serif;caret-color:var(--pd-blue)}
 #chat-input::placeholder {color:var(--pd-muted)}
 #chat-input:focus-visible {outline:none}
 .chat-composer-tools {display:flex;align-items:center;gap:4px;margin-top:8px}
@@ -193,7 +193,6 @@ main {min-height:0;min-width:0;overflow:auto;padding:20px 16px;flex:1;overscroll
 @media(max-height:700px) {
   #view-chat.is-empty #chat-list {padding-block:8px}
   .chat-welcome h1 {font-size:clamp(22px,4cqi,28px)}
-  #chat-input {min-height:64px;max-height:120px}
 }
 
 .chat-recent-row > .chat-tool {flex-basis:140px!important}

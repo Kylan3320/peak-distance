@@ -80,6 +80,8 @@ try {
   await panel.waitForFunction(() => !document.body.inert);
   assert.equal(await panel.evaluate(() => globalThis.bootVisibilityRace), true);
   const input = panel.locator('#chat-input');
+  assert.ok((await input.boundingBox()).height <= 48, 'The composer starts with a single compact line');
+  await panel.screenshot({ path: join(output, 'chat-with-selection.png') });
   await input.fill('解释一下这段话，并提炼重点');
   await panel.locator('#chat-send').click();
   await panel.waitForFunction(() => document.querySelector('#chat-list .msg.user .q')?.textContent === '解释一下这段话，并提炼重点');
@@ -171,9 +173,26 @@ try {
   assert.equal(await panel.locator('#chat-send').getAttribute('title'), 'Enter 发送，Shift + Enter 换行');
   console.log('PASS Enter, Shift+Enter, Ctrl/⌘+Enter, IME confirmation, Alt+Enter, empty and overlong input');
   await ask('验证完成后继续交流');
-  for (const width of [440, 1100]) {
-    await panel.setViewportSize({ width, height: 850 });
+  for (const [width, height] of [[440, 850], [390, 640], [1100, 850]]) {
+    await panel.setViewportSize({ width, height });
+    const compact = await input.boundingBox();
+    assert.ok(compact.height <= 48);
+    const listHeight = await panel.locator('#chat-list').evaluate(element => element.clientHeight);
+    await panel.mouse.move(compact.x + compact.width - 4, compact.y + compact.height - 4);
+    await panel.mouse.down();
+    await panel.mouse.move(compact.x + compact.width - 4, compact.y + compact.height + 120, { steps: 10 });
+    await panel.mouse.up();
+    const expanded = await input.boundingBox();
+    assert.ok(expanded.height >= compact.height + 60, 'Dragging enlarges the input');
+    assert.ok(expanded.height <= Math.min(240, height * .3) + 1, 'Resizing leaves room for the conversation');
+    await panel.mouse.move(expanded.x + expanded.width - 4, expanded.y + expanded.height - 4);
+    await panel.mouse.down();
+    await panel.mouse.move(expanded.x + expanded.width - 4, expanded.y - 120, { steps: 10 });
+    await panel.mouse.up();
+    assert.ok((await input.boundingBox()).height <= 48, 'Dragging shrinks the input back to one line');
+    assert.ok(await panel.locator('#chat-list').evaluate(element => element.clientHeight) >= listHeight - 1);
     await panel.screenshot({ path: join(output, `chat-${width}.png`) });
+    console.log(`PASS ${width}×${height}: compact input, native drag expands/shrinks and restores conversation space`);
   }
   assert.deepEqual(errors, []);
   console.log('PASS narrow/wide rendered conversation; no browser script errors; all AI requests used disposable test data');
