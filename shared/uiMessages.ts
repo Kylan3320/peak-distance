@@ -1,5 +1,11 @@
 /** Product copy only. Source keys stay stable across wording changes and saved material labels. */
 export const UI_MESSAGES: Record<string, readonly [string, string, string, string, string]> = {
+  '扩展已更新，请刷新当前网页': ['扩展已更新，请刷新当前网页', '擴充功能已更新，請重新整理目前網頁', 'Extension updated. Refresh this page.', 'Erweiterung aktualisiert. Diese Seite neu laden.', 'Extension mise à jour. Actualisez cette page.'],
+  '词典暂不可用，当前显示免费译文': ['词典暂不可用，当前显示免费译文', '詞典暫時無法使用，目前顯示免費翻譯', 'Dictionary unavailable. Showing free translation.', 'Wörterbuch nicht verfügbar. Kostenlose Übersetzung wird angezeigt.', 'Dictionnaire indisponible. Traduction gratuite affichée.'],
+  'AI 释义失败，当前显示免费译文': ['AI 释义失败，当前显示免费译文', 'AI 釋義失敗，目前顯示免費翻譯', 'AI definition failed. Showing free translation.', 'KI-Erklärung fehlgeschlagen. Kostenlose Übersetzung wird angezeigt.', 'Échec de la définition IA. Traduction gratuite affichée.'],
+  '尚未配置 AI，当前显示免费译文': ['尚未配置 AI，当前显示免费译文', '尚未設定 AI，目前顯示免費翻譯', 'AI is not configured. Showing free translation.', 'KI nicht eingerichtet. Kostenlose Übersetzung wird angezeigt.', 'IA non configurée. Traduction gratuite affichée.'],
+  '调整输入框高度（上下方向键）': ['调整输入框高度（上下方向键）', '調整輸入框高度（上下方向鍵）', 'Resize composer (up/down arrow keys)', 'Eingabefeld anpassen (Pfeiltasten auf/ab)', 'Redimensionner la saisie (flèches haut/bas)'],
+  '拖动上边缘调整输入框高度': ['拖动上边缘调整输入框高度', '拖曳上邊緣調整輸入框高度', 'Drag the top edge to resize the composer', 'Oberen Rand ziehen, um das Eingabefeld anzupassen', 'Faites glisser le bord supérieur pour redimensionner la saisie'],
   '设置': ['设置', '設定', 'Settings', 'Einstellungen', 'Réglages'],
   '打开 {name}': ['打开 {name}', '開啟 {name}', 'Open {name}', '{name} öffnen', 'Ouvrir {name}'],
   '返回': ['返回', '返回', 'Back', 'Zurück', 'Retour'],

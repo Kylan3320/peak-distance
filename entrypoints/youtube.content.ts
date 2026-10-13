@@ -4,6 +4,7 @@ import { createTranslationPopup } from '@/shared/translationPopup';
 import { shadowSelection, classifyRangeIn, clampRangeToElement } from '@/shared/selection';
 import { brandTokens, brandControls, CHAT_ADD_ICON, CHAT_ADD_BUTTON_STYLE } from '@/shared/brand';
 import { detectTextLanguage } from '@/shared/tokenize';
+import { sendRuntime } from '@/shared/runtime';
 import { createSelectionPill } from '@/shared/selectionPill';
 import { DEFAULT_SETTINGS } from '@/shared/settings';
 import type { Settings } from '@/shared/settings';
@@ -168,17 +169,7 @@ export default defineContentScript({
     }
 
     function send<T>(msg: unknown): Promise<T> {
-      return new Promise((resolve) => {
-        try {
-          browser.runtime.sendMessage({...(msg as object),fullscreen:!!document.fullscreenElement}, (r: unknown) => {
-            void browser.runtime.lastError;
-            resolve(r as T);
-          });
-        } catch {
-          // 扩展禁用/重载瞬间 context invalidated：按失败处理，不产生未捕获报错
-          resolve(undefined as T);
-        }
-      });
+      return sendRuntime<T>({ ...(msg as object), fullscreen: !!document.fullscreenElement });
     }
 
     // ---- 徽标（默认隐藏，data-blc-* 属性始终更新） -----------------------------

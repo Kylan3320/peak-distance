@@ -713,7 +713,7 @@ function renderAttachment(): void {
     link.href = snap.source.url; link.target = '_blank'; link.rel = 'noopener';
     meta.append(el('span', undefined, message('{label} · {count} 块', {label:materialLabel(snap.label),count:snap.blocks.length})), link);
     if (chatQuote?.definition) meta.append(el('span', undefined, message('已有释义：{text}',{text:chatQuote.definition.slice(0,120)})));
-    detail.append(meta);
+    detail.append(focusRow, meta);
     const body = el('div', 'attach-blocks');
     for (const b of snap.blocks) {
       body.append(el('p', 'attach-block', typeof b.startMs === 'number' ? `${fmtClock(b.startMs)} · ${b.text}` : b.text));
@@ -960,7 +960,7 @@ function renderInputState(): void {
   const hasChat = true;
   inputRow.hidden = !hasChat;
   starters.textContent = '';
-  if (latestSnapshot()) {
+  if (latestSnapshot() && !chatRecord?.messages.length) {
     for (const promptKey of ['解释这句','梳理观点','举例说明']) {
       const b = el('button', 'starter', message(promptKey));
       b.addEventListener('click', () => {
@@ -985,6 +985,7 @@ function updateCount(): void {
   const count = document.getElementById('chat-count');
   if (!input || !count) return;
   const n = input.value.length;
+  count.hidden = n === 0;
   setText(count, n > CHAT_QUESTION_MAX_CHARS ? message('{count} / {limit}（超限）',{count:n,limit:CHAT_QUESTION_MAX_CHARS}) : n ? `${n} / ${CHAT_QUESTION_MAX_CHARS}` : message('Enter 发送，Shift + Enter 换行'));
   count.classList.toggle('over', n > CHAT_QUESTION_MAX_CHARS);
 }
@@ -1102,6 +1103,23 @@ export function initChatView(d: ChatViewDeps): void {
   });
   window.addEventListener('pagehide', () => { void saveDraft(true); port?.disconnect(); });
   const input = document.getElementById('chat-input') as HTMLTextAreaElement | null;
+  const resize = document.getElementById('chat-resize')!;
+  let resizing: { y: number; height: number } | null = null;
+  resize.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    resizing = { y: e.clientY, height: input!.offsetHeight };
+    resize.setPointerCapture(e.pointerId);
+  });
+  resize.addEventListener('pointermove', e => {
+    if (resizing) input!.style.height = `${Math.max(40, resizing.height + resizing.y - e.clientY)}px`;
+  });
+  resize.addEventListener('lostpointercapture', () => { resizing = null; });
+  resize.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Home') return;
+    e.preventDefault();
+    input!.style.height = `${e.key === 'Home' ? 40 : Math.max(40, input!.offsetHeight + (e.key === 'ArrowUp' ? 20 : -20))}px`;
+  });
   input?.addEventListener('input', () => {
     updateCount();
     void saveDraft();
