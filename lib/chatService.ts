@@ -114,14 +114,9 @@ function bad(error: string, detail?: string): BgcError {
 function portsFor(chatId: string): ChatPort[] {
   const out: ChatPort[] = [];
   for (const [port, keys] of portSubs) {
-    if (keys.has(chatId) && isLive(port)) out.push(port);
+    if (keys.has(chatId)) out.push(port);
   }
   return out;
-}
-
-function isLive(port: ChatPort): boolean {
-  // @ts-expect-error 内部字段探测；断开的端口直接跳过
-  return !port._blcDead;
 }
 
 function post(port: ChatPort, ev: ChatPortEvent): void {
@@ -715,8 +710,6 @@ export function initChatService(): void {
       });
     });
     port.onDisconnect.addListener(() => {
-      // @ts-expect-error 标记失效（postMessage 兜底之外的双保险）
-      port._blcDead = true;
       portSubs.delete(port);
     });
   });

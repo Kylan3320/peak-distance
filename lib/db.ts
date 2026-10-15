@@ -318,6 +318,12 @@ export async function listEntries(query?: string, language?: string): Promise<En
     const entries = (await px(tx.objectStore(ENTRIES).getAll())) as VocabEntryRecord[];
     const contexts = (await px(tx.objectStore(CONTEXTS).getAll())) as ContextRecord[];
     await txDone(tx);
+    const contextsByEntry = new Map<string, ContextRecord[]>();
+    for (const context of contexts) {
+      const group = contextsByEntry.get(context.entryKey);
+      if (group) group.push(context);
+      else contextsByEntry.set(context.entryKey, [context]);
+    }
     const q = query?.trim().toLowerCase() ?? '';
     // 语言筛选：'all'／缺省 = 全部；'und' = 待确认集合（已迁移、证据不足）。
     // 迁移前旧记录（无语言）只在全部视图出现，不冒充任何语言。
@@ -327,7 +333,7 @@ export async function listEntries(query?: string, language?: string): Promise<En
         if (wantLang && effectiveEntryLanguage(e) !== wantLang) return false;
         return !q || e.key.includes(q) || e.expression.toLowerCase().includes(q);
       })
-      .map((e) => toEntryView(e, contexts))
+      .map((e) => toEntryView(e, contextsByEntry.get(e.key) ?? []))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   });
 }

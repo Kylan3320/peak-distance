@@ -14,9 +14,13 @@ mkdirSync(directory);
 const contexts = [];
 let editLegacyDuringBackup = false;
 let editChatDuringDeletion = false;
+let failDiskWritePath = null;
+let editChatDuringMaterialWrite = null;
+let diskWrites = [];
+let afterDiskWrite = null;
 const bundle = await build({
   absWorkingDir: root,
-  stdin: { contents: "export * from './lib/vault/sync'; export * from './lib/vault/records'; export * as db from './lib/db'; export * as format from './lib/vault/format'; export * as files from './lib/vault/fs'; export {emptyChat} from './shared/chat';", resolveDir: root },
+  stdin: { contents: "export * from './lib/vault/sync'; export * from './lib/vault/records'; export * as db from './lib/db'; export * as format from './lib/vault/format'; export * as chatFormat from './lib/vault/chatFormat'; export * as files from './lib/vault/fs'; export {emptyChat} from './shared/chat';", resolveDir: root },
   bundle: true,
   write: false,
   platform: "browser",
@@ -44,7 +48,7 @@ async function open(kind) {
   console.log(`Browser profile ${kind}: ${process.platform === 'win32' ? executablePath : channel}`);
   contexts.push(context);
   const page = await context.newPage();
-  await page.exposeBinding("__vaultDisk", (_source, operation, parts, value) => {
+  await page.exposeBinding("__vaultDisk", async (_source, operation, parts, value) => {
     const target = resolve(directory, ...parts);
     assert.ok(target === directory || target.startsWith(directory + sep));
     if (!existsSync(target)) {
@@ -62,7 +66,18 @@ async function open(kind) {
     }
     if (operation === "read") return readFileSync(target, "utf8");
     if (operation === "write") {
+      if (parts.join('/') === failDiskWritePath) { failDiskWritePath = null; throw Error('Controlled file write failure'); }
+      diskWrites.push(parts.join('/'));
       writeFileSync(target, String(value));
+      await afterDiskWrite?.(parts.join('/'));
+      if (editChatDuringMaterialWrite && parts[0] === '材料') {
+        const chatId = editChatDuringMaterialWrite;
+        editChatDuringMaterialWrite = null;
+        const chatDir = join(directory, '对话');
+        const name = readdirSync(chatDir).find(name => readFileSync(join(chatDir, name), 'utf8').includes('id: ' + chatId + '\n'));
+        const path = join(chatDir, name);
+        writeFileSync(path, readFileSync(path, 'utf8') + '\nREMOTE CHANGE DURING MATERIAL WRITE\n');
+      }
       if (editChatDuringDeletion && parts.at(-1) === 'deleted-chats.json') {
         editChatDuringDeletion = false;
         const chatDir = join(directory, '对话');
@@ -464,13 +479,12 @@ try {
   assert.equal(conflictLifecycle.resolved,null);assert.equal(conflictLifecycle.deleted,null);
   console.log('PASS successful conflict resolution and record deletion remove obsolete conflict copies');
 
-  const deleteConflict=await chrome.evaluate(async()=>{
+  await chrome.evaluate(async()=>{
     const api=Vault,id='newer-remote-chat';
     await api.db.appendChatTurn({chatId:id,turnId:'local-turn',requestId:'local-request',question:'Local question',quote:null,snapshotVersion:0,segmentIndex:0,scopeLabel:'Plain',context:api.emptyChat(),create:true});
     await api.db.saveAssistantProgress({chatId:id,requestId:'local-request',text:'Local answer',state:'done'});await api.flushVaultWrites();
-    return api.db.getChat(id);
   });
-  await edge.evaluate(record=>Vault.db.upsertChatRecordFromVault(record),deleteConflict);
+  await edge.evaluate(() => Vault.syncFromVault());
   await edge.evaluate(async()=>{
     const api=Vault,id='newer-remote-chat';
     await api.db.appendChatTurn({chatId:id,turnId:'remote-turn',requestId:'remote-request',question:'New remote question',quote:null,snapshotVersion:0,segmentIndex:0,scopeLabel:'Plain'});
@@ -502,6 +516,150 @@ try {
   assert.ok(racedDelete.file.includes('REMOTE UPDATE DURING DELETE'));
   assert.ok(racedDelete.conflict.remote.some(file=>file.text.includes('REMOTE UPDATE DURING DELETE')));
   console.log('PASS external edits during deletion roll back the new deletion marker and retain a recoverable conflict');
+
+  // These deletion conflicts have been asserted; isolate the following independent cases.
+  await chrome.evaluate(async () => { for (const write of await Vault.db.listVaultQueue()) if (write.kind === 'chat' && write.payload === null) await Vault.db.removeVaultWrite(write); });
+
+  await chrome.evaluate(async () => {
+    for (let i = 0; i < 20; i++) await Vault.db.saveSnapshot({ source:'web', expression:`batch${i}`, sentence:`Batch sentence ${i}.`, url:'https://example.com/batch', title:'Batch', lang:'en' }, {});
+    for (let i = 0; i < 3; i++) await Vault.db.saveSentence({ id:`batch-sentence-${i}`, language:'en', text:`Sentence ${i}`, video:{videoId:'batch-video',trackId:'en',trackKind:'manual',trackLang:'en',startMs:i}, endMs:i+1, title:'Batch', createdAt:i });
+  });
+  diskWrites = [];
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  assert.equal(diskWrites.filter(path => path === '生词本.md').length, 1);
+  assert.equal(diskWrites.filter(path => path === '句子.md').length, 1);
+  assert.ok(diskWrites.filter(path => path === '.peak-distance/records.json').length <= 2);
+  await edge.evaluate(() => Vault.syncFromVault());
+  assert.equal((await edge.evaluate(() => Vault.db.listEntries('batch'))).length, 20);
+  console.log('PASS a mixed batch publishes each collection once and restores all records in the other profile');
+
+  await chrome.evaluate(async () => { for (let i = 0; i < 4; i++) await Vault.db.setEntryNote(`en::batch${i}`, 'RETRY THIS BATCH'); });
+  failDiskWritePath = '生词本.md';
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'io');
+  assert.equal((await chrome.evaluate(() => Vault.db.listVaultQueue())).filter(w => w.recordId.startsWith('en::batch')).length, 4);
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  await edge.evaluate(() => Vault.syncFromVault());
+  assert.equal((await edge.evaluate(() => Vault.db.getEntry('en::batch0'))).note, 'RETRY THIS BATCH');
+  console.log('PASS a failed collection publish retains every pending revision and retries without losing notes');
+
+  await chrome.evaluate(async () => { for (let i = 0; i < 2; i++) await Vault.db.setEntryNote(`en::batch${i}`, 'CAPTURED BATCH'); });
+  afterDiskWrite = async path => {
+    if (path !== '.peak-distance/records.json') return;
+    afterDiskWrite = null;
+    await chrome.evaluate(() => Vault.db.setEntryNote('en::batch0', 'NEWER LOCAL EDIT'));
+  };
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  const newerPending = (await chrome.evaluate(() => Vault.db.listVaultQueue())).find(w => w.recordId === 'en::batch0');
+  assert.equal(newerPending.payload.note, 'NEWER LOCAL EDIT');
+  assert.equal((await chrome.evaluate(() => Vault.db.getEntry('en::batch0'))).note, 'NEWER LOCAL EDIT');
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  console.log('PASS publishing a captured batch cannot replace or dequeue a newer local edit');
+
+  await chrome.evaluate(async () => {
+    await Vault.db.deleteEntry('en::batch1');
+    await Vault.db.setEntryNote('en::batch2', 'MIXED UPDATE');
+  });
+  failDiskWritePath = '生词本.md';
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'io');
+  assert.ok(JSON.parse(readFileSync(join(directory,'.peak-distance/records.json'),'utf8')).vocab['en::batch1']);
+  assert.ok(readFileSync(join(directory,'生词本.md'),'utf8').includes('en::batch1'));
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/records.json'),'utf8')).vocab['en::batch1'], undefined);
+  await edge.evaluate(() => Vault.syncFromVault());
+  assert.equal(await edge.evaluate(() => Vault.db.getEntry('en::batch1')), null);
+  assert.equal((await edge.evaluate(() => Vault.db.getEntry('en::batch2'))).note, 'MIXED UPDATE');
+  console.log('PASS a mixed update/deletion batch retains recovery data until visible deletion succeeds');
+
+  await chrome.evaluate(() => Vault.db.setEntryNote('en::batch3', 'LOCAL NOTE AFTER EXTERNAL EDIT'));
+  afterDiskWrite = async path => {
+    if (path !== '.peak-distance/records.json') return;
+    afterDiskWrite = null;
+    const book = join(directory,'生词本.md');
+    writeFileSync(book,readFileSync(book,'utf8')+'\n### 外部笔记\nEXTERNAL COLLECTION NOTE\n');
+  };
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'conflict');
+  assert.ok((await chrome.evaluate(() => Vault.db.listVaultQueue())).some(w => w.recordId === 'en::batch3'));
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  assert.ok(readFileSync(join(directory,'生词本.md'),'utf8').includes('EXTERNAL COLLECTION NOTE'));
+  console.log('PASS external collection changes stop publication; retry preserves the external note');
+
+  async function addTurn(page, id, label, material = null) {
+    return page.evaluate(async ({ id, label, material }) => {
+      const current = await Vault.db.getChat(id, () => true) ?? Vault.emptyChat();
+      const context = material ? { ...current, source:material.source, sourceKey:material.source.sourceKey, snapshots:[...current.snapshots,material], activeSnapshotVersion:material.version } : current;
+      const requestId = crypto.randomUUID();
+      await Vault.db.appendChatTurn({ chatId:id, turnId:requestId, requestId, question:label, quote:material?{blockIds:['p1']}:null, snapshotVersion:material?.version??0, segmentIndex:0, scopeLabel:'Test', context, create:!current.id });
+      await Vault.db.saveAssistantProgress({ chatId:id, requestId, text:`Answer ${label}`, state:'done' });
+    }, { id, label, material });
+  }
+  const chatFile = id => join(directory, '对话', readdirSync(join(directory, '对话')).find(name => readFileSync(join(directory, '对话', name), 'utf8').includes('id: '+id+'\n')));
+  const material = text => ({ version:1, source:{sourceType:'article',sourceKey:'web:quality',title:'Source',url:'https://example.com/quality'}, label:'Quality material', createdAt:1, blocks:[{id:'p1',text}] });
+
+  await addTurn(chrome, 'write-receipt', 'Committed before receipt');
+  failDiskWritePath = '.peak-distance/index.json';
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'io');
+  assert.ok((await chrome.evaluate(() => Vault.db.listVaultQueue())).some(w => w.recordId === 'write-receipt'));
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  assert.equal((await chrome.evaluate(() => Vault.db.listVaultQueue())).length, 0);
+  console.log('PASS chat publication is idempotent after a durable file write loses its index receipt');
+
+  await addTurn(chrome, 'material-race', 'Base');
+  await chrome.evaluate(() => Vault.flushVaultWrites());
+  await addTurn(chrome, 'material-race', 'Local continuation', material('Local material'));
+  editChatDuringMaterialWrite = 'material-race';
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'conflict');
+  assert.ok(readFileSync(chatFile('material-race'), 'utf8').includes('REMOTE CHANGE DURING MATERIAL WRITE'));
+  assert.ok(await chrome.evaluate(() => Vault.db.getVaultRaw('conflict:chat:material-race')));
+  console.log('PASS an external edit during material publication prevents replacing the chat and preserves a conflict');
+
+  await addTurn(edge, 'stale-chat', 'Base');
+  await edge.evaluate(() => Vault.flushVaultWrites());
+  await chrome.evaluate(() => Vault.syncFromVault());
+  await addTurn(edge, 'stale-chat', 'Remote continuation');
+  await edge.evaluate(() => Vault.flushVaultWrites());
+  const remoteChat = readFileSync(chatFile('stale-chat'), 'utf8');
+  await addTurn(chrome, 'stale-chat', 'Local continuation');
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'conflict');
+  assert.equal(readFileSync(chatFile('stale-chat'), 'utf8'), remoteChat);
+  const chatConflict = await chrome.evaluate(() => Vault.db.getVaultRaw('conflict:chat:stale-chat'));
+  assert.ok(chatConflict.local.messages.some(m => m.text === 'Local continuation'));
+  assert.ok(chatConflict.remote.some(file => file.text.includes('Remote continuation')));
+  assert.ok((await chrome.evaluate(() => Vault.db.listVaultQueue())).some(w => w.recordId === 'stale-chat'));
+  console.log('PASS stale continuation cannot overwrite another profile; both branches remain recoverable');
+
+  await addTurn(edge, 'material-collision', 'Base');
+  await edge.evaluate(() => Vault.flushVaultWrites());
+  await chrome.evaluate(() => Vault.syncFromVault());
+  const remoteMaterial = await edge.evaluate(snapshot => Vault.chatFormat.serializeMaterialSnapshot('material-collision', snapshot), material('REMOTE MATERIAL'));
+  const collisionPath = '材料/collision-v1.md';
+  writeFileSync(join(directory, collisionPath), remoteMaterial);
+  const indexPath = join(directory, '.peak-distance/index.json');
+  writeFileSync(indexPath, JSON.stringify({ ...JSON.parse(readFileSync(indexPath,'utf8')), 'material-collision::v1':collisionPath }));
+  const baseChat = readFileSync(chatFile('material-collision'), 'utf8');
+  await addTurn(chrome, 'material-collision', 'Question on local material', material('LOCAL MATERIAL'));
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'conflict');
+  assert.equal(readFileSync(chatFile('material-collision'), 'utf8'), baseChat);
+  assert.equal(readFileSync(join(directory, collisionPath), 'utf8'), remoteMaterial);
+  const materialConflict = await chrome.evaluate(() => Vault.db.getVaultRaw('conflict:chat:material-collision'));
+  assert.equal(materialConflict.local.snapshots[0].blocks[0].text, 'LOCAL MATERIAL');
+  assert.ok(materialConflict.remote.some(file => file.text.includes('REMOTE MATERIAL')));
+  console.log('PASS an existing material version must match its content before any referencing chat is published');
+  writeFileSync(join(directory, collisionPath), 'Broken material');
+  assert.ok((await chrome.evaluate(() => Vault.db.listVaultQueue())).some(w => w.recordId === 'material-collision'));
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'format');
+  assert.equal(readFileSync(chatFile('material-collision'), 'utf8'), baseChat);
+  writeFileSync(join(directory, collisionPath), remoteMaterial);
+
+  await addTurn(edge, 'unknown-base-chat', 'Remote base');
+  await edge.evaluate(() => Vault.flushVaultWrites());
+  const withoutBase = await edge.evaluate(() => Vault.db.getChat('unknown-base-chat', () => true));
+  await chrome.evaluate(record => Vault.db.upsertChatRecordFromVault(record), withoutBase);
+  await addTurn(chrome, 'unknown-base-chat', 'Local change without base');
+  const unknownBaseFile = readFileSync(chatFile('unknown-base-chat'), 'utf8');
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'conflict');
+  assert.equal(readFileSync(chatFile('unknown-base-chat'), 'utf8'), unknownBaseFile);
+  assert.ok(await chrome.evaluate(() => Vault.db.getVaultRaw('conflict:chat:unknown-base-chat')));
+  console.log('PASS malformed materials report format errors; a local copy without a shared base cannot overwrite remote history');
 
   const raced = legacy.replaceAll('en::legacy', 'en::race').replaceAll('expression: legacy', 'expression: race');
   writeFileSync(join(directory, '词汇/en/race.md'), raced);

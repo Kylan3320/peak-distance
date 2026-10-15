@@ -221,7 +221,71 @@ try {
   assert.deepEqual(marked,{initial:4000,after:1});
   console.log('PASS dynamic page marking resumes after 4000 old marked nodes are removed');
 
+  await page.setContent('<!doctype html><html lang="en"><body><main></main></body></html>');
+  const boundaryMarks=await page.evaluate(async()=>{
+    const main=document.querySelector('main');
+    main.replaceChildren(...Array.from({length:1002},(_,i)=>Object.assign(document.createElement('p'),{textContent:i>=498?'fit':'background'})));
+    const marker=MarkerCheck.createMarker({isOwnUi:()=>false,send:async m=>m.type==='getSettings'?{ok:true,settings:{markingEnabled:true}}:{ok:true,items:[{key:'en::fit',language:'en',expression:'fit',status:'learning',forms:[]}]}});
+    marker.start();
+    const deadline=Date.now()+2000;
+    while(!main.lastElementChild.querySelector('[data-blc-key]')&&Date.now()<deadline)await new Promise(done=>setTimeout(done,20));
+    const missing=[...main.children].flatMap((node,i)=>i>=498&&!node.querySelector('[data-blc-key]')?[i+1]:[]);
+    const dynamic=document.createElement('p');main.append(dynamic);
+    await new Promise(done=>setTimeout(done,350));
+    dynamic.appendChild(document.createTextNode('fit'));
+    await new Promise(done=>setTimeout(done,350));
+    const inserted=dynamic.querySelectorAll('[data-blc-key]').length;
+    dynamic.textContent='fit again';
+    await new Promise(done=>setTimeout(done,350));
+    const replaced=dynamic.querySelectorAll('[data-blc-key]').length;
+    marker.stop();return {missing,inserted,replaced};
+  });
+  assert.deepEqual(boundaryMarks,{missing:[],inserted:1,replaced:1});
+  console.log('PASS chunk boundaries do not skip text; direct Text insertion and replacement are marked without duplicate wrappers');
+
   const dbBundle=await build({absWorkingDir:root,stdin:{contents:"export * from './lib/db';",resolveDir:root},bundle:true,write:false,format:'iife',globalName:'DatabaseCheck'});
+  const entriesOrigin='https://entry-association.test/';
+  await plain.route(entriesOrigin,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Entry association</title>'}));
+  await page.goto(entriesOrigin);
+  await page.addScriptTag({content:dbBundle.outputFiles[0].text});
+  const association=await page.evaluate(async()=>{
+    await DatabaseCheck.listEntries(); // Create the actual database and schema.
+    await new Promise((done,reject)=>{
+      const request=indexedDB.open('blc-learning');
+      request.onsuccess=()=>{
+        const db=request.result,tx=db.transaction(['entries','contexts'],'readwrite');
+        for(let i=0;i<200;i++){
+          const language=i%2?'fr':'en',key=`${language}::word${i}`;
+          tx.objectStore('entries').put({key,language,expression:`Word${i}`,kind:'word',status:'saved',createdAt:i,updatedAt:i});
+          for(let j=0;j<3;j++)tx.objectStore('contexts').add({entryKey:key,sentence:`word${i} context ${j}`,definition:null,url:'https://example.com',title:'Test',createdAt:j});
+        }
+        tx.objectStore('contexts').add({entryKey:'missing-entry',sentence:'Orphan',createdAt:0});
+        tx.oncomplete=()=>{db.close();done();};tx.onerror=()=>reject(tx.error);
+      };request.onerror=()=>reject(request.error);
+    });
+    const originalFilter=Array.prototype.filter;
+    let contextVisits=0,entries;
+    try {
+      Array.prototype.filter=function(predicate,thisArg){
+        return originalFilter.call(this,(item,index,array)=>{
+          if(item&&typeof item==='object'&&'entryKey' in item)contextVisits++;
+          return predicate.call(thisArg,item,index,array);
+        });
+      };
+      entries=await DatabaseCheck.listEntries();
+    } finally {Array.prototype.filter=originalFilter;}
+    const french=await DatabaseCheck.listEntries(undefined,'fr');
+    const query=await DatabaseCheck.listEntries('WORD1');
+    return {count:entries.length,contextVisits,first:entries[0].key,last:entries.at(-1).key,
+      associated:entries.every(entry=>entry.contexts.length===3&&entry.contexts.every(c=>c.sentence.startsWith(entry.expression.toLowerCase()+' ')&&c.sourceType==='web'&&typeof c.id==='number')),
+      order:entries[0].contexts.map(c=>c.createdAt),french:french.length,query:query.length,
+      queryMatches:query.every(entry=>entry.expression.toLowerCase().includes('word1'))};
+  });
+  assert.equal(association.count,200);assert.equal(association.associated,true);
+  assert.deepEqual(association.order,[2,1,0]);assert.equal(association.first,'fr::word199');assert.equal(association.last,'en::word0');
+  assert.equal(association.french,100);assert.ok(association.query>0&&association.queryMatches);
+  assert.ok(association.contextVisits<=601,`Listing must not refilter the whole context table per entry: ${association.contextVisits} visits`);
+  console.log('PASS vocabulary listing preserves associations, order, language/query filters without rescanning all contexts per entry');
   for(const known of [true,false]) {
     const origin=known?'https://known.migration.test/':'https://unbound.migration.test/';
     await plain.route(origin,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Migration</title>'}));
