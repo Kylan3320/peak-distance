@@ -784,6 +784,24 @@ export type MergeOutcome<T> =
   | { kind: 'merged'; value: T; tookFile: string[] } // tookFile = 采用了文件侧的字段名
   | { kind: 'conflict'; fields: { field: string; local: unknown; file: unknown }[] };
 
+export function mergePreferenceRecord(base: VaultPreferenceRecord | null, local: VaultPreferenceRecord, file: VaultPreferenceRecord): MergeOutcome<VaultPreferenceRecord> {
+  const fields: { field: string; local: unknown; file: unknown }[] = [];
+  const tookFile: string[] = [];
+  const merge = (field: string, before: string | undefined, here: string | undefined, there: string | undefined) => {
+    if (here === there || there === before && base) return here;
+    if (base && here === before) { tookFile.push(field); return there; }
+    fields.push({ field, local: here, file: there });
+    return here;
+  };
+  const defaultComprehensionLang = merge('defaultComprehensionLang', base?.defaultComprehensionLang, local.defaultComprehensionLang, file.defaultComprehensionLang)!;
+  const comprehensionOverrides: Record<string, string> = {};
+  for (const key of new Set([...Object.keys(base?.comprehensionOverrides ?? {}), ...Object.keys(local.comprehensionOverrides), ...Object.keys(file.comprehensionOverrides)])) {
+    const value = merge(`comprehensionOverrides.${key}`, base?.comprehensionOverrides[key], local.comprehensionOverrides[key], file.comprehensionOverrides[key]);
+    if (value !== undefined) comprehensionOverrides[key] = value;
+  }
+  return fields.length ? { kind: 'conflict', fields } : { kind: 'merged', value: { defaultComprehensionLang, comprehensionOverrides }, tookFile };
+}
+
 /**
  * 词条三方合并，笔记缺失按空串处理。
  */

@@ -14,13 +14,11 @@ The interface supports Simplified Chinese, Traditional Chinese, English, German 
 
 [中文](README.md) · [Download](https://github.com/Rayyy3320/peak-distance/releases/latest) · [Installation](#installation) · [Usage](#usage) · [Privacy & Services](#privacy--services) · [License](#license)
 
-> The extension's interface is currently in Chinese. Below, UI labels are given in English with the original Chinese in parentheses so you can match them on screen.
-
 ## Installation
 
-Requires desktop **Chrome 142 or newer**. The current release is [v0.6.6](https://github.com/Rayyy3320/peak-distance/releases/tag/v0.6.6).
+Requires desktop **Chrome 142 or newer**. The current release is [v0.6.7](https://github.com/Rayyy3320/peak-distance/releases/tag/v0.6.7).
 
-`main` contains the complete project with the latest locally verified changes. This README describes main-branch features, which may be newer than the release above. Download installable packages from Releases. `npm run zip:source` creates a source archive using `.gitattributes` to exclude design and process documentation.
+This README describes main-branch features, which may be newer than the release above. Download installable packages from Releases.
 
 1. Download the package whose name ends with `-chrome.zip` from [Releases](https://github.com/Rayyy3320/peak-distance/releases/latest) and unzip it into a fixed folder.
 2. Type `chrome://extensions` in Chrome's address bar and turn on **Developer mode** (开发者模式) in the top-right corner.
@@ -38,7 +36,9 @@ npm ci
 npm run build
 ```
 
-Then load `.output/chrome-mv3` following the steps above. During development you can use `npm run dev`, and check changes with `npm run verify-local`. After rebuilding, reload the extension and refresh the target pages.
+Then load `.output/chrome-mv3` following the steps above. During development you can use `npm run dev`, and check changes with `npm run verify-local`; run `npx playwright-core install chromium` before the first browser regression check. After rebuilding, reload the extension and refresh the target pages.
+
+See the repository's [ARCHITECTURE](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ARCHITECTURE.md) for code entry points and [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md) for tasks, known defects and Git/release conventions (both in Chinese). `npm run zip:source` archives the current HEAD using `.gitattributes`; release source archives use the matching version tag.
 
 </details>
 
@@ -72,11 +72,13 @@ Different language pairs have different lookup sources. English to Chinese prefe
 
 In **Settings → Shared files** (设置 → 文件共享), click **Choose folder** (选择位置) and pick a local directory. Vocabulary, sentences, notes, language preferences and your saved chat history are stored as Markdown — plain note files any text editor can open. You can also pick a folder inside an Obsidian vault.
 
-When you change an entry's status or **My notes** (我的笔记) in Obsidian, the extension reads those changes back. Chrome and Edge on the same computer can connect to the same directory and share learning records; when both sides edit the same field, both versions are kept and a conflict is reported.
+When you change an entry's status or **My notes** (我的笔记) in Obsidian, the extension reads those changes back. Chrome and Edge on the same computer can connect to the same directory and share learning records; conflicting edits to the same field of a vocabulary or sentence record keep both versions and report a conflict.
 
 Words are kept in `生词本.md` (vocabulary) and sentences in `句子.md` (sentences), one section per record; AI chats are still saved per conversation. Recovery data such as full definitions and video positions lives in the `.peak-distance` helper directory, which also keeps a backup when migrating older scattered files. Please keep the whole learning folder.
 
 After updating the extension on both browsers, connect the same folder in each and click **Sync now** (立即同步). Syncing writes local changes first, then reads back what the other browser wrote; switching back to a browser also reads the shared files. Insufficient permissions, corrupted files and conflicts are reported clearly; uncommitted content stays on the machine where it was made.
+
+This release fixes chat material/citation recovery, deleted chats reappearing, pending writes crossing vaults, language preference updates and leftover state after a window closes. Native shared-folder permission recovery and simultaneous writes across applications still need real-world verification. See the repository's [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md) for details and repair status (in Chinese).
 
 The extension works without connecting a folder — records stay in the browser extension. Disconnecting the vault never deletes existing files, and API keys and AI service settings are never written into it.
 

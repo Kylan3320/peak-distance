@@ -1,30 +1,39 @@
 import { isPanelView, panelStateKey, type PanelMode, type PanelView, type PanelFrameState } from '@/shared/panel';
-import { discardChatEdit } from './chatWorkspace';
+import { discardChatEdit, removeChatWindow } from './chatWorkspace';
 
 const hostKey = (windowId: number) => `panel-host:${windowId}`;
-export function initPanelLifecycle() {
+let stopWindowChats: (windowId: number) => Promise<void>;
+async function closeWorkspace(windowId: number): Promise<void> {
+  try { await stopWindowChats(windowId); }
+  finally { await discardChatEdit(windowId); }
+}
+export function initPanelLifecycle(stop: (windowId: number) => Promise<void>) {
+  stopWindowChats = stop;
   browser.sidePanel.onClosed.addListener(info => {
     const transferKey = `panel-native-transfer:${info.windowId}`;
     void browser.storage.session.get([hostKey(info.windowId), transferKey]).then(async data => {
+      if (!await browser.windows.get(info.windowId).catch(() => null)) return;
       if (data[transferKey]) { await browser.storage.session.remove(transferKey); return; }
       if ((data[hostKey(info.windowId)] as { mode?: string } | undefined)?.mode === 'floating') return;
-      await discardChatEdit(info.windowId);
+      await closeWorkspace(info.windowId);
       await browser.storage.session.remove(hostKey(info.windowId));
       await browser.runtime.sendMessage({ type: 'pd-panel-closed', windowId: info.windowId }).catch(() => {});
     });
   });
-  browser.tabs.onRemoved.addListener(tabId => {
+  browser.tabs.onRemoved.addListener((tabId, info) => {
     void browser.storage.session.get(null).then(async data => {
       for (const [key, host] of Object.entries(data)) {
         const value = host as { mode?: string; tabId?: number };
-        if (key.startsWith('panel-host:') && value.mode === 'floating' && value.tabId === tabId) await discardChatEdit(Number(key.split(':')[1]));
+        if (!info.isWindowClosing && key.startsWith('panel-host:') && value.mode === 'floating' && value.tabId === tabId) {
+          await closeWorkspace(Number(key.split(':')[1]));
+          await browser.storage.session.remove(key);
+        }
       }
-      await browser.storage.session.remove(`panel-diagnostics:${tabId}`);
+      await browser.storage.session.remove([`panel-diagnostics:${tabId}`, `panel-before-fullscreen:${tabId}`]);
     });
   });
   browser.windows.onRemoved.addListener(windowId => {
-    void discardChatEdit(windowId);
-    void browser.storage.session.remove([`selection:${windowId}`, `chat-tab:${windowId}`]);
+    void closeWorkspace(windowId).finally(() => removeChatWindow(windowId));
   });
 }
 
@@ -139,7 +148,7 @@ export async function handlePanelMessage(message: unknown, sender: Sender, nativ
   if (m.type === 'panelHostClosed') {
     if ((sender.frameId ?? 0) !== 0 || uiSender(sender)) return {ok:false,error:'forbidden-sender'};
     const host = (await browser.storage.session.get(hostKey(windowId)))[hostKey(windowId)] as { mode?: string; tabId?: number; hostId?: string } | undefined;
-    if (host?.mode === 'floating' && host.tabId === tabId && host.hostId === m.hostId) await discardChatEdit(windowId);
+    if (host?.mode === 'floating' && host.tabId === tabId && host.hostId === m.hostId) await closeWorkspace(windowId);
     return { ok: true };
   }
   if(m.type==='panelReady'){await tabMessage(tabId,{type:'pd-panel-ready',documentId:sender.documentId});return {ok:true};}
@@ -151,7 +160,7 @@ export async function handlePanelMessage(message: unknown, sender: Sender, nativ
       active: !host || host.mode === (floating ? 'floating' : 'fixed') && (!floating || host.tabId === tabId)};
   }
   if (m.type === 'panelClose') {
-    await discardChatEdit(windowId);
+    await closeWorkspace(windowId);
     await browser.storage.session.remove(hostKey(windowId));
     await browser.runtime.sendMessage({ type: 'pd-panel-closed', windowId }).catch(() => {});
     if ((sender.frameId ?? 0) > 0 || !uiSender(sender)) await tabMessage(tabId,{type:'pd-panel-hide'});

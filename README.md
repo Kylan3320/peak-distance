@@ -16,9 +16,9 @@ Peak Distance 是一款浏览器语言学习扩展。读网页、刷 X 或看 Yo
 
 ## 安装
 
-需要桌面 **Chrome 142 或更新版本**。当前发布版为 [v0.6.6](https://github.com/Rayyy3320/peak-distance/releases/tag/v0.6.6)。
+需要桌面 **Chrome 142 或更新版本**。当前发布版为 [v0.6.7](https://github.com/Rayyy3320/peak-distance/releases/tag/v0.6.7)。
 
-`main` 保存最新通过本地检查的完整工程；本 README 描述主线功能，可能领先于上方发布版。安装包以 Releases 为准，源码包用 `npm run zip:source` 按 `.gitattributes` 排除设计与过程资料。
+本 README 描述主线功能，可能领先于上方发布版；安装包以 Releases 为准。
 
 1. 从 [Releases](https://github.com/Rayyy3320/peak-distance/releases/latest) 下载名称以 `-chrome.zip` 结尾的安装包，解压到一个固定文件夹。
 2. 在 Chrome 地址栏输入 `chrome://extensions`，开启右上角的「开发者模式」。
@@ -36,7 +36,9 @@ npm ci
 npm run build
 ```
 
-然后按上面的步骤加载 `.output/chrome-mv3`。开发时可用 `npm run dev`，检查改动可用 `npm run verify-local`。重新构建后，还需要重新加载扩展并刷新目标网页。
+然后按上面的步骤加载 `.output/chrome-mv3`。开发时可用 `npm run dev`，检查改动可用 `npm run verify-local`；浏览器回归首次运行前执行 `npx playwright-core install chromium`。重新构建后，还需要重新加载扩展并刷新目标网页。
+
+开发入口见仓库中的 [ARCHITECTURE](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ARCHITECTURE.md)，任务、已知缺陷及 Git／发布约定见 [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md)。`npm run zip:source` 从当前 HEAD 生成源码包，排除规则由 `.gitattributes` 定义；正式发布使用对应版本标签。
 
 </details>
 
@@ -70,11 +72,13 @@ npm run build
 
 在「设置 → 文件共享」点击「选择位置」，选择一个本地目录。词汇、句子、笔记、语言偏好和已保存的完整聊天历史，会以 Markdown 格式保存，也就是能用文本编辑器打开的笔记文件。你也可以选择 Obsidian 仓库中的文件夹。
 
-在 Obsidian 中修改词条状态或「我的笔记」，扩展会读回这些变化。同一台电脑上的 Chrome 和 Edge 连接同一个目录后，可以共享学习记录；两边同时修改同一字段时，会保留双方内容并提示冲突。
+在 Obsidian 中修改词条状态或「我的笔记」，扩展会读回这些变化。同一台电脑上的 Chrome 和 Edge 连接同一个目录后，可以共享学习记录；词语和句子出现同字段修改冲突时，会保留双方内容并提示冲突。
 
 词语统一保存在「生词本.md」，句子统一保存在「句子.md」，每条记录占一个小节；AI 对话仍按会话保存。完整释义、视频位置等恢复数据放在 `.peak-distance` 辅助目录，迁移旧散文件时也会在这里保留备份。请保留整个学习文件夹。
 
 两边都更新扩展后，分别连接同一个文件夹并点击「立即同步」。同步会写入本机修改，再读回另一浏览器已写入的内容；切回浏览器时也会读取共享文件。权限不足、文件损坏或冲突会明确提示，未提交内容保留在本机。
+
+本版修复了聊天材料／引用恢复、删除后同步复活、换库待办串用、语言偏好更新与窗口关闭后的状态残留等可靠性问题。原生共享目录的权限恢复与跨程序同时写入仍待实机验证，具体范围和修复状态见仓库中的 [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md)。
 
 不连接文件夹也能使用，记录仍保存在浏览器扩展中。断开学习库不会删除已有文件，API Key 和 AI 服务配置也不会写入学习库。
 

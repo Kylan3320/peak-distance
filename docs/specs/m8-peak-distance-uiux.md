@@ -2,6 +2,8 @@
 
 状态：已实现，验证与实机边界见 [M8 验收报告](m8-verification-report.md)。视觉依据为 [design.md](../../design.md)，产品约定见 [PRD](../PRD.md)。本 spec 替代 M7 的面板承载与设置入口方案；未改变的字幕获取、暂停恢复、AP、收藏、缓存与问答行为继续沿用。
 
+阶段规格。英文到中文的阶段限制由 [M11](m11-multilingual-local-vault.md) 替代，会话与浮层关闭由 [M10](m10-chat-and-popup-interactions.md) 修订；当前布局维护在 design.md，界面文案与设置状态按 [界面语言规范](ui-i18n.md)。
+
 ## 1. 交付范围
 
 - 全部现有界面统一为 Peak Distance：扩展侧栏、页内面板、查词／翻译浮层、字幕控件、生词本、句子、复习、问答、设置和扩展图标。

@@ -1,6 +1,8 @@
 # M11 验收报告
 
-状态：阶段 A–D 实现与模块级／受控浏览器验证完成；第二层（真实目录授权、Obsidian 实机、双浏览器同目录、用户 Chrome 实机）待用户环节。2026-10-04。
+2026-10-04 阶段验收记录：A–D 实现与模块级／受控浏览器验证完成；第二层（真实目录授权、Obsidian 实机、双浏览器同目录、用户 Chrome 实机）当时未完成。
+
+本文保留该阶段结果与分支信息；后续集合格式／词语与句子同步见 [修订及验收](vault-collections-sync.md)，新增已复现缺陷见 [2026-10-13 审查](code-quality-review-20261013.md)，当前状态以 [ROADMAP](../ROADMAP.md) 为准。表内“模块级通过”不代表后来发现的聊天恢复、语言键及偏好等缺陷已修复。
 
 入口：[M11 spec](m11-multilingual-local-vault.md)、[ROADMAP](../ROADMAP.md)。执行组织见 [m11-parallel-development.md](m11-parallel-development.md)（I 统一负责，内部按需委派：免费渠道探针由子代理完成，库格式模块由子代理完成后经 I 复核接管）。
 

@@ -2,6 +2,8 @@
 
 日期：2026-10-13。范围：用户反馈的回车发送、首问后仍显示欢迎页、移除选区失败、历史无法打开。
 
+本文按阶段保留取证和验证结果。“未发布”“重载尚未确认”描述该阶段时点；后续上边缘调节、安装重载与最终验收见 [审查及修复](code-quality-review-20261013.md)，正式发布见 [ROADMAP](../ROADMAP.md)。末节的原生右下角调节已由上边缘调节替代。
+
 ## 成功标准
 
 - Enter 发送、Shift+Enter 换行，保留 Ctrl/⌘+Enter；输入法确认候选不发送。
@@ -11,7 +13,7 @@
 
 ## 取证与根因
 
-- Chrome 当前加载目录为 `/Users/boohee/Downloads/peak-distance-0.6.5-chrome`；修复前的 background 和 sidepanel 构建与仓库源码生成物一致，排除安装包与源码不同步。实机通过原生 UI 点击历史行后没有界面变化。
+- 取证时 Chrome 加载目录为 `/Users/boohee/Downloads/peak-distance-0.6.5-chrome`；修复前的 background 和 sidepanel 构建与仓库源码生成物一致，排除安装包与源码不同步。实机通过原生 UI 点击历史行后没有界面变化。
 - 旧输入框只在 Ctrl/⌘+Enter 时调用发送，普通 Enter 使用 textarea 的默认换行行为；这是旧交互定义。
 - `main.ts` 的启动流程在 `restoreChat()` 后才提交 `ready`。启动期间的 `visibilitychange` 会调用 `setChatActive(false)`；若面板重新可见但尚未 ready，`activePanel && ready` 仍为 false。随后 boot 只恢复主面板可交互，未恢复聊天模块活动状态。
 - 因此主面板允许点击发送，而 `acceptRecord()`、轮询和草稿保存认为聊天模块不活动。端口发送及生成状态提示仍可运行，后台提交成功、界面却保留旧记录；欢迎标题和选区继续显示。

@@ -1,6 +1,6 @@
-# M11 执行组织与续工 Prompt
+# M11 执行组织（阶段记录）
 
-本文件替代原三独立聊天方案。产品范围、UI/UX 和验收仍以 [M11 spec](m11-multilingual-local-vault.md) 为准。
+本文保留 M11 阶段替代原三独立聊天方案的组织决策，不作为后续任务的委派授权或分支接续指令。当前任务与 Git 约定见 [ROADMAP](../ROADMAP.md)，M11 范围与验收见 [M11 spec](m11-multilingual-local-vault.md)。
 
 ## 1. 唯一执行入口
 
@@ -34,19 +34,7 @@ I 以自身实现为主，只委派边界明确、能独立完成的工作；通
 - 已有分支和 worktree 保留待 I 判断用途，不因组织方式变化重建、重置或清理工作。
 - 普通实现选择、修复和相关测试由 I 完成；只有产品取舍、真实技术阻塞或必须由用户完成的浏览器授权需要用户输入。
 
-## 4. 发给 I 的续工 Prompt
-
-~~~text
-继续当前 M11 工作，保留已有仓库、分支、提交和未提交改动。
-
-执行组织改为“你独立负责完整交付，按需使用内部子代理”。读取更新后的 docs/specs/m11-parallel-development.md；它替代此前固定 I/L/V 聊天、B0/C0 等待和文件归属要求。功能与验收继续以 M11 spec 为准，UI/UX 沿用其中列出的现有规范。
-
-我明确允许你使用子代理处理独立验证、复核或边界清楚的局部实现。由你负责委派、传递上下文、接收结果、解决冲突及集成；不要让我新开 L/V 聊天或传递消息。通常零到两个子代理即可，不为凑并行拆任务；没有子代理能力时你串行完成。
-
-共享类型、数据库迁移、后台接线和主 UI 由你推进。委派写入时限定文件，避免与自己的修改重叠；worktree 仅在必要时使用并由你管理。继续完成 M11 的实现、相关验证和进度记录，仅在真实阻塞或产品取舍时询问我。
-~~~
-
-## 5. 官方参考
+## 4. 当时的参考资料
 
 - [OpenAI：Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)
 - [OpenAI：Multi-agent](https://developers.openai.com/api/docs/guides/responses-multi-agent#when-to-use-multi-agent)
