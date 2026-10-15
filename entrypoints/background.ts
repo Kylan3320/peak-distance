@@ -30,25 +30,23 @@ import {
 import { lookupExpression, translateSentences } from '@/lib/aiClient';
 import { getAiConfig } from '@/lib/aiTransport';
 import { aiCacheScope, isAiProvider, validateAiProfile } from '@/shared/aiConfig';
-import { handleChatRequest, initChatService } from '@/lib/chatService';
+import { handleChatRequest, initChatService, stopWindowChats, closeLibraryWorkspace } from '@/lib/chatService';
 import { getVaultIdentity, getVaultStatus, migrateLegacyLanguages } from '@/lib/db';
 import {
   adoptVault,
   disconnectVault,
   enqueuePreferenceWrite,
-  enqueueSentenceWrite,
-  enqueueVocabWrite,
   flushVaultWrites,
   syncFromVault,
   synchronizeVault,
 } from '@/lib/vault/sync';
-import { entryViewToVaultRecord, sentenceToVaultRecord } from '@/lib/vault/records';
 import { vaultErrorCode } from '@/shared/vault';
 import { isLanguageTag, normalizeLangTag } from '@/shared/languages';
 import {
   sentenceId,
   isVocabStatus,
   normalizeExpression,
+  normalizeEntryKey,
   type LookupSnapshot,
   type VideoRef,
   type WebSnapshot,
@@ -86,8 +84,8 @@ function parseLangField(v: unknown): string | undefined | null {
 function queueVaultWriteAfterSave(task?: () => Promise<void>): void {
   void (async () => {
     try {
-      if (!(await getVaultIdentity())) return;
       await task?.();
+      if (!(await getVaultIdentity())) return;
       await flushVaultWrites();
       broadcastVaultChanges();
     } catch {
@@ -274,7 +272,7 @@ async function handle(
         createdAt: Date.now() };
       await saveSentence(savedSentence);
       broadcast({ type: 'sentences-changed' });
-      queueVaultWriteAfterSave(() => enqueueSentenceWrite(sentenceToVaultRecord(savedSentence)));
+      queueVaultWriteAfterSave();
       return { ok: true };
     }
     case 'deleteSentence': {
@@ -347,7 +345,7 @@ async function handle(
       if (typeof m.key !== 'string' || !m.key.trim()) return bad('bad-payload', 'key');
       const r: GetEntryResult = {
         ok: true,
-        entry: await getEntry(normalizeExpression(m.key)),
+        entry: await getEntry(normalizeEntryKey(m.key)),
       };
       return r;
     }
@@ -369,16 +367,13 @@ async function handle(
       if (!r) return bad('bad-payload', 'empty-expression');
       const out: SaveResult = r;
       broadcast({ type: 'vocab-changed' });
-      queueVaultWriteAfterSave(async () => {
-        const entry = await getEntry(r.key);
-        if (entry) await enqueueVocabWrite(entryViewToVaultRecord(entry));
-      });
+      queueVaultWriteAfterSave();
       return out;
     }
     case 'backfillResult': {
       if (typeof m.contextId !== 'number') return bad('bad-payload');
       const filled = await backfillResult(m.contextId, parseResult(m.result), parseExplanation(m.explanation));
-      if (filled) broadcast({ type: 'vocab-changed' });
+      if (filled) { broadcast({ type: 'vocab-changed' }); queueVaultWriteAfterSave(); }
       return { ok: true, filled };
     }
     case 'backfillDefinition': {
@@ -394,11 +389,11 @@ async function handle(
         m.definition.slice(0, 2000),
       );
       const r: BackfillResult = { ok: true, filled };
-      if (filled) broadcast({ type: 'vocab-changed' });
+      if (filled) { broadcast({ type: 'vocab-changed' }); queueVaultWriteAfterSave(); }
       return r;
     }
     case 'setStatus': {
-      const key = typeof m.key === 'string' ? normalizeExpression(m.key) : '';
+      const key = typeof m.key === 'string' ? normalizeEntryKey(m.key) : '';
       if (!key || !isVocabStatus(m.status)) return bad('bad-payload');
       // 词形关联：把 'went' 的状态修改落到词条 'go'
       const target = (await resolveEntry(key))?.key ?? key;
@@ -406,28 +401,22 @@ async function handle(
       if (!ok) return bad('not-found');
       broadcast({ type: 'vocab-changed' });
       // 状态是学习库受管字段：连接时排队写回
-      queueVaultWriteAfterSave(async () => {
-        const entry = await getEntry(target);
-        if (entry) await enqueueVocabWrite(entryViewToVaultRecord(entry));
-      });
+      queueVaultWriteAfterSave();
       return { ok: true };
     }
     case 'setNote': {
-      const key = typeof m.key === 'string' ? normalizeExpression(m.key) : '';
+      const key = typeof m.key === 'string' ? normalizeEntryKey(m.key) : '';
       if (!key || typeof m.note !== 'string' || m.note.length > 4000) return bad('bad-payload');
       const target = (await resolveEntry(key))?.key ?? key;
       const ok = await setEntryNote(target, m.note);
       if (!ok) return bad('not-found');
       broadcast({ type: 'vocab-changed' });
-      queueVaultWriteAfterSave(async () => {
-        const entry = await getEntry(target);
-        if (entry) await enqueueVocabWrite(entryViewToVaultRecord(entry));
-      });
+      queueVaultWriteAfterSave();
       return { ok: true };
     }
     case 'deleteEntry': {
       if (typeof m.key !== 'string' || !m.key) return bad('bad-payload', 'key');
-      const target = (await resolveEntry(normalizeExpression(m.key)))?.key ?? normalizeExpression(m.key);
+      const target = (await resolveEntry(normalizeEntryKey(m.key)))?.key ?? normalizeEntryKey(m.key);
       const ok = await deleteEntry(target);
       if (!ok) return bad('not-found');
       broadcast({ type: 'vocab-changed' });
@@ -437,10 +426,10 @@ async function handle(
     case 'removeForm': {
       if (typeof m.key !== 'string' || !m.key) return bad('bad-payload', 'key');
       if (typeof m.form !== 'string' || !m.form.trim()) return bad('bad-payload', 'form');
-      const target = (await resolveEntry(normalizeExpression(m.key)))?.key ?? normalizeExpression(m.key);
+      const target = (await resolveEntry(normalizeEntryKey(m.key)))?.key ?? normalizeEntryKey(m.key);
       const removed = await removeForm(target, normalizeExpression(m.form));
       const r: RemoveFormResult = { ok: true, removed };
-      if (removed) broadcast({ type: 'vocab-changed' });
+      if (removed) { broadcast({ type: 'vocab-changed' }); queueVaultWriteAfterSave(); }
       return r;
     }
     case 'listEntries': {
@@ -466,10 +455,6 @@ async function handle(
         return bad('bad-payload', 'setting');
       }
       await browser.storage.local.set({ [m.name]: m.value });
-      // 语言偏好双向生效：连接学习库时排队写回 偏好.md
-      if (m.name === 'defaultComprehensionLang' || m.name === 'comprehensionOverrides') {
-        queueVaultWriteAfterSave(() => enqueuePreferenceWrite());
-      }
       return { ok: true };
     }
     case 'translateCues': {
@@ -542,7 +527,7 @@ async function handle(
     case 'vaultConnect': {
       // 页面侧已完成选目录/授权（pickVaultDirectoryInPage 把句柄写入 IDB），
       // 重新授权 = 页面再次选同一目录后重发本消息。
-      const r = await adoptVault();
+      const r = await adoptVault(closeLibraryWorkspace);
       if (!r.ok) return bad(r.error);
       broadcastVaultChanges();
       return { ok: true, vault: (await getVaultIdentity()) ?? null, imported: r.imported, syncError: r.syncError };
@@ -585,8 +570,6 @@ export default defineBackground(() => {
         broadcast({ type: 'vocab-changed' });
         broadcast({ type: 'sentences-changed' });
         if (await getVaultIdentity()) {
-          for (const e of await listEntries()) await enqueueVocabWrite(entryViewToVaultRecord(e));
-          for (const s of await listSentences()) await enqueueSentenceWrite(sentenceToVaultRecord(s));
           await flushVaultWrites();
           broadcast({ type: 'vault-changed' });
         }
@@ -598,7 +581,7 @@ export default defineBackground(() => {
 
   // M5 问答：侧栏长连接（发送 / 停止 / 重试 / 流事件广播）
   initChatService();
-  initPanelLifecycle();
+  initPanelLifecycle(stopWindowChats);
   initSelectionCandidateStore();
 
   // 设置页直接写 storage 时经 onChanged 广播给页面与各标签页。

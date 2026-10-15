@@ -11,7 +11,10 @@ import {
   ensureVault,
   migrateVaultCollections,
   deleteCollectionRecord,
+  deleteChatFromVault,
   parseChatDocument,
+  parseMaterialDocument,
+  readPreferenceFromVault,
   readVocabRecordById,
   scanVault,
   writeChatToVault,
@@ -25,19 +28,20 @@ import { serializeChatRecord } from './chatFormat';
 import type { VaultChatRecord } from '@/shared/vault';
 import { vaultRecordJson, vaultErrorCode, type VaultError } from '@/shared/vault';
 import type { ChatRecord, MaterialSnapshotRecord } from '@/shared/chat';
-import { mergeVocabRecord } from './format';
+import { mergeVocabRecord, mergePreferenceRecord } from './format';
 import {
-  clearSyncSnapshots,
   clearVault,
+  clearChat,
   deleteEntry,
   deleteSentence,
   deleteSyncSnapshot,
   enqueueVaultWrite,
-  enqueueRecoveredVaultWrite,
   getSyncSnapshot,
   getVaultHandle,
   getVaultIdentity,
+  getDataVaultIdentity,
   getVaultStatus,
+  getVaultRaw,
   importVaultEntry,
   listEntries,
   getChat,
@@ -58,6 +62,7 @@ import type {
   VaultSentenceRecord,
   VaultStatus,
   VaultVocabRecord,
+  VaultPreferenceRecord,
 } from '@/shared/vault';
 import { entryViewToVaultRecord, sentenceToVaultRecord, vaultRecordToEntry } from './records';
 import { DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
@@ -94,21 +99,31 @@ async function flushPendingWrites(): Promise<FlushResult> {
   const handle = (await getVaultHandle()) as DirHandle | null;
   if (!handle) return { committed: 0, failed: 0, skipped: 0, error: 'not-connected' };
   const perm = await ensurePermission(handle);
-  const queue = await listVaultQueue();
+  if (perm === 'granted' && (await ensureVault(handle)).vaultId !== (await getVaultIdentity())?.vaultId) return { committed: 0, failed: 0, skipped: 0, error: 'conflict' };
+  const queue = await listVaultQueue(true);
   if (perm !== 'granted') {
     for (const w of queue) await markVaultWriteAttempt(w, 'no-permission');
     return { committed: 0, failed: queue.length, skipped: 0, error: 'no-permission' };
   }
   await migrateVaultCollections(handle);
   let committed = 0;
-  let failed = 0;
+  let failed = queue.filter(w => !w.vaultId).length;
   let skipped = 0;
-  let error: FlushResult['error'];
+  let error: FlushResult['error'] = failed ? 'conflict' : undefined;
   for (const w of queue) {
+    if (!w.vaultId) continue;
     try {
       if (w.payload === null && (w.kind === 'vocab' || w.kind === 'sentence')) {
         await deleteCollectionRecord(handle, w.kind, w.recordId);
         await deleteSyncSnapshot(w.kind === 'sentence' ? `sentence:${w.recordId}` : w.recordId);
+      } else if (w.payload === null && w.kind === 'chat') {
+        const base = await getSyncSnapshot(`chat:${w.recordId}`);
+        const result = await deleteChatFromVault(handle, w.recordId, base ? JSON.parse(base) : null);
+        if (result) {
+          await putVaultRaw(`conflict:chat:${w.recordId}`, { kind: 'chat', recordId: w.recordId, local: null, remote: result.conflict });
+          await markVaultWriteAttempt(w, 'conflict'); failed++; error = 'conflict'; continue;
+        }
+        await deleteSyncSnapshot(`chat:${w.recordId}`);
       } else if (w.kind === 'vocab') {
         const record = w.payload as VaultVocabRecord;
         // 提交前检查文件变化（spec 4.4）：库中版本相对上次同步快照有外部改动时
@@ -148,8 +163,19 @@ async function flushPendingWrites(): Promise<FlushResult> {
         await writeSentenceToVault(handle, record);
         await setSyncSnapshot(`sentence:${record.id}`, vaultRecordJson(record));
       } else if (w.kind === 'preference') {
-        const p = w.payload as { defaultComprehensionLang: string; comprehensionOverrides: Record<string, string> };
-        await writePreferenceToVault(handle, p);
+        const local = w.payload as VaultPreferenceRecord;
+        if (vaultRecordJson(await readLocalPreference()) !== vaultRecordJson(local)) { await removeVaultWrite(w); skipped++; continue; }
+        const file = await readPreferenceFromVault(handle);
+        const base = await getSyncSnapshot('preference:main');
+        const outcome = file ? mergePreferenceRecord(base ? JSON.parse(base) : null, local, file) : { kind: 'merged' as const, value: local };
+        if (outcome.kind === 'conflict') {
+          await putVaultRaw('conflict:preference', { kind: 'preference', recordId: 'preference', local, remote: file, fields: outcome.fields });
+          await markVaultWriteAttempt(w, 'conflict'); failed++; error = 'conflict'; continue;
+        }
+        await writePreferenceToVault(handle, outcome.value);
+        await setSyncSnapshot('preference:main', vaultRecordJson(outcome.value));
+        const now = await readLocalPreference();
+        if (vaultRecordJson(now) === vaultRecordJson(local)) await storageLocal().set({ ...outcome.value });
       } else if (w.kind === 'chat') {
         const record = w.payload as VaultChatRecord;
         // 材料快照不可变：先落材料（存在即跳过），再写会话
@@ -157,6 +183,7 @@ async function flushPendingWrites(): Promise<FlushResult> {
           await writeMaterialToVault(handle, record.id, snap as MaterialSnapshotRecord);
         }
         await writeChatToVault(handle, record.id, record.title, serializeChatRecord(record));
+        await setSyncSnapshot(`chat:${record.id}`, vaultRecordJson(record));
       } else {
         skipped++;
         continue;
@@ -224,6 +251,7 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
   if (!handle) return { updated: 0, deleted: 0, conflicts: 0, broken: 0, error: 'not-connected' };
   const perm = await ensurePermission(handle);
   if (perm !== 'granted') return { updated: 0, deleted: 0, conflicts: 0, broken: 0, error: 'no-permission' };
+  if ((await ensureVault(handle)).vaultId !== (await getVaultIdentity())?.vaultId) return { updated: 0, deleted: 0, conflicts: 0, broken: 0, error: 'conflict' };
 
   await migrateVaultCollections(handle);
   const scan: VaultFileScan = await scanVault(handle);
@@ -276,6 +304,7 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
       updated++;
     }
     await setSyncSnapshot(record.id, vaultRecordJson(fileRecord));
+    await putVaultRaw(`conflict:${record.id}`, null);
   }
 
   // 删除检测：有同步快照但库中不再存在该 ID（移动保留同 ID，不会误判）。
@@ -285,7 +314,7 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
   const pendingIds = new Set(pending.map(write => write.recordId));
   if (scan.readFailures === 0 && scan.broken.length === 0) {
     for (const id of await listSyncSnapshotIds()) {
-      if (!id.startsWith('sentence:') && !seen.has(id) && !pendingIds.has(id)) {
+      if (!id.startsWith('sentence:') && !id.startsWith('chat:') && id !== 'preference:main' && !seen.has(id) && !pendingIds.has(id)) {
         const current = localByKey.get(id);
         if (!await deleteEntry(id, false, current ? entryViewToVaultRecord(current) : null)) continue;
         await deleteSyncSnapshot(id);
@@ -329,40 +358,70 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
     }
   }
 
-  // 会话读回：新会话插入；文件较新替换（本地 streaming 生成不被动）
-  for (const { text } of scan.chats) {
+  const materials = new Map<string, MaterialSnapshotRecord[]>();
+  for (const { path, text } of scan.materials) {
+    const parsed = parseMaterialDocument(text);
+    if ('error' in parsed) { scan.broken.push({ path, reason: 'material format' }); continue; }
+    const snapshots = materials.get(parsed.chatId) ?? [];
+    snapshots.push(parsed.snapshot);
+    materials.set(parsed.chatId, snapshots);
+  }
+  const seenChats = new Set<string>();
+  for (const { path, text } of scan.chats) {
     const parsed = parseChatDocument(text);
-    if ('error' in parsed) continue;
+    if ('error' in parsed) { scan.broken.push({ path, reason: 'chat format' }); continue; }
+    if (scan.deletedChats.includes(parsed.id)) continue;
+    seenChats.add(parsed.id);
+    if (pendingKeys.has(`chat:${parsed.id}`)) continue;
+    const source = parsed.source !== undefined ? parsed.source : parsed.sourceType
+      ? { sourceType: parsed.sourceType, sourceKey: '', title: parsed.title, url: parsed.sourceUrl, ...(parsed.sourceVideo ? { video: parsed.sourceVideo } : {}) } : null;
+    const snapshots = (materials.get(parsed.id) ?? []).sort((a, b) => a.version - b.version).map(s => ({ ...s, source: s.source.url ? s.source : source ?? s.source }));
+    const versions = new Set(snapshots.map(s => s.version));
+    if (parsed.messages.some(m => m.snapshotVersion && !versions.has(m.snapshotVersion))) { scan.broken.push({ path, reason: 'missing material' }); continue; }
     const record: ChatRecord = {
       id: parsed.id,
       title: parsed.title,
-      source: parsed.sourceType
-        ? { sourceType: parsed.sourceType, sourceKey: '', title: parsed.title, url: parsed.sourceUrl, ...(parsed.sourceVideo ? { video: parsed.sourceVideo } : {}) }
-        : null,
-      sourceKey: '',
-      snapshots: [],
-      activeSnapshotVersion: 0,
+      source,
+      sourceKey: source?.sourceKey ?? null,
+      snapshots,
+      activeSnapshotVersion: parsed.activeSnapshotVersion === undefined ? snapshots.at(-1)?.version ?? null : parsed.activeSnapshotVersion,
       messages: parsed.messages,
       updatedAt: parsed.updatedAt || Date.now(),
       draft: '',
       pendingQuote: null,
     };
-    await upsertChatRecordFromVault(record);
+    if (await upsertChatRecordFromVault(record) !== 'kept-local') updated++;
+    const { draft: _draft, pendingQuote: _quote, ...base } = record;
+    await setSyncSnapshot(`chat:${record.id}`, vaultRecordJson(base));
+  }
+  if (scan.readFailures === 0 && scan.broken.length === 0) {
+    const removedIds = new Set([...scan.deletedChats, ...(await listSyncSnapshotIds()).filter(id => id.startsWith('chat:') && !seenChats.has(id.slice(5))).map(id => id.slice(5))]);
+    for (const id of removedIds) {
+      if (pendingKeys.has(`chat:${id}`)) continue;
+      const localChat = await getChat(id, () => true);
+      if (localChat) {
+        if (!await clearChat(id, false, localChat)) { conflicts++; continue; }
+        deleted++;
+      }
+      await deleteSyncSnapshot(`chat:${id}`);
+    }
   }
 
-  // 偏好双向生效：库里有而本地缺的偏好项以库为准（Key / AI 配置永不读取）
-  if (scan.preference) {
-    const stored = await storageLocal().get(['defaultComprehensionLang', 'comprehensionOverrides']);
-    const patch: Record<string, unknown> = {};
-    if (!validSetting('defaultComprehensionLang', stored.defaultComprehensionLang) &&
-        validSetting('defaultComprehensionLang', scan.preference.defaultComprehensionLang)) {
-      patch.defaultComprehensionLang = scan.preference.defaultComprehensionLang;
+  if (!pendingKeys.has('preference:preference')) {
+    const file = await readPreferenceFromVault(handle);
+    if (file) {
+      const local = await readLocalPreference();
+      const baseRaw = await getSyncSnapshot('preference:main');
+      const outcome = mergePreferenceRecord(baseRaw ? JSON.parse(baseRaw) : local, local, file);
+      if (outcome.kind === 'conflict') {
+        await putVaultRaw('conflict:preference', { kind: 'preference', recordId: 'preference', local, remote: file, fields: outcome.fields });
+        conflicts++;
+      } else {
+        await setSyncSnapshot('preference:main', vaultRecordJson(file));
+        await putVaultRaw('conflict:preference', null);
+        if (vaultRecordJson(local) !== vaultRecordJson(outcome.value) && vaultRecordJson(await readLocalPreference()) === vaultRecordJson(local)) await storageLocal().set({ ...outcome.value });
+      }
     }
-    if (!validSetting('comprehensionOverrides', stored.comprehensionOverrides) &&
-        validSetting('comprehensionOverrides', scan.preference.comprehensionOverrides)) {
-      patch.comprehensionOverrides = scan.preference.comprehensionOverrides;
-    }
-    if (Object.keys(patch).length) await storageLocal().set(patch);
   }
 
   return { updated, deleted, conflicts, broken: scan.broken.length,
@@ -370,39 +429,31 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
 }
 
 /** Manual sync publishes local pending changes and then refreshes the running copy from the shared files. */
-export const synchronizeVault = () => runVaultOperation(async () => {
-  // The local database is the durable save boundary, including saves made before connecting or before a worker restart.
-  const deletions = new Set((await listVaultQueue()).filter(write => write.payload === null).map(write => `${write.kind}:${write.recordId}`));
-  for (const entry of await listEntries()) {
-    if (deletions.has(`vocab:${entry.key}`)) continue;
-    const record = entryViewToVaultRecord(entry);
-    const base = await getSyncSnapshot(record.id);
-    if (!base || vaultRecordJson(record) !== vaultRecordJson(JSON.parse(base))) await enqueueRecoveredVaultWrite({ id: `vocab:${record.id}`, kind: 'vocab', recordId: record.id, payload: record, queuedAt: Date.now() });
-  }
-  for (const sentence of await listSentences()) {
-    if (deletions.has(`sentence:${sentence.id}`)) continue;
-    const record = sentenceToVaultRecord(sentence);
-    const base = await getSyncSnapshot(`sentence:${record.id}`);
-    if (!base || vaultRecordJson(record) !== vaultRecordJson(JSON.parse(base))) await enqueueRecoveredVaultWrite({ id: `sentence:${record.id}`, kind: 'sentence', recordId: record.id, payload: record, queuedAt: Date.now() });
-  }
+export const synchronizeVault = () => runVaultOperation(synchronize);
+async function synchronize() {
+  if (await getSyncSnapshot('preference:main')) await queuePreferenceWrite();
   const flush = await flushPendingWrites();
   const sync = await readVaultChanges();
   return { ...flush, ...sync, error: flush.error ?? sync.error ?? (sync.conflicts ? 'conflict' as const : undefined) };
-});
+}
 
 // ---- 连接 / 断开 -------------------------------------------------------------------
 
-export async function adoptVault(): Promise<
+export const adoptVault = (prepareSwitch?: () => Promise<void>) => runVaultOperation(() => adoptConnectedVault(prepareSwitch));
+async function adoptConnectedVault(prepareSwitch?: () => Promise<void>): Promise<
   { ok: true; imported: boolean; status: VaultStatus; syncError?: FlushResult['error'] } | { ok: false; error: string }
 > {
   const handle = (await getVaultHandle()) as DirHandle | null;
   if (!handle) return { ok: false, error: 'no-handle' };
   const identity = await ensureVault(handle);
-  await setVaultIdentity(identity);
-  const marker = `vaultImported:${identity.vaultId}`;
-  const got = await storageLocal().get([marker]);
+  const previous = await getDataVaultIdentity();
+  const previousImports = await browser.storage.local.get(null);
+  if (!previous && !Object.keys(previousImports).some(key => key.startsWith('vaultImported:'))) await putVaultRaw('initialImportVaultId', identity.vaultId);
+  if (previous?.vaultId !== identity.vaultId) await prepareSwitch?.();
+  const preference = await setVaultIdentity(identity, await readLocalPreference());
+  if (previous && previous.vaultId !== identity.vaultId) await storageLocal().set({ ...(preference ?? { defaultComprehensionLang: DEFAULT_SETTINGS.defaultComprehensionLang, comprehensionOverrides: {} }) });
   let imported = false;
-  if (!got[marker]) {
+  if (await getVaultRaw('initialImportVaultId') === identity.vaultId) {
     // 首次连接该库：本机持久记录增量并入（幂等标记防重复导入）
     const entries = await listEntries();
     for (const e of entries) await enqueueVocabWrite(entryViewToVaultRecord(e));
@@ -411,37 +462,36 @@ export async function adoptVault(): Promise<
       const record = await getChat(c.chatId);
       if (record) await enqueueChatWrite(record);
     }
-    await storageLocal().set({ [marker]: true });
+    await putVaultRaw('initialImportVaultId', null);
     imported = true;
   }
-  const result = await synchronizeVault();
+  const result = await synchronize();
   if (result.error && result.error !== 'conflict') return { ok: false, error: result.error };
   const status = await getVaultStatus();
   return { ok: true, imported, status, syncError: result.error };
 }
 
-export async function disconnectVault(): Promise<void> {
-  await clearVault();
-  await clearSyncSnapshots();
+export const disconnectVault = () => runVaultOperation(clearVault);
+
+async function readLocalPreference(): Promise<VaultPreferenceRecord> {
+  const stored = await storageLocal().get(['defaultComprehensionLang', 'comprehensionOverrides']);
+  return { defaultComprehensionLang: validSetting('defaultComprehensionLang', stored.defaultComprehensionLang) ? stored.defaultComprehensionLang as string : DEFAULT_SETTINGS.defaultComprehensionLang,
+    comprehensionOverrides: validSetting('comprehensionOverrides', stored.comprehensionOverrides) ? stored.comprehensionOverrides as Record<string, string> : {} };
 }
 
 /** 设置变化时把偏好排入待写（background setSetting 后调用）。 */
-export async function enqueuePreferenceWrite(): Promise<void> {
-  if (!(await getVaultIdentity())) return;
-  const stored = await storageLocal().get(['defaultComprehensionLang', 'comprehensionOverrides']);
+export const enqueuePreferenceWrite = () => runVaultOperation(queuePreferenceWrite);
+async function queuePreferenceWrite(): Promise<void> {
+  const identity = await getDataVaultIdentity();
+  if (!identity) return;
+  const payload = await readLocalPreference();
+  if (await getSyncSnapshot('preference:main') === vaultRecordJson(payload)) return;
   await enqueueVaultWrite({
     id: 'preference:main',
     kind: 'preference',
     recordId: 'preference',
-    payload: {
-      defaultComprehensionLang:
-        validSetting('defaultComprehensionLang', stored.defaultComprehensionLang)
-          ? (stored.defaultComprehensionLang as string)
-          : DEFAULT_SETTINGS.defaultComprehensionLang,
-      comprehensionOverrides: validSetting('comprehensionOverrides', stored.comprehensionOverrides)
-        ? (stored.comprehensionOverrides as Record<string, string>)
-        : {},
-    },
+    vaultId: identity.vaultId,
+    payload,
     queuedAt: Date.now(),
   });
 }

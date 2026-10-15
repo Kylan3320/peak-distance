@@ -524,7 +524,7 @@ function doStop(): void {
 }
 
 function doRetry(turnId: string): void {
-  if (chatId) portSend({ type: 'chat-retry', chatId, turnId });
+  if (chatId) portSend({ type: 'chat-retry', chatId, turnId, windowId: chatWindowId });
 }
 
 function onAck(

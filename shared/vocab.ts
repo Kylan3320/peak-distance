@@ -1,5 +1,5 @@
 import type { DictionaryEntry } from '@/lib/onlineDictionary';
-import { entryKeyOf, normalizeExpressionInLanguage, type LanguageTag } from './languages';
+import { entryKeyOf, parseEntryKey, normalizeExpressionInLanguage, type LanguageTag } from './languages';
 import { normTrackKey } from './subtitleTracker';
 
 // 词汇与上下文的纯逻辑：类型、规范化、去重判定、词形关联。
@@ -395,9 +395,15 @@ export function buildFormIndex(items: FormIndexInput[]): Map<string, string> {
  * 表达在两侧落到同一条目（entryKeyOf 内部做语言感知规范化）。
  */
 export function lookupKeyCandidates(expression: string, lang?: LanguageTag): string[] {
+  const parsed = parseEntryKey(expression);
+  if (parsed) return [entryKeyOf(parsed.lang, parsed.expression)];
   const bare = normalizeExpression(expression);
   const scoped = lang ? entryKeyOf(lang, expression) : '';
   return [...new Set([bare, scoped].filter(Boolean))];
+}
+
+export function normalizeEntryKey(key: string): string {
+  return lookupKeyCandidates(key)[0] ?? '';
 }
 
 /**

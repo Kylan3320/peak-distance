@@ -2,6 +2,8 @@
 
 状态：主体实现与集成已完成，统一验收尚未全部通过；见 [验收报告](m6-verification-report.md)。产品行为以 [PRD](../PRD.md) 为准。本轮完成免 key 在线词典、常规字幕翻译、显式 AI 兜底、独立问答，以及直接影响这些链路的缓存 / 复习修正。
 
+阶段规格。后续 AI 配置由 [M9](m9-ai-services.md) 扩展，会话与临时编辑由 [M10](m10-chat-and-popup-interactions.md) 修订，语言与查询路由由 [M11](m11-multilingual-local-vault.md) 扩展；本阶段未被替代的来源与缓存约定继续保留。
+
 ## 1. 先验证来源
 
 在实际扩展请求环境验证下列候选，结果记入 [REFERENCES](../REFERENCES.md) 的接入记录；验证后继续实现，不停在调研结论。

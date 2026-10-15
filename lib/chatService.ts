@@ -3,21 +3,23 @@ import {
   clearChat,
   getChat,
   getVaultIdentity,
+  getDataVaultIdentity,
   listChats,
   resetChatTurn,
   saveAssistantProgress,
   setChatRetained,
 } from './db';
-import { enqueueChatWrite, flushVaultWrites } from './vault/sync';
+import { flushVaultWrites } from './vault/sync';
 import { chatCompletionStream } from './aiClient';
 import { getAiConfig } from './aiTransport';
 import { validateAiProfile, type AiConfig } from '@/shared/aiConfig';
 import { isDisplayLanguage, resolveDisplayLocale } from '@/shared/i18n';
 import { DEFAULT_SETTINGS } from '@/shared/settings';
 import { openPanel } from './panelService';
-import { readChatEdit, writeChatEdit, replaceChatEdit, activateChatEdit, beginChatOperation, chatOperation, ownsChatEdit } from './chatWorkspace';
+import { readChatEdit, writeChatEdit, replaceChatEdit, activateChatEdit, beginChatOperation, chatOperation, ownsChatEdit, discardLibraryWorkspace } from './chatWorkspace';
 import {
   editChatMaterial,
+  refreshChatHistory,
   CHAT_QUESTION_MAX_CHARS,
   buildChatMessages,
   buildSegments,
@@ -49,6 +51,8 @@ const MAX_BLOCKS = 4000;
 const MAX_MATERIAL_CHARS = 400_000;
 
 interface ActiveChat {
+  windowId: number;
+  vaultId: string | null;
   config: AiConfig;
   stopped?: boolean;
   chatId: string;
@@ -67,6 +71,36 @@ const activeChats = new Map<string, ActiveChat>();
 const submittingEdits = new Set<string>();
 type ChatPort = Parameters<Parameters<typeof browser.runtime.onConnect.addListener>[0]>[0];
 const portSubs = new Map<ChatPort, Set<string>>();
+
+function clearChatTimers(active: ActiveChat): void {
+  if (active.idleTimer) clearTimeout(active.idleTimer);
+  if (active.totalTimer) clearTimeout(active.totalTimer);
+  if (active.checkpointTimer) clearInterval(active.checkpointTimer);
+  active.idleTimer = active.totalTimer = active.checkpointTimer = null;
+}
+
+async function failTurn(active: ActiveChat, error: unknown): Promise<void> {
+  console.warn('[pd] chat turn failed', { requestId: active.requestId, error: String((error as Error)?.message ?? error) });
+  clearChatTimers(active);
+  if (activeChats.get(active.chatId) !== active || active.stopped) return;
+  active.stopped = true;
+  active.controller.abort('internal');
+  const saved = await saveAssistantProgress({ chatId: active.chatId, requestId: active.requestId, text: active.text, state: 'error', errorKind: 'internal', vaultId: active.vaultId }).catch(() => false);
+  if (activeChats.get(active.chatId) !== active) return;
+  activeChats.delete(active.chatId);
+  flushChatToVault();
+  broadcast(active.chatId, { type: 'chat-ev', chatId: active.chatId, requestId: active.requestId, turnId: active.turnId, kind: 'error', text: active.text, errorKind: 'internal', saved });
+  broadcastActive(active.chatId);
+}
+
+export async function stopWindowChats(windowId: number): Promise<void> {
+  await Promise.all([...activeChats.values()].filter(a => a.windowId === windowId).map(a => stopChat(a.chatId, 'workspace-closed')));
+}
+
+export async function closeLibraryWorkspace(): Promise<void> {
+  await Promise.all([...activeChats.keys()].map(id => stopChat(id, 'vault-changed')));
+  await discardLibraryWorkspace();
+}
 
 /** 该 requestId 是否正在生成（读路径据此避免把活占位误判为陈旧 streaming）。 */
 function isLiveRequest(chatId: string): (requestId: string) => boolean {
@@ -204,8 +238,8 @@ async function runTurn(active: ActiveChat): Promise<void> {
   const { chatId, turnId, requestId } = active;
   const controller = active.controller;
   try {
-    const record = await getChat(chatId, isLiveRequest(chatId));
-    if (!record) return;
+    const record = await getChat(chatId, isLiveRequest(chatId), active.vaultId);
+    if (!record) { await failTurn(active, new Error('workspace-changed')); return; }
     const userMsg = record.messages.find((m) => m.role === 'user' && m.turnId === turnId);
     if (!userMsg || controller.signal.aborted) return;
     const snapshot = record.snapshots.find(s => s.version === userMsg.snapshotVersion) ?? null;
@@ -228,14 +262,6 @@ async function runTurn(active: ActiveChat): Promise<void> {
       history,
     });
 
-    const clearTimers = () => {
-      if (active.idleTimer) clearTimeout(active.idleTimer);
-      if (active.totalTimer) clearTimeout(active.totalTimer);
-      if (active.checkpointTimer) clearInterval(active.checkpointTimer);
-      active.idleTimer = null;
-      active.totalTimer = null;
-      active.checkpointTimer = null;
-    };
     const armIdle = () => {
       if (active.idleTimer) clearTimeout(active.idleTimer);
       active.idleTimer = setTimeout(() => {
@@ -246,7 +272,7 @@ async function runTurn(active: ActiveChat): Promise<void> {
       state: 'done' | 'stopped' | 'error' | 'interrupted',
       errorKind?: string,
     ) => {
-      clearTimers();
+      clearChatTimers(active);
       if (activeChats.get(chatId) !== active || active.stopped) return;
       const saved = await saveAssistantProgress({
         chatId,
@@ -254,9 +280,10 @@ async function runTurn(active: ActiveChat): Promise<void> {
         text: active.text,
         state,
         errorKind,
+        vaultId: active.vaultId,
       });
       if (activeChats.get(chatId) === active) activeChats.delete(chatId);
-      persistChatToVault(chatId);
+      flushChatToVault();
       broadcast(chatId, {
         type: 'chat-ev',
         chatId,
@@ -276,7 +303,7 @@ async function runTurn(active: ActiveChat): Promise<void> {
     active.checkpointTimer = setInterval(() => {
       if (!active.dirty) return;
       active.dirty = false;
-      void saveAssistantProgress({ chatId, requestId, text: active.text });
+      void saveAssistantProgress({ chatId, requestId, text: active.text, vaultId: active.vaultId }).catch(error => failTurn(active, error));
     }, CHECKPOINT_INTERVAL_MS);
 
     broadcast(chatId, {
@@ -325,44 +352,15 @@ async function runTurn(active: ActiveChat): Promise<void> {
       await finish('error', r.error);
     }
   } catch (e) {
-    // 兜底：编排层任何异常都以可重试错误收场，不留永久生成态
-    console.warn('[blc] chat turn crashed', { error: String((e as Error)?.message ?? e) });
-    if (activeChats.get(chatId)?.requestId === requestId) {
-      if (active.idleTimer) clearTimeout(active.idleTimer);
-      if (active.totalTimer) clearTimeout(active.totalTimer);
-      if (active.checkpointTimer) clearInterval(active.checkpointTimer);
-      activeChats.delete(chatId);
-      const saved = await saveAssistantProgress({
-        chatId,
-        requestId,
-        text: active.text,
-        state: 'error',
-        errorKind: 'internal',
-      }).catch(() => false);
-      persistChatToVault(chatId);
-      broadcast(chatId, {
-        type: 'chat-ev',
-        chatId,
-        requestId,
-        turnId,
-        kind: 'error',
-        text: active.text,
-        errorKind: 'internal',
-        saved,
-      });
-      broadcastActive(chatId);
-    }
+    await failTurn(active, e);
   }
 }
 
-/** 终态后把完整会话提交学习库（streaming 中间态不写文件；失败保留待办）。 */
-function persistChatToVault(chatId: string): void {
+/** 终态／删除事务已持久化待办；这里只触发文件提交。 */
+function flushChatToVault(): void {
   void (async () => {
     try {
       if (!(await getVaultIdentity())) return;
-      const record = await getChat(chatId);
-      if (!record) return;
-      await enqueueChatWrite(record);
       await flushVaultWrites();
     } catch {
       /* 队列持久化，下次活动补写 */
@@ -375,14 +373,12 @@ async function stopChat(chatId: string, reason: string): Promise<void> {
   if (!active) return;
   active.stopped = true;
   active.controller.abort(reason);
-  if (active.idleTimer) clearTimeout(active.idleTimer);
-  if (active.totalTimer) clearTimeout(active.totalTimer);
-  if (active.checkpointTimer) clearInterval(active.checkpointTimer);
-  await saveAssistantProgress({ chatId, requestId: active.requestId, text: active.text, state: 'stopped' });
-  if (activeChats.get(chatId) === active) activeChats.delete(chatId);
-  persistChatToVault(chatId);
-  broadcast(chatId, { type: 'chat-ev', chatId, requestId: active.requestId, turnId: active.turnId, kind: 'stopped', text: active.text, saved: true });
-  broadcastActive(chatId);
+  clearChatTimers(active);
+  let saved = false;
+  try { saved = await saveAssistantProgress({ chatId, requestId: active.requestId, text: active.text, state: 'stopped', vaultId: active.vaultId }); }
+  finally { if (activeChats.get(chatId) === active) activeChats.delete(chatId); broadcastActive(chatId); }
+  flushChatToVault();
+  broadcast(chatId, { type: 'chat-ev', chatId, requestId: active.requestId, turnId: active.turnId, kind: 'stopped', text: active.text, saved });
 }
 
 // ---- 端口消息 -------------------------------------------------------------------
@@ -392,15 +388,11 @@ function ack(
   chatId: string,
   payload: { ok: true; turnId: string; requestId: string; submittedChatId?: string; editId?: string } | { ok: false; error: string; editId?: string },
 ): void {
-  try {
-    post(port, {
-      type: 'chat-ack',
-      chatId,
-      ...payload,
-    } as ChatPortEvent);
-  } catch {
-    /* ignore */
-  }
+  post(port, {
+    type: 'chat-ack',
+    chatId,
+    ...payload,
+  } as ChatPortEvent);
 }
 
 async function onPortMessage(port: ChatPort, msg: unknown): Promise<void> {
@@ -459,6 +451,8 @@ async function onPortMessage(port: ChatPort, msg: unknown): Promise<void> {
       // 先登记生成中状态再落库：发送回执触发的读路径（chatGet）会把
       // streaming 占位误判为陈旧状态打成“已中断”——activeChats 在场即可免误杀
       const active: ActiveChat = {
+        windowId,
+        vaultId: edit.vaultId ?? null,
         config,
         chatId: committedId,
         turnId,
@@ -481,7 +475,7 @@ async function onPortMessage(port: ChatPort, msg: unknown): Promise<void> {
         snapshotVersion: version,
         segmentIndex: segIndex,
         scopeLabel,
-        context: record, create: !m.chatId,
+        context: record, create: !m.chatId, vaultId: edit.vaultId,
       }).catch(() => null);
       submittingEdits.delete(edit.editId!);
       if (!saved) {
@@ -491,13 +485,19 @@ async function onPortMessage(port: ChatPort, msg: unknown): Promise<void> {
       }
       portSubs.get(port)?.add(committedId);
       // 已提交的问题保留，即使用户此时离开；旧回执不覆盖新的编辑工作区。
-      if (ownsChatEdit(windowId, edit)) {
-        const committed = await getChat(committedId, isLiveRequest(committedId));
-        if (committed && ownsChatEdit(windowId, edit)) {
-          await activateChatEdit(windowId, { ...edit, id: committedId, title: committed.title, messages: committed.messages,
+      try {
+        if (ownsChatEdit(windowId, edit)) {
+          const committed = saved;
+          const next = { ...edit, id: committedId, title: committed.title,
             draft: edit.draft === submittedDraft ? '' : edit.draft,
-            pendingQuote: JSON.stringify(edit.pendingQuote) === submittedQuote ? null : edit.pendingQuote });
+            pendingQuote: JSON.stringify(edit.pendingQuote) === submittedQuote ? null : edit.pendingQuote };
+          refreshChatHistory(next, committed);
+          await activateChatEdit(windowId, next);
         }
+      } catch (error) {
+        ack(port, m.chatId, { ok: true, turnId, requestId, submittedChatId: committedId, editId: m.editId });
+        await failTurn(active, error);
+        return;
       }
       ack(port, m.chatId, { ok: true, turnId, requestId, submittedChatId: committedId, editId: m.editId });
       await runTurn(active);
@@ -514,7 +514,8 @@ async function onPortMessage(port: ChatPort, msg: unknown): Promise<void> {
         ack(port, m.chatId, { ok: false, error: 'busy' });
         return;
       }
-      const record = await getChat(m.chatId, isLiveRequest(m.chatId));
+      const vaultId = (await getDataVaultIdentity())?.vaultId ?? null;
+      const record = await getChat(m.chatId, isLiveRequest(m.chatId), vaultId);
       const turn = record?.messages.find(x => x.role === 'user' && x.turnId === m.turnId);
       if (!turn || (turn.snapshotVersion ?? 0) !== (record?.activeSnapshotVersion ?? 0)) {
         ack(port, m.chatId, { ok: false, error: 'material-changed' }); return;
@@ -526,6 +527,8 @@ async function onPortMessage(port: ChatPort, msg: unknown): Promise<void> {
       const requestId = crypto.randomUUID();
       // 同 chat-send：先登记再重置轮次，避免读路径误杀新占位
       const active: ActiveChat = {
+        windowId: port.sender?.tab?.windowId ?? m.windowId ?? -1,
+        vaultId,
         config,
         chatId: m.chatId,
         turnId: m.turnId,
@@ -539,7 +542,10 @@ async function onPortMessage(port: ChatPort, msg: unknown): Promise<void> {
         checkpointTimer: null,
       };
       activeChats.set(m.chatId, active);
-      const okReset = await resetChatTurn(m.chatId, m.turnId, requestId);
+      const okReset = await resetChatTurn(m.chatId, m.turnId, requestId, vaultId).catch(error => {
+        activeChats.delete(m.chatId!);
+        throw error;
+      });
       if (!okReset) {
         activeChats.delete(m.chatId);
         ack(port, m.chatId, { ok: false, error: 'no-chat' });
@@ -566,29 +572,30 @@ export async function handleChatRequest(
   //（内容脚本发起）时按 windowId 记账，侧栏引用定位用它找回原页。
   const tabKey = `chat-tab:${windowId}`;
   const sourceTabId = async () => ((await browser.storage.session.get(tabKey))[tabKey] as number | undefined) ?? null;
-  const operation = ['chatNew', 'chatSelect', 'chatClear'].includes(String(m.type)) ? beginChatOperation(windowId) : chatOperation(windowId);
+  const operation = ['chatNew', 'chatSelect', 'chatClear'].includes(String(m.type)) ? beginChatOperation(windowId) : chatOperation(windowId) ?? beginChatOperation(windowId);
   const currentOperation = () => chatOperation(windowId) === operation;
   switch (m.type) {
     case 'chatNew': {
       await activateChatEdit(windowId, null);
+      if (!currentOperation()) return bad('stale-edit');
       return { ok: true, chat: await readChatEdit(windowId) };
     }
     case 'chatActive': {
       const edit = await readChatEdit(windowId);
       const id = await currentId();
-      if (edit.id && edit.id === id) {
+      if (edit.id) {
         const record = await getChat(edit.id, isLiveRequest(edit.id));
-        if (!currentOperation()) return { ok: true, chat: await readChatEdit(windowId), sourceTabId: await sourceTabId() };
+        if (!currentOperation()) return bad('stale-edit');
         if (!record) {
           if (ownsChatEdit(windowId, edit)) await activateChatEdit(windowId, null);
         } else if (ownsChatEdit(windowId, edit)) {
-          edit.messages = record.messages;
-          edit.updatedAt = Math.max(edit.updatedAt, record.updatedAt);
+          refreshChatHistory(edit, record);
         }
       } else if (!edit.id && id) {
         const record = await getChat(id, isLiveRequest(id));
         if (record && currentOperation() && ownsChatEdit(windowId, edit)) await replaceChatEdit(windowId, record);
       }
+      if (!currentOperation()) return bad('stale-edit');
       return { ok: true, chat: await readChatEdit(windowId), sourceTabId: await sourceTabId() };
     }
     case 'chatSelect': {
@@ -597,6 +604,7 @@ export async function handleChatRequest(
       if (!chat) return bad('not-found');
       if (!currentOperation()) return bad('stale-edit');
       await activateChatEdit(windowId, { ...chat, draft: '', pendingQuote: null, editId: crypto.randomUUID() });
+      if (!currentOperation()) return bad('stale-edit');
       return { ok: true, chat: await readChatEdit(windowId) };
     }
     case 'chatRemoveMaterial': {
@@ -618,7 +626,7 @@ export async function handleChatRequest(
       return { ok: true, chats: await listChats() };
     }
     case 'chatTick': {
-      // 轮询瘦身：只回编辑工作区身份签名（readChatEdit 内存缓存，不读 IDB）。
+      // 轮询只回工作区身份签名；读路径同时检查当前库归属，避免旧窗口跨库。
       // generating 附带该会话是否正在生成：端口事件丢失（SW 重启等）时，
       // 生成中的每次 tick 与完成翻转都会触发调用方全量拉取，兜底流式与收尾。
       const edit = await readChatEdit(windowId);
@@ -643,6 +651,7 @@ export async function handleChatRequest(
       if (typeof m.chatId === 'string' && m.chatId !== edit.id || m.editId && m.editId !== edit.editId) return bad('stale-edit');
       editChatMaterial(edit, { source, material, quote });
       await writeChatEdit(windowId, edit);
+      if (!currentOperation()) return bad('stale-edit');
       if (typeof sender.tab?.id === 'number') {
         await browser.storage.session.set({ [tabKey]: sender.tab.id });
       }
@@ -682,6 +691,7 @@ export async function handleChatRequest(
       await stopChat(m.chatId, 'cleared');
       const removed = await clearChat(m.chatId);
       if (!removed) return bad('not-found');
+      flushChatToVault();
       if (await currentId() === m.chatId && currentOperation()) await activateChatEdit(windowId, null);
       broadcastActive(m.chatId);
       return { ok: true };
@@ -698,19 +708,16 @@ export function initChatService(): void {
     if (port.name !== CHAT_PORT_NAME || port.sender?.id !== browser.runtime.id) return;
     portSubs.set(port, new Set());
     port.onMessage.addListener((msg) => {
-      void onPortMessage(port, msg).catch(() => {});
+      void onPortMessage(port, msg).catch(error => {
+        console.warn('[pd] chat request failed', { error: String((error as Error)?.message ?? error) });
+        const message = msg as Partial<ChatPortMessage>;
+        if (typeof message.chatId === 'string') ack(port, message.chatId, { ok: false, error: 'internal' });
+      });
     });
     port.onDisconnect.addListener(() => {
       // @ts-expect-error 标记失效（postMessage 兜底之外的双保险）
       port._blcDead = true;
-      const subs = portSubs.get(port) ?? new Set<string>();
       portSubs.delete(port);
-      // 某来源再无订阅端口（侧栏关闭 / 切出问答视图）：停止其生成
-      for (const key of subs) {
-        if (!portsFor(key).length && activeChats.has(key)) {
-          void stopChat(key, 'no-subscriber');
-        }
-      }
     });
   });
 }

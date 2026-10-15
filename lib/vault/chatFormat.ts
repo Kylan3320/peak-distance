@@ -26,6 +26,14 @@ function unescapeMessageText(text: string): string {
   return text.replace(/(^|\n)\u200B/g, '$1');
 }
 
+function readSource(raw: string): ChatRecord['source'] {
+  const source = JSON.parse(raw);
+  if (source === null) return null;
+  if (!source || !['article','youtube','x'].includes(source.sourceType) ||
+      ['sourceKey','title','url'].some(key => typeof source[key] !== 'string')) throw new Error('format: source');
+  return source;
+}
+
 export function serializeChatRecord(record: VaultChatRecord): string {
   const lines: string[] = [
     '---',
@@ -33,6 +41,8 @@ export function serializeChatRecord(record: VaultChatRecord): string {
     `title: ${fmValue(record.title)}`,
     `sourceType: ${fmValue(record.source?.sourceType ?? '')}`,
     `sourceUrl: ${fmValue(record.source?.url ?? '')}`,
+    `source: ${fmValue(JSON.stringify(record.source))}`,
+    `activeSnapshotVersion: ${record.activeSnapshotVersion ?? 0}`,
     `updatedAt: ${record.updatedAt}`,
     '---',
     '',
@@ -47,6 +57,8 @@ export function serializeChatRecord(record: VaultChatRecord): string {
   lines.push(`材料版本：${versions || '无'}`, '');
   record.messages.forEach((m, i) => {
     lines.push(`## 消息 ${i + 1} · ${m.role}`);
+    lines.push(`- 标识：${m.id}`);
+    if (m.requestId) lines.push(`- 请求：${m.requestId}`);
     lines.push(`- 时间：${new Date(m.at).toISOString()}`);
     if (m.turnId) lines.push(`- 轮次：${m.turnId}`);
     if (m.state) lines.push(`- 状态：${m.state}`);
@@ -55,11 +67,7 @@ export function serializeChatRecord(record: VaultChatRecord): string {
     if (m.scopeLabel) lines.push(`- 范围：${m.scopeLabel}`);
     if (m.retained) lines.push(`- 保留：是`);
     if (m.quote) {
-      const q: QuoteRef = m.quote;
-      // 分隔符用全角竖线：表达式/备注自身含 " · " 时不再移位；序号空槽保留（仅备注无表达式时）
-      const expr = q.expression ?? '';
-      const note = q.note ?? '';
-      lines.push(`- 引用：${(q.blockIds ?? []).join(' ')}${expr || note ? ` ｜ ${expr}` : ''}${note ? ` ｜ ${note}` : ''}`);
+      lines.push(`- 引用：${JSON.stringify(m.quote)}`);
     }
     lines.push('');
     lines.push(escapeMessageText(m.text));
@@ -74,6 +82,8 @@ export interface ParsedChatDocument {
   sourceType: 'youtube' | 'article' | 'x' | null;
   sourceUrl: string;
   sourceVideo?: import('@/shared/chat').SourceDescriptor['video'];
+  source?: ChatRecord['source'];
+  activeSnapshotVersion?: number | null;
   updatedAt: number;
   messages: ChatMessageRecord[];
 }
@@ -114,12 +124,13 @@ export function parseChatDocument(text: string): ParsedChatDocument | { error: '
     const bodyText = unescapeMessageText(lines.slice(i).join('\n')).trim();
     if (!bodyText && !Object.keys(meta).length) continue;
     const msg: ChatMessageRecord = {
-      id: `${fm.id}:${head[1]}`,
+      id: meta['标识'] ?? `${fm.id}:${head[1]}`,
       role,
       turnId: meta['轮次'] ?? '',
       text: bodyText,
       at: meta['时间'] ? Date.parse(meta['时间']) || 0 : 0,
     };
+    if (meta['请求']) msg.requestId = meta['请求'];
     if (meta['状态']) msg.state = meta['状态'] as ChatMessageRecord['state'];
     if (meta['错误']) msg.errorKind = meta['错误'];
     if (meta['材料']) {
@@ -133,7 +144,13 @@ export function parseChatDocument(text: string): ParsedChatDocument | { error: '
     if (meta['保留'] === '是') msg.retained = true;
     if (meta['引用']) {
       const raw = meta['引用'];
-      if (raw.includes('｜')) {
+      if (raw.startsWith('{')) {
+        try {
+          const quote = JSON.parse(raw) as QuoteRef;
+          if (!Array.isArray(quote.blockIds) || !quote.blockIds.every(id => typeof id === 'string')) return { error: 'format' };
+          msg.quote = quote;
+        } catch { return { error: 'format' }; }
+      } else if (raw.includes('｜')) {
         // 新分隔符全角竖线：blocks ｜ 表达式 ｜ 备注（表达式槽可为空；备注含竖线时保留）
         const parts = raw.split('｜');
         const expr = (parts[1] ?? '').trim();
@@ -153,11 +170,17 @@ export function parseChatDocument(text: string): ParsedChatDocument | { error: '
   }
   const videoLine = body.match(/^来源轨道：(\S+) · (\S+) · (\S+)$/m);
   const sourceType = fm.sourceType as ParsedChatDocument['sourceType'];
+  let source: ChatRecord['source'] | undefined;
+  if (fm.source !== undefined) {
+    try { source = readSource(fm.source); } catch { return { error: 'format' }; }
+  }
   return {
     id: fm.id,
     title: fm.title || '(无标题)',
     sourceType: sourceType ?? null,
     sourceUrl: fm.sourceUrl ?? '',
+    source,
+    activeSnapshotVersion: fm.activeSnapshotVersion === undefined ? undefined : Number(fm.activeSnapshotVersion) || null,
     sourceVideo: videoLine
       ? { videoId: videoLine[1]!, trackId: '', trackKind: videoLine[3] as 'manual' | 'asr', trackLang: videoLine[2]! }
       : undefined,
@@ -172,7 +195,7 @@ export function materialIdOf(chatId: string, version: number): string {
 }
 
 export function serializeMaterialSnapshot(chatId: string, snapshot: MaterialSnapshotRecord): string {
-  const lines = ['---', `id: ${fmValue(materialIdOf(chatId, snapshot.version))}`, `chat: ${fmValue(chatId)}`, `version: ${snapshot.version}`, `label: ${fmValue(snapshot.label)}`, `createdAt: ${snapshot.createdAt}`, '---', '', `# ${snapshot.label}`, ''];
+  const lines = ['---', `id: ${fmValue(materialIdOf(chatId, snapshot.version))}`, `chat: ${fmValue(chatId)}`, `version: ${snapshot.version}`, `label: ${fmValue(snapshot.label)}`, `source: ${fmValue(JSON.stringify(snapshot.source))}`, `createdAt: ${snapshot.createdAt}`, '---', '', `# ${snapshot.label}`, ''];
   for (const b of snapshot.blocks) {
     const time = b.startMs !== undefined ? `（${b.startMs}–${b.endMs ?? ''} ms）` : '';
     lines.push(`## ${b.id}${time}`, '', b.text, '');
@@ -189,6 +212,15 @@ export function parseMaterialDocument(text: string): { chatId: string; version: 
     if (m) fm[m[1]!] = unquote(m[2]!);
   }
   if (!fm.chat || !fm.version) return { error: 'format' };
+  if (!Number.isSafeInteger(Number(fm.version)) || Number(fm.version) < 1) return { error: 'format' };
+  let source: MaterialSnapshotRecord['source'] | undefined;
+  if (fm.source !== undefined) {
+    try {
+      const parsed = readSource(fm.source);
+      if (!parsed) return { error: 'format' };
+      source = parsed;
+    } catch { return { error: 'format' }; }
+  }
   const body = text.slice(fmMatch[0].length);
   const blocks = [];
   for (const section of body.split(/\n(?=## p\d+)/)) {
@@ -201,11 +233,12 @@ export function parseMaterialDocument(text: string): { chatId: string; version: 
       ...(head[2] !== undefined && head[2] !== '' ? { startMs: Number(head[2]), endMs: head[3] ? Number(head[3]) : undefined } : {}),
     });
   }
+  if (!blocks.length || blocks.some(block => !block.text) || new Set(blocks.map(block => block.id)).size !== blocks.length) return { error: 'format' };
   return {
     chatId: fm.chat,
     version: Number(fm.version),
     snapshot: {
-      source: fm.sourceUrl ? { sourceType: 'article', sourceKey: '', title: fm.label ?? '', url: fm.sourceUrl } : { sourceType: 'article', sourceKey: '', title: fm.label ?? '', url: '' },
+      source: source ?? { sourceType: 'article', sourceKey: '', title: fm.label ?? '', url: fm.sourceUrl ?? '' },
       version: Number(fm.version),
       createdAt: Number(fm.createdAt) || 0,
       label: fm.label ?? '',
