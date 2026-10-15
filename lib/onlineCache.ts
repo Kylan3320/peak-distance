@@ -69,7 +69,10 @@ export async function trimCache(): Promise<void> {
     evict(oldest);
   }
   if (putsSinceRecalc >= RECALC_EVERY || Object.keys(records).length !== trackedCount) recalc();
-  write = write.catch(() => {}).then(() => browser.storage.session.set({ [STORE]: records }));
+  write = write.then(async () => {
+    try { await browser.storage.session.set({ [STORE]: records }); }
+    catch (error) { console.warn('[pd] online cache persistence failed', error); }
+  });
   await write;
 }
 

@@ -687,6 +687,26 @@ console.log('M6 对齐、缓存与来源边界');
   check('成功结果被缓存', calls === 1);
   await cached('other-source', run);
   check('不同来源缓存隔离', calls === 2);
+  const sessionSet = (globalThis as any).browser.storage.session.set;
+  const originalWarn = console.warn;
+  const cacheWarnings: unknown[][] = [];
+  try {
+    (globalThis as any).browser.storage.session.set = async () => { throw new Error('QUOTA_BYTES quota exceeded'); };
+    console.warn = (...args: unknown[]) => { cacheWarnings.push(args); };
+    const uncached = await cached('quota-failure', async () => ({ ok: true, text: 'Successful query' })).catch(() => null);
+    check('缓存落盘失败不破坏成功查询', uncached?.ok === true && uncached.text === 'Successful query');
+    check('缓存落盘失败有诊断', cacheWarnings.length === 1);
+    (globalThis as any).browser.storage.session.set = sessionSet;
+    await cached('quota-recovered', async () => ({ ok: true, text: 'Recovered' }));
+    check('配额恢复后后续缓存仍能落盘', !!memory['online-cache-v1']);
+    await cached('failed-query', async () => { throw new Error('Network failure'); }).then(
+      () => check('网络异常仍传给调用者', false),
+      error => check('网络异常仍传给调用者', error.message === 'Network failure'),
+    );
+  } finally {
+    (globalThis as any).browser.storage.session.set = sessionSet;
+    console.warn = originalWarn;
+  }
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = async () => new Response('<html><title>Verify you are human</title></html>', { status: 200 });

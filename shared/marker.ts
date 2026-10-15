@@ -268,13 +268,15 @@ export function createMarker(opts: {
       acceptNode: (n: Node) =>
         n.parentElement ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
     });
+    let next = walker.nextNode();
     const step = (): void => {
       if (version !== markVersion || !buckets.size) return; // 已被重刷 / 关闭取代
       const batch: Text[] = [];
       try {
-        let n: Node | null;
-        while ((n = walker.nextNode()) !== null && batch.length < 500) {
-          batch.push(n as Text);
+        // Wrapping removes the original Text nodes; leave the cursor on an untouched lookahead.
+        while (next && batch.length < 500) {
+          batch.push(next as Text);
+          next = walker.nextNode();
         }
         for (const t of batch) {
           if (!markCountLeft()) return;
@@ -285,7 +287,7 @@ export function createMarker(opts: {
         markerLog(() => lastError!);
         return; // 不再续扫：保留已完成的标记，错误可经 blc-marker-state 读取
       }
-      if (batch.length >= 500) setTimeout(step, 30); // 让出主线程
+      if (next) setTimeout(step, 30); // 让出主线程
     };
     step();
   }
@@ -332,9 +334,9 @@ export function createMarker(opts: {
       for (const r of records) {
         if (r.type === 'childList') {
           for (const node of r.addedNodes) {
-            if (node.nodeType !== 1) continue;
-            const el = node as Element;
-            if (el.hasAttribute?.(MARK_ATTR)) continue; // 我们自己的包装
+            const el = node.nodeType === Node.ELEMENT_NODE ? node as Element
+              : node.nodeType === Node.TEXT_NODE ? node.parentElement : null;
+            if (!el || el.closest(`[${MARK_ATTR}]`)) continue; // 我们自己的包装
             pending.add(el);
           }
         } else if (r.type === 'characterData') {

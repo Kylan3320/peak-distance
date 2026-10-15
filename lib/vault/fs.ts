@@ -25,13 +25,12 @@ import {
   serializeChatRecord,
   serializeMaterialSnapshot,
 } from './chatFormat';
-import type { MaterialSnapshotRecord } from '@/shared/chat';
 import { DB_NAME, DB_VERSION, getVaultHandle } from '@/lib/db';
 import {
   VAULT_FORMAT_VERSION,
   vaultRecordJson,
+  vaultErrorCode,
   type VaultIdentity,
-  type VaultPendingWrite,
   type VaultSentenceRecord,
   type VaultVocabRecord,
   type VaultPreferenceRecord,
@@ -276,77 +275,118 @@ function documentId(text: string, kind: CollectionKind): string {
   return parsed.id;
 }
 
-async function writeCollectionRecord(dir: DirHandle, kind: CollectionKind, record: VaultVocabRecord | VaultSentenceRecord): Promise<{ path: string }> {
+/** One read/parse and one visible publication for all pending changes in a collection. */
+export async function editCollection(dir: DirHandle, kind: CollectionKind) {
   const collection = await readCollection(dir, kind);
-  const { records: data, source } = await readRecordData(dir);
-  const at = collection.documents.findIndex(text => documentId(text, kind) === record.id);
-  let next: string | { error: 'format' };
-  if (kind === 'vocab') {
-    const vocab = record as VaultVocabRecord;
-    next = at < 0 ? serializeVocabRecord(vocab) : applyVocabToDocument(vocab, collection.documents[at]!);
-    data.vocab[record.id] = vocab;
-  } else {
-    const sentence = record as VaultSentenceRecord;
-    next = at < 0 ? serializeSentenceRecord(sentence) : applySentenceToDocument(sentence, collection.documents[at]!);
-    data.sentence[record.id] = record as VaultSentenceRecord;
-  }
-  if (typeof next !== 'string') throw new Error(`format: ${record.id}`);
-  if (at < 0) collection.documents.push(next); else collection.documents[at] = next;
-  // Publish recovery metadata before the visible record. Missing metadata never produces an invalid local sentence.
-  await writeTextFile(dir, [META_DIR, RECORDS_FILE], JSON.stringify(data), source);
-  const path = COLLECTION_FILES[kind];
-  await writeTextFile(dir, [path], serializeCollection(collection, kind), collection.source);
-  return { path };
+  const documents = new Map(collection.documents.map(text => [documentId(text, kind), text]));
+  const stored = await readRecordData(dir);
+  const data = stored.records;
+  let source = stored.source;
+  let hasUpdates = false;
+  const deleted = new Set<string>();
+  const publishData = async () => {
+    const text = JSON.stringify(data);
+    await writeTextFile(dir, [META_DIR, RECORDS_FILE], text, source);
+    source = text;
+  };
+  return {
+    vocab(id: string): VaultVocabRecord | null {
+      const text = documents.get(id);
+      return text === undefined ? null : vocabRecord(text, data);
+    },
+    set(record: VaultVocabRecord | VaultSentenceRecord): void {
+      const previous = documents.get(record.id);
+      let next: string | { error: 'format' };
+      if (kind === 'vocab') {
+        const vocab = record as VaultVocabRecord;
+        next = previous === undefined ? serializeVocabRecord(vocab) : applyVocabToDocument(vocab, previous);
+      } else {
+        const sentence = record as VaultSentenceRecord;
+        next = previous === undefined ? serializeSentenceRecord(sentence) : applySentenceToDocument(sentence, previous);
+      }
+      if (typeof next !== 'string') throw new Error(`format: ${record.id}`);
+      documents.set(record.id, next);
+      if (kind === 'vocab') data.vocab[record.id] = record as VaultVocabRecord;
+      else data.sentence[record.id] = record as VaultSentenceRecord;
+      hasUpdates = true;
+    },
+    delete(id: string): void { documents.delete(id); deleted.add(id); },
+    async commit(): Promise<void> {
+      // New records need metadata first; deleted records keep recovery data until the visible deletion succeeds.
+      if (hasUpdates) await publishData();
+      await writeTextFile(dir, [COLLECTION_FILES[kind]], serializeCollection({ ...collection, documents:[...documents.values()] }, kind), collection.source);
+      if (deleted.size) {
+        for (const id of deleted) delete data[kind][id];
+        await publishData();
+      }
+    },
+  };
 }
 
-export const writeVocabToVault = (dir: DirHandle, record: VaultVocabRecord) => writeCollectionRecord(dir, 'vocab', record);
-export const writeSentenceToVault = (dir: DirHandle, record: VaultSentenceRecord) => writeCollectionRecord(dir, 'sentence', record);
-
-export async function deleteCollectionRecord(dir: DirHandle, kind: CollectionKind, id: string): Promise<void> {
-  const collection = await readCollection(dir, kind);
-  collection.documents = collection.documents.filter(text => documentId(text, kind) !== id);
-  await writeTextFile(dir, [COLLECTION_FILES[kind]], serializeCollection(collection, kind), collection.source);
-  const { records: data, source } = await readRecordData(dir);
-  delete data[kind][id];
-  await writeTextFile(dir, [META_DIR, RECORDS_FILE], JSON.stringify(data), source);
+export async function writeVocabToVault(dir: DirHandle, record: VaultVocabRecord): Promise<void> {
+  const edit = await editCollection(dir, 'vocab');
+  edit.set(record);
+  await edit.commit();
 }
 
-/** 会话写入：完整历史一份（受管内容整体替换；个人笔记不在此文件）。 */
+/** Validate the shared base and every immutable material before publishing a chat. */
 export async function writeChatToVault(
   dir: DirHandle,
-  chatId: string,
-  title: string,
-  markdown: string,
-): Promise<{ path: string }> {
-  if ((await readDeletedChats(dir)).ids.includes(chatId)) throw new Error(`conflict: deleted chat ${chatId}`);
-  const index = await readIndex(dir);
-  const known = index[chatId];
-  const path = known && known.startsWith('对话/') ? known : `对话/${vaultFileName(title, chatId)}`;
-  await writeTextFile(dir, path.split('/'), markdown);
-  index[chatId] = path;
-  await writeIndex(dir, index);
-  return { path };
-}
+  record: VaultChatRecord,
+  base: VaultChatRecord | null,
+): Promise<{ conflict: { path: string; text: string }[] } | null> {
+  const paths = new Set<string>();
+  try {
+    if ((await readDeletedChats(dir)).ids.includes(record.id)) throw new Error('conflict: deleted chat');
+    const index = await readIndex(dir);
+    const known = index[record.id];
+    const path = known?.startsWith('对话/') ? known : `对话/${vaultFileName(record.title, record.id)}`;
+    paths.add(path);
+    const read = await readTextFile(dir, path.split('/'));
+    if ('failed' in read) throw new Error(`io: ${path}`);
+    const source = 'text' in read ? read.text : null;
+    const file = source === null ? null : parseChatDocument(source);
+    if (file && 'error' in file) throw new Error(`format: ${path}`);
+    const markdown = serializeChatRecord(record);
+    const current = vaultRecordJson(file);
+    // Equal to our proposal means the previous write succeeded but its receipt was lost.
+    if (current !== vaultRecordJson(base ? parseChatDocument(serializeChatRecord(base)) : null)
+      && current !== vaultRecordJson(parseChatDocument(markdown))) throw new Error('conflict: chat changed');
 
-/** 材料快照写入：每版本一份，不可变（存在即跳过）。 */
-export async function writeMaterialToVault(
-  dir: DirHandle,
-  chatId: string,
-  snapshot: MaterialSnapshotRecord,
-): Promise<{ path: string }> {
-  if ((await readDeletedChats(dir)).ids.includes(chatId)) throw new Error(`conflict: deleted chat ${chatId}`);
-  const id = materialIdOf(chatId, snapshot.version);
-  const index = await readIndex(dir);
-  if (index[id]) {
-    const existing = await readTextFile(dir, index[id]!.split('/'));
-    if ('failed' in existing) throw new Error(`io: ${index[id]}`);
-    if ('text' in existing) return { path: index[id]! };
+    const materials: { path: string; text: string; missing: boolean }[] = [];
+    const published: VaultIndex = { [record.id]: path };
+    for (const snapshot of record.snapshots) {
+      const id = materialIdOf(record.id, snapshot.version);
+      const materialPath = index[id] ?? `材料/${vaultFileName(snapshot.label, id)}`;
+      paths.add(materialPath);
+      const existing = await readTextFile(dir, materialPath.split('/'));
+      if ('failed' in existing) throw new Error(`io: ${materialPath}`);
+      const text = serializeMaterialSnapshot(record.id, snapshot);
+      if ('text' in existing) {
+        const parsed = parseMaterialDocument(existing.text);
+        if ('error' in parsed) throw new Error(`format: ${materialPath}`);
+        if (vaultRecordJson(parsed) !== vaultRecordJson(parseMaterialDocument(text))) throw new Error('conflict: material changed');
+      }
+      materials.push({ path: materialPath, text, missing: 'missing' in existing });
+      published[id] = materialPath;
+    }
+    for (const material of materials) {
+      if (material.missing) await writeTextFile(dir, material.path.split('/'), material.text, null);
+    }
+    if ((await readDeletedChats(dir)).ids.includes(record.id)) throw new Error('conflict: deleted chat');
+    await writeTextFile(dir, path.split('/'), markdown, source);
+    await writeIndex(dir, { ...await readIndex(dir), ...published });
+    return null;
+  } catch (error) {
+    if (vaultErrorCode(error) !== 'conflict') throw error;
+    const conflict: { path: string; text: string }[] = [];
+    for (const path of paths) {
+      const read = await readTextFile(dir, path.split('/'));
+      if ('failed' in read) throw new Error(`io: ${path}`);
+      if ('text' in read) conflict.push({ path, text: read.text });
+    }
+    return { conflict };
   }
-  const path = `材料/${vaultFileName(snapshot.label, id)}`;
-  await writeTextFile(dir, path.split('/'), serializeMaterialSnapshot(chatId, snapshot));
-  index[id] = path;
-  await writeIndex(dir, index);
-  return { path };
 }
 
 export { parseChatDocument, parseMaterialDocument };
@@ -448,14 +488,6 @@ export async function migrateVaultCollections(dir: DirHandle): Promise<void> {
       await parent.removeEntry(parts.at(-1)!);
     }
   }
-}
-
-export async function readVocabRecordById(dir: DirHandle, id: string): Promise<{ record: VaultVocabRecord; note: string; text: string } | null> {
-  const collection = await readCollection(dir, 'vocab');
-  const text = collection.documents.find(text => documentId(text, 'vocab') === id);
-  if (!text) return null;
-  const record = vocabRecord(text, (await readRecordData(dir)).records);
-  return { text, record, note: record.note ?? '' };
 }
 
 // ---- 权限与页面侧选目录 -----------------------------------------------------------

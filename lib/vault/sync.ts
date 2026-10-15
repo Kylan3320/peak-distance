@@ -10,21 +10,16 @@ import {
   ensurePermission,
   ensureVault,
   migrateVaultCollections,
-  deleteCollectionRecord,
+  editCollection,
   deleteChatFromVault,
   parseChatDocument,
   parseMaterialDocument,
   readPreferenceFromVault,
-  readVocabRecordById,
   scanVault,
   writeChatToVault,
-  writeMaterialToVault,
   writePreferenceToVault,
-  writeSentenceToVault,
-  writeVocabToVault,
   type VaultFileScan,
 } from './fs';
-import { serializeChatRecord } from './chatFormat';
 import type { VaultChatRecord } from '@/shared/vault';
 import { vaultRecordJson, vaultErrorCode, type VaultError } from '@/shared/vault';
 import type { ChatRecord, MaterialSnapshotRecord } from '@/shared/chat';
@@ -63,6 +58,7 @@ import type {
   VaultStatus,
   VaultVocabRecord,
   VaultPreferenceRecord,
+  VaultPendingWrite,
 } from '@/shared/vault';
 import { entryViewToVaultRecord, sentenceToVaultRecord, vaultRecordToEntry } from './records';
 import { DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
@@ -95,6 +91,70 @@ export interface FlushResult {
 
 export const flushVaultWrites = (): Promise<FlushResult> => runVaultOperation(flushPendingWrites);
 
+async function flushCollectionWrites(handle: DirHandle, queue: VaultPendingWrite[]): Promise<FlushResult> {
+  const result: FlushResult = { committed:0, failed:0, skipped:0 };
+  const fail = async (write: VaultPendingWrite, error: unknown) => {
+    await markVaultWriteAttempt(write, String((error as Error)?.message ?? error));
+    result.failed++;
+    result.error = vaultErrorCode(error);
+  };
+  for (const kind of ['vocab', 'sentence'] as const) {
+    const writes = queue.filter(w => w.vaultId && w.kind === kind);
+    if (!writes.length) continue;
+    let edit: Awaited<ReturnType<typeof editCollection>>;
+    try { edit = await editCollection(handle, kind); }
+    catch (error) { for (const write of writes) await fail(write, error); continue; }
+    const staged: { write: VaultPendingWrite; record: VaultVocabRecord | VaultSentenceRecord | null }[] = [];
+    for (const write of writes) {
+      try {
+        let record = write.payload as VaultVocabRecord | VaultSentenceRecord | null;
+        if (record === null) edit.delete(write.recordId);
+        else {
+          if (kind === 'vocab') {
+            const previous = edit.vocab(record.id);
+            if (previous) {
+              const base = await getSyncSnapshot(record.id);
+              const outcome = mergeVocabRecord(base ? JSON.parse(base) : null, record as VaultVocabRecord, previous);
+              if (outcome.kind === 'conflict') {
+                await putVaultRaw(`conflict:${record.id}`, {
+                  kind, recordId:record.id, local:record, remote:previous,
+                  fields:outcome.fields.map(f => ({field:f.field,local:f.local,remote:f.file})),
+                });
+                await fail(write, new Error('conflict: vocabulary changed'));
+                continue;
+              }
+              record = outcome.value;
+            }
+          }
+          edit.set(record);
+        }
+        staged.push({ write, record });
+      } catch (error) { await fail(write, error); }
+    }
+    if (!staged.length) continue;
+    try { await edit.commit(); }
+    catch (error) { for (const { write } of staged) await fail(write, error); continue; }
+    for (const { write, record } of staged) {
+      try {
+        const id = kind === 'sentence' ? `sentence:${write.recordId}` : write.recordId;
+        if (record === null) await deleteSyncSnapshot(id);
+        else {
+          if (kind === 'vocab') {
+            const vocab = record as VaultVocabRecord;
+            const { entry, contexts } = vaultRecordToEntry(vocab, vocab.note ?? '');
+            await importVaultEntry(entry, contexts, write.payload as VaultVocabRecord, write);
+          }
+          await setSyncSnapshot(id, vaultRecordJson(record));
+        }
+        await removeVaultWrite(write);
+        await markVaultWriteAttempt(write);
+        result.committed++;
+      } catch (error) { await fail(write, error); }
+    }
+  }
+  return result;
+}
+
 async function flushPendingWrites(): Promise<FlushResult> {
   const handle = (await getVaultHandle()) as DirHandle | null;
   if (!handle) return { committed: 0, failed: 0, skipped: 0, error: 'not-connected' };
@@ -106,17 +166,14 @@ async function flushPendingWrites(): Promise<FlushResult> {
     return { committed: 0, failed: queue.length, skipped: 0, error: 'no-permission' };
   }
   await migrateVaultCollections(handle);
-  let committed = 0;
-  let failed = queue.filter(w => !w.vaultId).length;
-  let skipped = 0;
-  let error: FlushResult['error'] = failed ? 'conflict' : undefined;
-  for (const w of queue) {
-    if (!w.vaultId) continue;
+  const collections = await flushCollectionWrites(handle, queue);
+  let { committed, failed, skipped, error } = collections;
+  const unbound = queue.filter(w => !w.vaultId).length;
+  failed += unbound;
+  error ??= unbound ? 'conflict' : undefined;
+  for (const w of queue.filter(w => w.vaultId && w.kind !== 'vocab' && w.kind !== 'sentence')) {
     try {
-      if (w.payload === null && (w.kind === 'vocab' || w.kind === 'sentence')) {
-        await deleteCollectionRecord(handle, w.kind, w.recordId);
-        await deleteSyncSnapshot(w.kind === 'sentence' ? `sentence:${w.recordId}` : w.recordId);
-      } else if (w.payload === null && w.kind === 'chat') {
+      if (w.payload === null && w.kind === 'chat') {
         const base = await getSyncSnapshot(`chat:${w.recordId}`);
         const result = await deleteChatFromVault(handle, w.recordId, base ? JSON.parse(base) : null);
         if (result) {
@@ -124,44 +181,6 @@ async function flushPendingWrites(): Promise<FlushResult> {
           await markVaultWriteAttempt(w, 'conflict'); failed++; error = 'conflict'; continue;
         }
         await deleteSyncSnapshot(`chat:${w.recordId}`);
-      } else if (w.kind === 'vocab') {
-        const record = w.payload as VaultVocabRecord;
-        // 提交前检查文件变化（spec 4.4）：库中版本相对上次同步快照有外部改动时
-        // 先做三方合并；同字段双方修改判冲突 → 不覆盖文件，记录详情并保留待办。
-        const prev = await readVocabRecordById(handle, record.id);
-        let toWrite: VaultVocabRecord = record;
-        if (prev) {
-          const baseRaw = await getSyncSnapshot(record.id);
-          const base = baseRaw ? (JSON.parse(baseRaw) as VaultVocabRecord) : null;
-          const outcome = mergeVocabRecord(base, record, {
-            ...prev.record,
-            note: prev.note,
-          });
-          if (outcome.kind === 'conflict') {
-            const conflict: VaultConflictRecord = {
-              kind: 'vocab',
-              recordId: record.id,
-              fields: outcome.fields.map((f) => ({ field: f.field, local: f.local, remote: f.file })),
-              local: record,
-              remote: prev.record,
-            };
-            await putVaultRaw(`conflict:${record.id}`, conflict);
-            await markVaultWriteAttempt(w, 'conflict');
-            failed++;
-            error = 'conflict';
-            continue; // 待办保留；解决后下次提交
-          }
-          toWrite = outcome.value;
-        }
-        await writeVocabToVault(handle, toWrite);
-        const { entry, contexts } = vaultRecordToEntry(toWrite, toWrite.note ?? '');
-        await importVaultEntry(entry, contexts, record, w);
-        // 我们刚写的内容即“上次共同内容”（下次读回的三方合并 base）
-        await setSyncSnapshot(record.id, vaultRecordJson(toWrite));
-      } else if (w.kind === 'sentence') {
-        const record = w.payload as VaultSentenceRecord;
-        await writeSentenceToVault(handle, record);
-        await setSyncSnapshot(`sentence:${record.id}`, vaultRecordJson(record));
       } else if (w.kind === 'preference') {
         const local = w.payload as VaultPreferenceRecord;
         if (vaultRecordJson(await readLocalPreference()) !== vaultRecordJson(local)) { await removeVaultWrite(w); skipped++; continue; }
@@ -178,11 +197,12 @@ async function flushPendingWrites(): Promise<FlushResult> {
         if (vaultRecordJson(now) === vaultRecordJson(local)) await storageLocal().set({ ...outcome.value });
       } else if (w.kind === 'chat') {
         const record = w.payload as VaultChatRecord;
-        // 材料快照不可变：先落材料（存在即跳过），再写会话
-        for (const snap of record.snapshots) {
-          await writeMaterialToVault(handle, record.id, snap as MaterialSnapshotRecord);
+        const base = await getSyncSnapshot(`chat:${record.id}`);
+        const result = await writeChatToVault(handle, record, base ? JSON.parse(base) : null);
+        if (result) {
+          await putVaultRaw(`conflict:chat:${record.id}`, { kind:'chat', recordId:record.id, local:record, remote:result.conflict });
+          await markVaultWriteAttempt(w, 'conflict'); failed++; error = 'conflict'; continue;
         }
-        await writeChatToVault(handle, record.id, record.title, serializeChatRecord(record));
         await setSyncSnapshot(`chat:${record.id}`, vaultRecordJson(record));
       } else {
         skipped++;
