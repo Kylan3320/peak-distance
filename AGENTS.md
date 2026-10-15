@@ -1,11 +1,12 @@
 # Peak Distance
 
-个人自用的英语学习扩展，覆盖网页 / X 与 YouTube。
+个人自用的多语言学习扩展，覆盖桌面 Chrome / Edge 上的网页 / X 与 YouTube。
 
 ## 按任务查阅
 
 - 产品约定：[docs/PRD.md](docs/PRD.md)
 - 界面布局、视觉与素材：[design.md](design.md)
+- 界面语言与文案：[docs/specs/ui-i18n.md](docs/specs/ui-i18n.md)、[docs/ui-copy.md](docs/ui-copy.md)
 - 技术边界与代码入口：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 当前任务、状态与出口：[docs/ROADMAP.md](docs/ROADMAP.md)
 - 上游来源与许可：[docs/REFERENCES.md](docs/REFERENCES.md)

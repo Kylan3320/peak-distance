@@ -96,7 +96,7 @@ export interface MaterialPayload {
 
 export interface MaterialSnapshotRecord {
   source: SourceDescriptor;
-  /** 对话内递增版本；消息引用固定到取得材料时的版本。 */
+  /** 提交事务分配对话内递增版本；编辑副本的临时版本在提交时重排。 */
   version: number;
   createdAt: number;
   label: string;
@@ -360,10 +360,49 @@ export interface ChatRecord {
 }
 
 /** 侧栏读到的会话视图（与记录同形）。 */
-export type ChatRecordView = ChatRecord & { editId?: string };
+export type ChatRecordView = ChatRecord & {
+  editId?: string;
+  vaultId?: string | null;
+  /** 编辑期不复用已移除附件的版本，防止迟到发送引用到另一份材料。 */
+  lastSnapshotVersion?: number;
+};
+
+export function sameChatMaterial(a: MaterialSnapshotRecord, b: MaterialSnapshotRecord): boolean {
+  return a.label === b.label && a.source.sourceType === b.source.sourceType &&
+    a.source.sourceKey === b.source.sourceKey && a.source.url === b.source.url && a.source.title === b.source.title &&
+    JSON.stringify(a.source.video) === JSON.stringify(b.source.video) && a.blocks.length === b.blocks.length &&
+    a.blocks.every((block, i) => {
+      const other = b.blocks[i]!;
+      return block.id === other.id && block.text === other.text && block.startMs === other.startMs && block.endMs === other.endMs;
+    });
+}
+
+/** Refresh committed history without replacing the editor's current attachment or removed-material choice. */
+export function refreshChatHistory(edit: ChatRecordView, committed: ChatRecord): void {
+  const material = edit.snapshots.find(s => s.version === edit.activeSnapshotVersion);
+  edit.messages = committed.messages;
+  edit.snapshots = [...committed.snapshots];
+  if (material) {
+    let snapshot = edit.snapshots.find(s => sameChatMaterial(s, material));
+    if (!snapshot) {
+      snapshot = { ...material, version: Math.max(0, ...edit.snapshots.map(s => s.version)) + 1 };
+      edit.snapshots.push(snapshot);
+    }
+    edit.activeSnapshotVersion = snapshot.version;
+  }
+  edit.updatedAt = Math.max(edit.updatedAt, committed.updatedAt);
+  edit.lastSnapshotVersion = Math.max(edit.lastSnapshotVersion ?? 0, ...edit.snapshots.map(s => s.version));
+  pruneChatSnapshots(edit);
+}
+
+export function pruneChatSnapshots(record: ChatRecord): void {
+  const versions = new Set(record.messages.filter(m => m.role === 'user').map(m => m.snapshotVersion));
+  if (record.activeSnapshotVersion !== null) versions.add(record.activeSnapshotVersion);
+  record.snapshots = record.snapshots.filter(s => versions.has(s.version));
+}
 
 /** 未发送的材料只修改临时副本；发送事务才提交。历史快照不可变。 */
-export function editChatMaterial(record: ChatRecord, input: {
+export function editChatMaterial(record: ChatRecordView, input: {
   source?: SourceDescriptor | null; material?: MaterialPayload | null;
   quote?: QuoteRef | null; removeMaterial?: boolean;
 }): void {
@@ -372,7 +411,11 @@ export function editChatMaterial(record: ChatRecord, input: {
     const same = latest?.source.sourceKey === input.source.sourceKey &&
       JSON.stringify(latest.source.video) === JSON.stringify(input.source.video) &&
       materialFingerprint(latest.blocks) === materialFingerprint(input.material.blocks);
-    if (!same) record.snapshots.push({ ...input.material, source: input.source, version: (latest?.version ?? 0) + 1, createdAt: Date.now() });
+    if (!same) {
+      const version = Math.max(record.lastSnapshotVersion ?? 0, latest?.version ?? 0) + 1;
+      record.snapshots.push({ ...input.material, source: input.source, version, createdAt: Date.now() });
+      record.lastSnapshotVersion = version;
+    }
     record.activeSnapshotVersion = record.snapshots.at(-1)!.version;
     record.source = input.source; record.sourceKey = input.source.sourceKey;
     record.pendingQuote = input.quote ?? null;
@@ -381,6 +424,7 @@ export function editChatMaterial(record: ChatRecord, input: {
     record.source = null; record.sourceKey = null;
     record.activeSnapshotVersion = null; record.pendingQuote = null;
   }
+  pruneChatSnapshots(record);
   record.updatedAt = Date.now();
 }
 

@@ -42,10 +42,12 @@ export type VaultRecordKind = 'vocab' | 'sentence' | 'chat' | 'preference';
 /** 待写入单位。本机事务提交成功后入队；幂等键为 id（重试不重复导入）。 */
 export interface VaultPendingWrite {
   id: string;
+  /** Filled by DB when queued; unowned legacy work is retained as a conflict. */
+  vaultId?: string;
   kind: VaultRecordKind;
   /** 稳定记录标识：词条 = 语言作用域键、句子 = sentenceId、会话 = chatId */
   recordId: string;
-  /** null removes a vocabulary/sentence record from its collection. */
+  /** null deletes the record from its connected vault. */
   payload: VaultVocabRecord | VaultSentenceRecord | VaultChatRecord | VaultPreferenceRecord | null;
   queuedAt: number;
   /** Distinguishes an in-flight write from a newer edit of the same record. */

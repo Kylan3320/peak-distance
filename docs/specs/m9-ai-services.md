@@ -1,5 +1,7 @@
 # M9：AI 服务配置
 
+已实施的阶段规格，当前状态见 [ROADMAP](../ROADMAP.md)。本文保留服务协议、凭据与配置边界；具体控件名称按 [界面语言规范](ui-i18n.md) 和代码文案目录，不重复维护旧标签。
+
 ## 交付边界
 
 - 服务商预设：DeepSeek、OpenAI、Anthropic、Gemini、GLM、Kimi。预设选择后填写 Key，点击“保存并使用”；高级设置提供协议、Base URL、模型，自定义服务使用相同表单。
