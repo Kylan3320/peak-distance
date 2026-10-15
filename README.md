@@ -36,7 +36,7 @@ npm ci
 npm run build
 ```
 
-然后按上面的步骤加载 `.output/chrome-mv3`。开发时可用 `npm run dev`，检查改动可用 `npm run verify-local`；浏览器回归首次运行前执行 `npx playwright-core install chromium`。重新构建后，还需要重新加载扩展并刷新目标网页。
+然后按上面的步骤加载 `.output/chrome-mv3`。开发时可用 `npm run dev`。普通改动按受影响范围和风险选择必要检查；`npm run verify-local` 提供跨模块的本地检查，发布时按 ROADMAP 的发布约定执行。需要浏览器回归时，首次运行前执行 `npx playwright-core install chromium`。重新构建后，还需要重新加载扩展并刷新目标网页。
 
 开发入口见仓库中的 [ARCHITECTURE](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ARCHITECTURE.md)，任务、已知缺陷及 Git／发布约定见 [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md)。`npm run zip:source` 从当前 HEAD 生成源码包，排除规则由 `.gitattributes` 定义；正式发布使用对应版本标签。
 

@@ -36,7 +36,7 @@ npm ci
 npm run build
 ```
 
-Then load `.output/chrome-mv3` following the steps above. During development you can use `npm run dev`, and check changes with `npm run verify-local`; run `npx playwright-core install chromium` before the first browser regression check. After rebuilding, reload the extension and refresh the target pages.
+Then load `.output/chrome-mv3` following the steps above. During development you can use `npm run dev`. For ordinary changes, select the necessary checks based on the affected scope and risk; `npm run verify-local` provides local checks across modules. For releases, follow ROADMAP's release instructions. When browser regression checks are needed, run `npx playwright-core install chromium` before the first run. After rebuilding, reload the extension and refresh the target pages.
 
 See the repository's [ARCHITECTURE](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ARCHITECTURE.md) for code entry points and [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md) for tasks, known defects and Git/release conventions (both in Chinese). `npm run zip:source` archives the current HEAD using `.gitattributes`; release source archives use the matching version tag.
 
