@@ -82,5 +82,4 @@ Anki、X thread、Netflix。学习数据文件夹共享与恢复已纳入 M11；
 1. 在待发布提交执行 `npm ci` 与 `npm run verify-local`；界面变更补充 `npm run check-ui-i18n` 等对应检查。测试响应不能代表真实服务或用户实机已通过；范围按对应规格记录。
 2. 新规格进 minor 位，修复批次进 patch 位；`package.json` 与 `package-lock.json` 同步更新。版本提交完成后，从该提交构建并打 `v<version>` 标签。
 3. `npm run zip` 生成安装包；源码包使用 `git archive --format=zip --prefix=peak-distance/ -o .output/peak-distance-<version>-source.zip v<version>`。`.gitattributes` 是源码包排除规则的唯一实现；工程资料保留在仓库，归档仍包含构建依赖及 package 脚本引用的检查工具。
-4. 发布安装包、同一版本标签的源码包和两空格格式 SHA256SUMS；Release 说明包含「本版更新」。中英文 README 的「当前发布版」随实际 Release 更新；hero 文案变更时重导出并目检。
-5. 普通主线提交不等于安装包已更新。只有完成上述步骤才记录正式发布；所有修复在同一主线维护，无需在工程与发布分支之间来回复制。
+4. Release 仅附安装包和同标签源码包，不生成或上传独立校验文件；说明只保留「本版更新」。发布成功后同步中英文 README 的「当前发布版」及 ROADMAP，不把普通主线提交记为正式发布。
