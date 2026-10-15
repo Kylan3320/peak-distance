@@ -31,15 +31,15 @@ export const DEFAULT_COMPREHENSION_LANG = 'zh-Hans';
 const LANG_TAG_RE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/;
 
 export function isLanguageTag(v: unknown): v is LanguageTag {
-  return typeof v === 'string' && v.length <= 35 && LANG_TAG_RE.test(v);
+  if (typeof v !== 'string' || v.length > 35 || !LANG_TAG_RE.test(v)) return false;
+  try { return Intl.getCanonicalLocales(v).length === 1; } catch { return false; }
 }
 
-/** 规范化标签：primary 小写、保留其余子标签原样；空值归 'und'。 */
+/** 使用 BCP-47 规范大小写及标准语言别名；空值归 'und'。 */
 export function normalizeLangTag(raw: string): LanguageTag {
   const t = raw.trim();
   if (!t) return LANG_UNDETERMINED;
-  const [primary, ...rest] = t.split('-');
-  return [primary!.toLowerCase(), ...rest].join('-');
+  return Intl.getCanonicalLocales(t)[0]!;
 }
 
 /** primary 子标签（路由／去重用）：'zh-Hant' → 'zh'。 */

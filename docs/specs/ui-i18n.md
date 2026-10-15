@@ -1,6 +1,6 @@
 # Peak Distance 界面规范
 
-更新：2026-10-12
+2026-10-12 确认的界面语言与设置规格，已接入主线。交付与检查状态见 [ROADMAP](../ROADMAP.md)。
 
 ## 本次方向
 
@@ -9,10 +9,7 @@
 
 ## 文案
 
-- 中文功能名 2–4 字，单条静态说明不超过 20 字；品牌、语言名、技术配置名称保留必要标识。（用户确认；例外沿用已对齐方案）
-- 动作写清结果，删除对话不能写成清空；回答标记不能写成保存。（用户确认方案 B）
-- 同一功能在侧栏、网页与视频中使用同一名称。（用户确认）
-- 原文案对照在 `docs/ui-copy.md`；五语言文案维护在 `shared/uiMessages.ts`。
+命名、动作语义与长度约定维护在 [文案约定](../ui-copy.md)；具体五语言字符串只在 [shared/uiMessages.ts](../../shared/uiMessages.ts) 维护。
 
 ## 语言
 
@@ -36,4 +33,4 @@
 ## 验证
 
 - `npm run check-i18n`：语言匹配、目录完整性、AI 提示、数据与控件状态保持。
-- `npm run check-ui-i18n`：先运行 WXT 开发服务，并安装 Playwright Chromium；使用隔离浏览器验证保存、读回、错误与实际 AI 请求参数，AI 返回使用测试数据。
+- `npm run check-ui-i18n`：默认读取 `.output/chrome-mv3-dev`，需先运行 WXT 开发服务并安装 Playwright Chromium；生产产物先构建，再用 `PEAK_DISTANCE_UI_EXTENSION=.output/chrome-mv3 npm run check-ui-i18n`。隔离浏览器验证保存、读回、错误与实际 AI 请求参数，AI 返回使用测试数据。

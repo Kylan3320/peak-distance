@@ -2,6 +2,8 @@
 
 状态：主体实现与集成完成，0.2.1 已完成本轮已登录 Chrome 界面修复验收；见 [M7 验收报告](m7-verification-report.md)。采用现有模块的最小改动，不新增通用框架；当前进度与 M6 剩余验收见 [ROADMAP](../ROADMAP.md)。产品约定见 [PRD](../PRD.md)，已有请求、缓存与问答规则沿用 [M6 spec](m6-online-services-and-chat.md)。
 
+阶段规格。面板承载与设置入口已由 [M8](m8-peak-distance-uiux.md) 替代，语言范围由 [M11](m11-multilingual-local-vault.md) 扩展，选轨规则见 [后续修复](youtube-subtitle-language-verification.md)；本阶段播放与收藏约定继续保留。
+
 ## 1. 目标与已确认范围
 
 用户实测反馈：字幕偏小；查词需要点击后移视到右上角；翻译开关不易发现；视频右上角常驻控件遮挡内容；缺少页内学习侧栏。另有字幕显示双语但没有中文、自由短语查询网络失败的反馈，需要在真实环境复核，不能仅凭截图判定原因。

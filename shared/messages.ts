@@ -308,7 +308,7 @@ export type ChatPortMessage =
       editId?: string;
     }
   | { type: 'chat-stop'; chatId: string }
-  | { type: 'chat-retry'; chatId: string; turnId: string };
+  | { type: 'chat-retry'; chatId: string; turnId: string; windowId?: number };
 
 export type ChatPortEvent =
   | {

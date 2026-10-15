@@ -29,11 +29,15 @@ import type { MaterialSnapshotRecord } from '@/shared/chat';
 import { DB_NAME, DB_VERSION, getVaultHandle } from '@/lib/db';
 import {
   VAULT_FORMAT_VERSION,
+  vaultRecordJson,
   type VaultIdentity,
   type VaultPendingWrite,
   type VaultSentenceRecord,
   type VaultVocabRecord,
+  type VaultPreferenceRecord,
+  type VaultChatRecord,
 } from '@/shared/vault';
+import { validSetting } from '@/shared/settings';
 import { COLLECTION_FILES, emptyCollection, parseCollection, serializeCollection, type CollectionKind, type CollectionDocument } from './collectionFormat';
 
 /** 目录内学习库身份文件（JSON；vaultId 是换库判定依据）。 */
@@ -42,6 +46,7 @@ const IDENTITY_FILE = 'identity.json';
 const INDEX_FILE = 'index.json'; // recordId → 相对路径（两浏览器共享的路径索引）
 const README_FILE = '使用说明.md';
 const RECORDS_FILE = 'records.json';
+const DELETED_CHATS_FILE = 'deleted-chats.json';
 
 type DirHandle = FileSystemDirectoryHandle & {
   queryPermission?: (d: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>;
@@ -150,6 +155,54 @@ async function readIndex(dir: DirHandle): Promise<VaultIndex> {
 
 async function writeIndex(dir: DirHandle, index: VaultIndex): Promise<void> {
   await writeTextFile(dir, [META_DIR, INDEX_FILE], JSON.stringify(index, null, 2));
+}
+
+async function readDeletedChats(dir: DirHandle): Promise<{ ids: string[]; source: string | null }> {
+  const read = await readTextFile(dir, [META_DIR, DELETED_CHATS_FILE]);
+  if ('missing' in read) return { ids: [], source: null };
+  if ('failed' in read) throw new Error('io: deleted-chats.json');
+  const ids: unknown = JSON.parse(read.text);
+  if (!Array.isArray(ids) || !ids.every(id => typeof id === 'string')) throw new Error('format: deleted-chats.json');
+  return { ids, source: read.text };
+}
+
+export async function deleteChatFromVault(dir: DirHandle, chatId: string, base: VaultChatRecord | null): Promise<{ conflict: { path: string; text: string }[] } | null> {
+  const index = await readIndex(dir);
+  const files: { path: string; text: string }[] = [];
+  const expected = base ? parseChatDocument(serializeChatRecord(base)) : null;
+  for (const path of await listFilesRecursive(dir)) {
+    if (!path.endsWith('.md') || !/^(对话|材料)\//.test(path)) continue;
+    const read = await readTextFile(dir, path.split('/'));
+    if ('failed' in read) throw new Error(`io: ${path}`);
+    if (!('text' in read)) continue;
+    const parsed = path.startsWith('对话/') ? parseChatDocument(read.text) : parseMaterialDocument(read.text);
+    if ('error' in parsed && path === index[chatId]) throw new Error(`format: ${path}`);
+    if ('error' in parsed || ('chatId' in parsed ? parsed.chatId : parsed.id) !== chatId) continue;
+    files.push({ path, text: read.text });
+    if (path.startsWith('对话/') && vaultRecordJson(parsed) !== vaultRecordJson(expected)) return { conflict: files };
+  }
+  const deleted = await readDeletedChats(dir);
+  if (!deleted.ids.includes(chatId)) await writeTextFile(dir, [META_DIR, DELETED_CHATS_FILE], JSON.stringify([...deleted.ids, chatId]), deleted.source);
+  for (const { path, text } of files) {
+    const current = await readTextFile(dir, path.split('/'));
+    if ('missing' in current) continue;
+    if ('failed' in current) throw new Error(`io: ${path}`);
+    if (current.text !== text) {
+      if (!deleted.ids.includes(chatId)) {
+        const latest = await readDeletedChats(dir);
+        await writeTextFile(dir, [META_DIR, DELETED_CHATS_FILE], JSON.stringify(latest.ids.filter(id => id !== chatId)), latest.source);
+      }
+      return { conflict: files.map(file => file.path === path ? { path, text: current.text } : file) };
+    }
+    const parts = path.split('/');
+    let parent = dir;
+    for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+    await parent.removeEntry(parts.at(-1)!);
+    for (const [id, indexed] of Object.entries(index)) if (indexed === path) delete index[id];
+  }
+  for (const id of Object.keys(index)) if (id === chatId || id.startsWith(`${chatId}::v`)) delete index[id];
+  await writeIndex(dir, index);
+  return null;
 }
 
 // ---- 文件名（可读标题 + 短 ID；去重不依赖文件名） -----------------------------------
@@ -265,6 +318,7 @@ export async function writeChatToVault(
   title: string,
   markdown: string,
 ): Promise<{ path: string }> {
+  if ((await readDeletedChats(dir)).ids.includes(chatId)) throw new Error(`conflict: deleted chat ${chatId}`);
   const index = await readIndex(dir);
   const known = index[chatId];
   const path = known && known.startsWith('对话/') ? known : `对话/${vaultFileName(title, chatId)}`;
@@ -280,9 +334,14 @@ export async function writeMaterialToVault(
   chatId: string,
   snapshot: MaterialSnapshotRecord,
 ): Promise<{ path: string }> {
+  if ((await readDeletedChats(dir)).ids.includes(chatId)) throw new Error(`conflict: deleted chat ${chatId}`);
   const id = materialIdOf(chatId, snapshot.version);
   const index = await readIndex(dir);
-  if (index[id]) return { path: index[id]! }; // 不可变：已存在不重写
+  if (index[id]) {
+    const existing = await readTextFile(dir, index[id]!.split('/'));
+    if ('failed' in existing) throw new Error(`io: ${index[id]}`);
+    if ('text' in existing) return { path: index[id]! };
+  }
   const path = `材料/${vaultFileName(snapshot.label, id)}`;
   await writeTextFile(dir, path.split('/'), serializeMaterialSnapshot(chatId, snapshot));
   index[id] = path;
@@ -299,6 +358,15 @@ export async function writePreferenceToVault(
   await writeTextFile(dir, ['偏好.md'], serializePreferenceRecord(pref));
 }
 
+export async function readPreferenceFromVault(dir: DirHandle): Promise<VaultPreferenceRecord | null> {
+  const read = await readTextFile(dir, ['偏好.md']);
+  if ('failed' in read) throw new Error('io: 偏好.md');
+  if ('missing' in read) return null;
+  const parsed = parsePreferenceDocument(read.text);
+  if (!validSetting('defaultComprehensionLang', parsed.defaultComprehensionLang) || !validSetting('comprehensionOverrides', parsed.comprehensionOverrides)) throw new Error('format: 偏好.md');
+  return { defaultComprehensionLang: parsed.defaultComprehensionLang, comprehensionOverrides: parsed.comprehensionOverrides };
+}
+
 // ---- 读取（解析受管文件 → 记录清单；调用方与本地对账） -----------------------------
 
 export interface VaultFileScan {
@@ -312,10 +380,11 @@ export interface VaultFileScan {
   /** 读取失败（权限瞬断 / IO 错误）的文件数：>0 表示本轮扫描不完整，调用方须跳过删除检测 */
   readFailures: number;
   paths: string[];
+  deletedChats: string[];
 }
 
 export async function scanVault(dir: DirHandle): Promise<VaultFileScan> {
-  const scan: VaultFileScan = { vocab: [], sentences: [], chats: [], materials: [], preference: null, broken: [], readFailures: 0, paths: [] };
+  const scan: VaultFileScan = { vocab: [], sentences: [], chats: [], materials: [], preference: null, broken: [], readFailures: 0, paths: [], deletedChats: (await readDeletedChats(dir)).ids };
   const { records: data } = await readRecordData(dir);
   const files = await listFilesRecursive(dir);
   scan.paths = files;

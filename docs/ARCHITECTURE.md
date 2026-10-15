@@ -1,12 +1,12 @@
 # 技术边界
 
-桌面 Chrome / Manifest V3，单扩展工程；WXT + TypeScript + DOM/CSS。精确版本、入口与权限以配置为准。
+桌面 Chrome / Edge、Manifest V3，单扩展工程；WXT + TypeScript + DOM/CSS。本文维护模块职责与技术约束；精确版本、类型、格式与权限以代码和配置为准，完成状态及已知实现缺口见 [ROADMAP](ROADMAP.md)。
 
-## M11 目标边界（待实施）
+## 多语言与本地学习库边界
 
-- 执行 [多语言与本地学习库 spec](specs/m11-multilingual-local-vault.md)，目标覆盖桌面 Chrome / Edge。下文其余部分描述当前实现；具体交付状态见 ROADMAP。
+- 语言与共享范围按 [M11 spec](specs/m11-multilingual-local-vault.md)，集合文档及同步修订按 [学习库集合与同步](specs/vault-collections-sync.md)。
 - 语言身份贯穿选区／轨道、查询、缓存、学习记录和索引；源语言与理解语言独立。词典、免费译文、AI 词义及语境结果分别保留来源。
-- 保留 IndexedDB 作为运行副本、索引与待写入队列。连接后的学习文件夹承载共享持久资料；通过用户授权的 File System Access 路径读写，先实测容器、生命周期和跨浏览器行为。
+- IndexedDB 是运行副本、索引与待写入队列。连接后的学习文件夹承载共享持久资料，通过用户授权的 File System Access 路径读写；受控句柄检查与原生目录实机范围分别记录在验收材料中。
 - Markdown 承载可读资料与用户笔记／状态，辅助目录承载必要关联及合并信息。读写限受信任扩展上下文，宿主页面不持有目录句柄；Key、调用授权与服务配置不进入共享库。
 - 多语言与库逻辑复用现有消息、请求取消和存储入口；保持单工程，不增加常驻程序、云后端或通用协同编辑框架。类型与格式事实以实施代码为准。
 
@@ -20,14 +20,15 @@
 | `shared/floatingPanel.ts`、`lib/panelService.ts` | 页内扩展 iframe 外壳、固定／浮动模式路由与全屏状态移交 |
 | `shared/translationPopup.ts`、`shared/settingsView.ts` | 选区翻译浮层与扩展源内的共用设置组件 |
 | `shared/tokens.css`、`shared/theme.css` | 跨扩展页面和 Shadow DOM 的视觉变量与基础样式 |
+| `shared/i18n.ts`、`shared/uiMessages.ts`、`public/_locales/` | 显示语言解析、五语言界面目录与扩展清单文案；不改写用户内容 |
 | `shared/lookupPopup.ts`、`shared/marker.ts` | 共用查词弹窗、正文词汇标记 |
 | `shared/runtime.ts` | 网页与 YouTube 的消息发送边界：保留传输失败原因，失效内容脚本提示刷新网页 |
 | `entrypoints/sidepanel/`、`entrypoints/options/` | 生词本、字幕、复习、问答和设置 |
 | `entrypoints/background.ts`、`lib/chatService.ts` | 扩展消息、网络请求与问答生命周期 |
 | `lib/db.ts` | 扩展源下的 IndexedDB，集中读写与增量升级 |
 | `shared/vocab.ts`、`shared/cues.ts`、`shared/review.ts`、`shared/chat.ts` | 词汇、时间轴、复习、材料与对话纯逻辑 |
-| `shared/languages.ts`、`shared/tokenize.ts` | M11 语言身份（标签、稳定键、按语言规范化）与统一分词边界（点击 / 标记 / 词次共用） |
-| `lib/lookupService.ts` | M11 查询路由表唯一实现：词典语言对门控 → 免费译文 → 主动 AI 兜底（悬停零 LLM） |
+| `shared/languages.ts`、`shared/tokenize.ts` | 语言身份（标签、稳定键、按语言规范化）与统一分词边界（点击 / 标记 / 词次共用） |
+| `lib/lookupService.ts` | 查询路由：适用词典优先；明确未命中／无适用词典时按授权尝试 AI，否则使用免费译文；词典故障不触发 AI，悬停零 LLM |
 | `lib/vault/records.ts`、`lib/vault/format.ts`、`lib/vault/collectionFormat.ts`、`lib/vault/chatFormat.ts`、`lib/vault/fs.ts`、`lib/vault/sync.ts` | 学习库：共享记录映射、记录／集合 Markdown 往返与三方合并、会话/材料序列化、目录访问、同步编排 |
 | `shared/messages.ts`、`shared/protocol.ts` | 扩展内部消息；YouTube 页面桥协议 |
 | `shared/subtitleTracker.ts` | YouTube 轨道描述、内容身份、请求 URL 与凭据、明确选轨与播放器确认、捕获归属 |
@@ -39,9 +40,10 @@
 - key 限受信任扩展上下文读取。content script 经消息取得不含凭据的设置。
 - 学习数据写入扩展自身 IndexedDB，事务保证词条与上下文一致；旧数据、ID 和已有 key 不因升级丢失。
 - 生词本、句子各维护一份集合 Markdown；可读记录与完整恢复数据分开，`.peak-distance/records.json` 保留释义细节和视频关联。同步操作在当前 worker 串行执行，写前检查文件版本、写后重新读取核对；这不等同于跨浏览器／外部编辑器的文件互斥。
-- 待办入队与读回在 IndexedDB 事务中验证当前记录和待办版本；本机删除与删除待办同事务提交，远端读回／删除不能覆盖并发本机保存。手动同步先补缺失待办并提交，再读回共享文件；按实际结果广播词语与句子变化，文件夹重新授权由扩展页面的用户点击完成。
+- 词语／句子的保存、修改、删除及聊天终态／删除与待办同事务提交，读回验证当前记录和待办版本。运行表只承载活动库，换库在单一数据库事务中归存旧库、恢复目标库；偏好、待办、共同快照和冲突按库归属隔离。断开只移除连接，保留数据归属并继续记录待办；无可靠归属的旧待办保留并报告冲突。手动同步提交后读回共享文件，文件夹重新授权由扩展页面的用户点击完成。
+- 聊天读回重建消息与不可变材料、来源、版本和引用的关联；材料缺失时报告恢复不完整。聊天删除比较共同基准与当前文件，外部更新保留文件和冲突副本；匹配后提交删除标记并清理本会话独占文件，阻止旧运行副本复活。解决或成功删除后清理对应冲突副本；语言偏好按共同快照三方合并，真实冲突保留双方。
 - 页面 UI 用 Shadow DOM 隔离；视频全屏时挂在可见全屏节点。视频控制绑定 tabId + videoId，过期动作不控制其它页面。
-- 材料快照不可变，历史引用绑定原快照和来源。模型材料与系统指令分开；只把有效材料 ID 转为来源链接。
+- 材料快照不可变，历史引用绑定原快照和来源。发送事务以已提交历史为准合入本次材料并分配版本，不以窗口编辑副本替换历史；窗口刷新保留各自未发送的材料。换库停止原库生成、失效旧编辑，迟到提交验证数据归属。模型材料与系统指令分开；只把有效材料 ID 转为来源链接。
 - 网络请求绑定操作身份，取消、切来源或清空后迟到结果不能重新写回。持久化生成状态与活请求区分，worker 重启可恢复记录。
 - 类型、数据库版本、预算、超时、缓存键由代码定义；此文不复制字段表或常量。
 
@@ -64,7 +66,7 @@
 - 页内外壳继续用 Shadow DOM；包含凭据的设置必须运行在扩展源页面上下文，可在页内外壳嵌入复用的扩展资源。宿主页面与内容脚本不获得 key；不向宿主开放通用特权消息代理。
 - 嵌入资源仅开放工作区 HTML、构建依赖和品牌资源；上下文绑定使用浏览器提供的发送方身份，校验标签页／视频／窗口归属。
 - 显式选区翻译使用独立于词典路由的动作，复用现有翻译服务、取消与缓存能力；不复用会截断表达的查词载荷。保持原文不变，以完整输入区分缓存。
-- 工作区视图、滚动位置、复习进度和问答材料分段保存到窗口级 session 快照。`lib/chatWorkspace.ts` 管理临时编辑副本，未发送输入、材料与引用只放在窗口级 `storage.session`，不写入会话库；读活动会话不创建记录。首次发送通过校验后，在同一 IndexedDB 事务提交会话、材料快照、首问和回答占位。后续材料修改也在发送事务提交，历史快照保持不变。
+- 工作区视图、滚动位置、复习进度和问答材料分段保存到窗口级 session 快照。`lib/chatWorkspace.ts` 管理临时编辑副本，session 只保留当前未发送输入、材料与引用，已提交历史从 IndexedDB 恢复。替换／移除附件清理未被已发送消息引用的快照；读活动会话不创建记录。首次发送通过校验后，在同一 IndexedDB 事务提交会话、材料快照、首问和回答占位，提交后异常确认持久化事实并以可重试错误收尾。
 - 新建、切换和关闭以窗口操作身份失效旧响应；发送回执只清除本次已发送的编辑，提交期间新增的内容继续保留。模式移交先准备目标容器，路由激活后才允许它交互；隐藏容器停止写回。真实关闭通过显式入口、匹配外壳身份的顶层承载页卸载和 Chrome `sidePanel.onClosed` 清除临时编辑；iframe 内部文档卸载不承担关闭判定，程序性侧栏关闭携带移交标记。标签隐藏、连接断开及 worker 恢复不承担关闭判定。
 - 词卡与选区翻译卡监听卡外 pointerdown，不吞点击、不恢复旧焦点；自有工作区沿现有扩展消息传递带发生时间的关闭意图，避免迟到关闭影响新卡。不读取 iframe 文档。具体生命周期见 [M10](specs/m10-chat-and-popup-interactions.md)。
 - 浮动外壳按 Chrome 文档身份定向检查当前 iframe 就绪状态，加载／初始化失败提供明确手动重试，已有窗口临时状态继续恢复。检查不自动重载，诊断只记录必要元数据，不包含凭据、问题或材料。
@@ -75,4 +77,4 @@
 字幕选区通过 [getComposedRanges](https://developer.mozilla.org/en-US/docs/Web/API/Selection/getComposedRanges) 读取 Shadow DOM 内的真实端点；不以重新限定到宿主后的 `isCollapsed` 判定选区为空。
 
 使用普通模块和实际需要的消息，不增加动态插件安装、依赖注入或通用 agent 框架。
-上游移植范围与许可见 [REFERENCES](REFERENCES.md)，实际通过与未通过项见 [M7 验收报告](specs/m7-verification-report.md)。
+上游移植范围与许可见 [REFERENCES](REFERENCES.md)，各阶段验收与剩余项由 [ROADMAP](ROADMAP.md) 索引。

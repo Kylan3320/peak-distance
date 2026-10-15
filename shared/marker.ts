@@ -316,6 +316,7 @@ export function createMarker(opts: {
       mutateTimer = null;
       const targets = pending;
       pending = new Set();
+      markCount = document.querySelectorAll(`span[${MARK_ATTR}]`).length;
       if (!buckets.size || !markCountLeft()) return;
       for (const el of targets) {
         if (!el.isConnected) continue;
