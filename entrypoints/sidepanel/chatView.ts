@@ -1,4 +1,6 @@
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, materialLabel, scopeLabel, type UiText } from '@/shared/i18n';
+import { knowledgeFromAnswer } from '@/shared/knowledge';
+import { knowledgeEditor } from './knowledgeView';
 import {
   CHAT_MATERIAL_BUDGET_CHARS,
   CHAT_QUESTION_MAX_CHARS,
@@ -855,6 +857,7 @@ function updateStreamingMessage(msg: ChatMessageRecord): boolean {
 function renderMessages(): void {
   if (!deps || deps.getActiveView() !== 'chat') return;
   const list = document.getElementById('chat-list')!;
+  const knowledgeTools = new Map([...list.querySelectorAll<HTMLElement>('.knowledge-save')].map(node => [node.dataset.origin, node]));
   list.textContent = '';
   document.getElementById('view-chat')!.classList.toggle('is-empty', !chatRecord?.messages.length);
   // 附加成功 / 带入引用后的聚焦：空态（欢迎页）也必须消费
@@ -943,6 +946,26 @@ function renderMessages(): void {
         body.appendChild(el('span', 'pending', '……'));
       }
       item.appendChild(body);
+      const content = chatRecord && knowledgeFromAnswer(chatRecord, m.id);
+      if (content && chatRecord) {
+        const origin=`${chatRecord.id}:${m.id}`;
+        const previous=knowledgeTools.get(origin);
+        if(previous){item.append(previous);list.appendChild(item);continue;}
+        const tools=el('div','knowledge-save');tools.dataset.origin=origin;
+        const savedChatId = chatRecord.id, vaultId = chatRecord.vaultId ?? null;
+        const save = el('button', 'mini', message('保存知识点'));
+        const state = el('p', 'hint'); state.setAttribute('role', 'status');
+        save.onclick = () => {
+          if (tools.querySelector('.knowledge-editor')) return;
+          knowledgeEditor(tools, content, async (title, body) => {
+            const result = await send<{ ok: boolean; existing?: boolean }>({ type: 'saveKnowledge', chatId: savedChatId, messageId: m.id, title, body, vaultId });
+            if (!result?.ok) return false;
+            setText(state, message(result.existing ? '已保存此回答，保留现有修改' : '已保存在本机，待写入学习库'));
+            return true;
+          });
+        };
+        tools.append(save, state);item.append(tools);
+      }
     }
     list.appendChild(item);
   }

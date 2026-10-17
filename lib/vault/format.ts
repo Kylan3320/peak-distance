@@ -843,10 +843,10 @@ function mergeContexts(local: VaultVocabContext[], file: VaultVocabContext[]): V
   return merged;
 }
 
-function mergeForms(local: string[], file: string[]): string[] {
-  const out = [...local];
-  for (const f of file) if (!out.includes(f)) out.push(f);
-  return out;
+function mergeForms(base: string[], local: string[], file: string[]): string[] {
+  const previous = new Set(base), here = new Set(local), there = new Set(file);
+  // Keep either side's additions; a form in the common base survives only if neither side removed it.
+  return [...new Set([...local, ...file])].filter(form => !previous.has(form) || here.has(form) && there.has(form));
 }
 
 /**
@@ -917,7 +917,7 @@ export function mergeVocabRecord(
     ...local,
     ...identity,
     status,
-    forms: mergeForms(local.forms ?? [], file.forms ?? []),
+    forms: mergeForms(base?.forms ?? [], local.forms ?? [], file.forms ?? []),
     contexts: mergeContexts(local.contexts, file.contexts),
     createdAt: base?.createdAt ?? local.createdAt,
     updatedAt: Math.max(local.updatedAt, file.updatedAt),

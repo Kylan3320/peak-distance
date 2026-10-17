@@ -37,6 +37,8 @@ import {
   type VaultChatRecord,
 } from '@/shared/vault';
 import { validSetting } from '@/shared/settings';
+import type { KnowledgeRecord } from '@/shared/knowledge';
+import { parseKnowledge, serializeKnowledge } from './knowledgeFormat';
 import { COLLECTION_FILES, emptyCollection, parseCollection, serializeCollection, type CollectionKind, type CollectionDocument } from './collectionFormat';
 
 /** 目录内学习库身份文件（JSON；vaultId 是换库判定依据）。 */
@@ -128,9 +130,10 @@ export async function ensureVault(dir: DirHandle): Promise<VaultIdentity> {
     [
       '# 学习库',
       '',
-      '- 生词本.md 与句子.md 按记录分节；对话/ 下每个会话一份 Markdown。记录的 id、language、expression 与原句由扩展管理。',
+      '- 生词本.md、句子.md 与知识点.md 按记录分节；对话/ 下每个会话一份 Markdown。记录的 id、language、expression 与原句由扩展管理。',
       '- 状态取值：saved = 已收藏，learning = 在学，known = 已掌握。',
       '- 修改“我的笔记”或状态会被扩展读回；改语言/表达等身份请通过扩展入口。',
+      '- 知识点可修改 YAML 中的 title（JSON 字符串）和 body 标记之间的正文；来源、已存引文和 origin 用于独立恢复，请保留。共享知识点的所有浏览器均需支持本库格式。',
       '- `.peak-distance` 保存恢复数据、身份、路径索引及旧散文件备份；整个文件夹一起保留，请勿手改辅助数据。',
     ].join('\n'),
   );
@@ -217,14 +220,17 @@ export function vaultFileName(title: string, recordId: string): string {
 
 // ---- Collection records and recovery metadata ----------------------------------
 
-type RecordData = { vocab: Record<string, VaultVocabRecord>; sentence: Record<string, VaultSentenceRecord> };
+type RecordData = { vocab: Record<string, VaultVocabRecord>; sentence: Record<string, VaultSentenceRecord>; knowledge: Record<string, KnowledgeRecord>; deletedKnowledge: string[] };
 
 async function readRecordData(dir: DirHandle): Promise<{ records: RecordData; source: string | null }> {
   const read = await readTextFile(dir, [META_DIR, RECORDS_FILE]);
-  if ('missing' in read) return { records: { vocab: {}, sentence: {} }, source: null };
+  if ('missing' in read) return { records: { vocab: {}, sentence: {}, knowledge: {}, deletedKnowledge: [] }, source: null };
   if ('failed' in read) throw new Error('io: records.json');
   const parsed = JSON.parse(read.text) as RecordData;
   if (!parsed.vocab || !parsed.sentence) throw new Error('format: records.json');
+  parsed.knowledge ??= {};
+  parsed.deletedKnowledge ??= [];
+  if (!Array.isArray(parsed.deletedKnowledge) || !parsed.deletedKnowledge.every(id => typeof id === 'string')) throw new Error('format: deleted knowledge');
   return { records: parsed, source: read.text };
 }
 
@@ -270,7 +276,7 @@ function sentenceRecord(text: string, data: RecordData): VaultSentenceRecord {
 }
 
 function documentId(text: string, kind: CollectionKind): string {
-  const parsed = kind === 'vocab' ? parseVocabDocument(text) : parseSentenceDocument(text);
+  const parsed = kind === 'knowledge' ? parseKnowledge(text) : kind === 'vocab' ? parseVocabDocument(text) : parseSentenceDocument(text);
   if ('error' in parsed || !parsed.id) throw new Error(`format: ${kind}`);
   return parsed.id;
 }
@@ -294,10 +300,15 @@ export async function editCollection(dir: DirHandle, kind: CollectionKind) {
       const text = documents.get(id);
       return text === undefined ? null : vocabRecord(text, data);
     },
-    set(record: VaultVocabRecord | VaultSentenceRecord): void {
+    knowledge(id: string): KnowledgeRecord | null { const text = documents.get(id); return text === undefined ? null : parseKnowledge(text); },
+    deletedKnowledge: data.deletedKnowledge,
+    set(record: VaultVocabRecord | VaultSentenceRecord | KnowledgeRecord): void {
       const previous = documents.get(record.id);
       let next: string | { error: 'format' };
-      if (kind === 'vocab') {
+      if (kind === 'knowledge') {
+        if (data.deletedKnowledge.includes(record.id)) throw new Error('conflict: deleted knowledge');
+        next = serializeKnowledge(record as KnowledgeRecord);
+      } else if (kind === 'vocab') {
         const vocab = record as VaultVocabRecord;
         next = previous === undefined ? serializeVocabRecord(vocab) : applyVocabToDocument(vocab, previous);
       } else {
@@ -306,14 +317,19 @@ export async function editCollection(dir: DirHandle, kind: CollectionKind) {
       }
       if (typeof next !== 'string') throw new Error(`format: ${record.id}`);
       documents.set(record.id, next);
-      if (kind === 'vocab') data.vocab[record.id] = record as VaultVocabRecord;
+      if (kind === 'knowledge') data.knowledge[record.id] = record as KnowledgeRecord;
+      else if (kind === 'vocab') data.vocab[record.id] = record as VaultVocabRecord;
       else data.sentence[record.id] = record as VaultSentenceRecord;
       hasUpdates = true;
     },
     delete(id: string): void { documents.delete(id); deleted.add(id); },
     async commit(): Promise<void> {
       // New records need metadata first; deleted records keep recovery data until the visible deletion succeeds.
-      if (hasUpdates) await publishData();
+      if (kind === 'knowledge') {
+        // Tombstones precede visible deletion, so stale writers can never resurrect an ID.
+        for (const id of deleted) if (!data.deletedKnowledge.includes(id)) data.deletedKnowledge.push(id);
+      }
+      if (hasUpdates || kind === 'knowledge' && deleted.size) await publishData();
       await writeTextFile(dir, [COLLECTION_FILES[kind]], serializeCollection({ ...collection, documents:[...documents.values()] }, kind), collection.source);
       if (deleted.size) {
         for (const id of deleted) delete data[kind][id];
@@ -410,6 +426,8 @@ export async function readPreferenceFromVault(dir: DirHandle): Promise<VaultPref
 // ---- 读取（解析受管文件 → 记录清单；调用方与本地对账） -----------------------------
 
 export interface VaultFileScan {
+  knowledge: { path: string; record: KnowledgeRecord }[];
+  deletedKnowledge: string[];
   vocab: { path: string; record: VaultVocabRecord; note: string }[];
   sentences: { path: string; record: VaultSentenceRecord }[];
   chats: { path: string; text: string }[];
@@ -424,8 +442,9 @@ export interface VaultFileScan {
 }
 
 export async function scanVault(dir: DirHandle): Promise<VaultFileScan> {
-  const scan: VaultFileScan = { vocab: [], sentences: [], chats: [], materials: [], preference: null, broken: [], readFailures: 0, paths: [], deletedChats: (await readDeletedChats(dir)).ids };
+  const scan: VaultFileScan = { knowledge: [], deletedKnowledge: [], vocab: [], sentences: [], chats: [], materials: [], preference: null, broken: [], readFailures: 0, paths: [], deletedChats: (await readDeletedChats(dir)).ids };
   const { records: data } = await readRecordData(dir);
+  scan.deletedKnowledge = data.deletedKnowledge;
   const files = await listFilesRecursive(dir);
   scan.paths = files;
   for (const path of files) {
@@ -443,6 +462,15 @@ export async function scanVault(dir: DirHandle): Promise<VaultFileScan> {
       } else if (path === COLLECTION_FILES.sentence || path.startsWith('句子/')) {
         const documents = path === COLLECTION_FILES.sentence ? parseCollection(read.text, 'sentence').documents : [read.text];
         for (const text of documents) scan.sentences.push({ path, record: sentenceRecord(text, data) });
+      } else if (path === COLLECTION_FILES.knowledge) {
+        const documents = parseCollection(read.text, 'knowledge').documents;
+        const ids = new Set<string>();
+        for (const text of documents) {
+          const record = parseKnowledge(text);
+          if (ids.has(record.id)) throw new Error('format: duplicate knowledge');
+          ids.add(record.id);
+          if (!data.deletedKnowledge.includes(record.id)) scan.knowledge.push({ path, record });
+        }
       } else if (path.startsWith('对话/')) scan.chats.push({ path, text: read.text });
       else if (path.startsWith('材料/')) scan.materials.push({ path, text: read.text });
       else if (path === '偏好.md') scan.preference = parsePreferenceDocument(read.text);

@@ -62,6 +62,8 @@ import type {
 } from '@/shared/vault';
 import { entryViewToVaultRecord, sentenceToVaultRecord, vaultRecordToEntry } from './records';
 import { DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
+import { mergeKnowledge, type KnowledgeRecord } from '@/shared/knowledge';
+import { deleteKnowledge, listKnowledge, upsertVaultKnowledge } from '@/lib/db';
 
 type DirHandle = Parameters<typeof ensureVault>[0];
 
@@ -98,16 +100,39 @@ async function flushCollectionWrites(handle: DirHandle, queue: VaultPendingWrite
     result.failed++;
     result.error = vaultErrorCode(error);
   };
-  for (const kind of ['vocab', 'sentence'] as const) {
+  for (const kind of ['vocab', 'sentence', 'knowledge'] as const) {
     const writes = queue.filter(w => w.vaultId && w.kind === kind);
     if (!writes.length) continue;
     let edit: Awaited<ReturnType<typeof editCollection>>;
     try { edit = await editCollection(handle, kind); }
     catch (error) { for (const write of writes) await fail(write, error); continue; }
-    const staged: { write: VaultPendingWrite; record: VaultVocabRecord | VaultSentenceRecord | null }[] = [];
+    const staged: { write: VaultPendingWrite; record: VaultVocabRecord | VaultSentenceRecord | KnowledgeRecord | null }[] = [];
     for (const write of writes) {
       try {
-        let record = write.payload as VaultVocabRecord | VaultSentenceRecord | null;
+        let record = write.payload as VaultVocabRecord | VaultSentenceRecord | KnowledgeRecord | null;
+        if (kind === 'knowledge') {
+          const key = `knowledge:${write.recordId}`;
+          const previous = edit.knowledge(write.recordId);
+          const baseRaw = await getSyncSnapshot(key);
+          const base = baseRaw ? JSON.parse(baseRaw) as KnowledgeRecord : null;
+          if (edit.deletedKnowledge.includes(write.recordId)) {
+            if(write.payload)await markVaultWriteAttempt(write,'conflict: deleted knowledge');
+            await removeVaultWrite(write);
+            if (await deleteKnowledge(write.recordId, false, write.payload as KnowledgeRecord | null)) await deleteSyncSnapshot(key);
+            if(write.payload) {
+              await putVaultRaw(`conflict:${key}`, { kind, recordId:write.recordId, local:write.payload, remote:null });
+              result.failed++;result.error='conflict';
+            }
+            continue;
+          }
+          const outcome = record && previous ? mergeKnowledge(base, record as KnowledgeRecord, previous) : null;
+          if (outcome?.kind === 'conflict' || record === null && previous && vaultRecordJson(previous) !== vaultRecordJson(base)
+            || record && !previous && base) {
+            await putVaultRaw(`conflict:${key}`, { kind, recordId: write.recordId, local: record, remote: previous, fields: outcome?.kind === 'conflict' ? outcome.fields : [] });
+            await fail(write, new Error('conflict: knowledge changed')); continue;
+          }
+          if (outcome?.kind === 'merged') record = outcome.value;
+        }
         if (record === null) edit.delete(write.recordId);
         else {
           if (kind === 'vocab') {
@@ -136,13 +161,15 @@ async function flushCollectionWrites(handle: DirHandle, queue: VaultPendingWrite
     catch (error) { for (const { write } of staged) await fail(write, error); continue; }
     for (const { write, record } of staged) {
       try {
-        const id = kind === 'sentence' ? `sentence:${write.recordId}` : write.recordId;
+        const id = kind === 'vocab' ? write.recordId : `${kind}:${write.recordId}`;
         if (record === null) await deleteSyncSnapshot(id);
         else {
           if (kind === 'vocab') {
             const vocab = record as VaultVocabRecord;
             const { entry, contexts } = vaultRecordToEntry(vocab, vocab.note ?? '');
             await importVaultEntry(entry, contexts, write.payload as VaultVocabRecord, write);
+          } else if (kind === 'knowledge') {
+            await upsertVaultKnowledge(record as KnowledgeRecord, write.payload as KnowledgeRecord, write);
           }
           await setSyncSnapshot(id, vaultRecordJson(record));
         }
@@ -171,7 +198,7 @@ async function flushPendingWrites(): Promise<FlushResult> {
   const unbound = queue.filter(w => !w.vaultId).length;
   failed += unbound;
   error ??= unbound ? 'conflict' : undefined;
-  for (const w of queue.filter(w => w.vaultId && w.kind !== 'vocab' && w.kind !== 'sentence')) {
+  for (const w of queue.filter(w => w.vaultId && w.kind !== 'vocab' && w.kind !== 'sentence' && w.kind !== 'knowledge')) {
     try {
       if (w.payload === null && w.kind === 'chat') {
         const base = await getSyncSnapshot(`chat:${w.recordId}`);
@@ -222,6 +249,10 @@ async function flushPendingWrites(): Promise<FlushResult> {
 }
 
 /** 本机保存成功后的入队（幂等键 = kind:recordId，后写覆盖先写）。 */
+export async function enqueueKnowledgeWrite(record: KnowledgeRecord): Promise<void> {
+  await enqueueVaultWrite({ id: `knowledge:${record.id}`, kind: 'knowledge', recordId: record.id, payload: record, queuedAt: Date.now() });
+}
+
 export async function enqueueVocabWrite(record: VaultVocabRecord): Promise<void> {
   await enqueueVaultWrite({
     id: `vocab:${record.id}`,
@@ -334,13 +365,46 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
   const pendingIds = new Set(pending.map(write => write.recordId));
   if (scan.readFailures === 0 && scan.broken.length === 0) {
     for (const id of await listSyncSnapshotIds()) {
-      if (!id.startsWith('sentence:') && !id.startsWith('chat:') && id !== 'preference:main' && !seen.has(id) && !pendingIds.has(id)) {
+      if (!id.startsWith('sentence:') && !id.startsWith('knowledge:') && !id.startsWith('chat:') && id !== 'preference:main' && !seen.has(id) && !pendingIds.has(id)) {
         const current = localByKey.get(id);
         if (!await deleteEntry(id, false, current ? entryViewToVaultRecord(current) : null)) continue;
         await deleteSyncSnapshot(id);
         await putVaultRaw(`conflict:${id}`, null).catch(() => {});
         deleted++;
       }
+    }
+  }
+
+  const localKnowledge = new Map((await listKnowledge()).map(k => [k.id, k]));
+  for (const { record } of scan.knowledge) {
+    if (pendingKeys.has(`knowledge:${record.id}`)) continue;
+    const current = localKnowledge.get(record.id) ?? null;
+    const baseRaw = await getSyncSnapshot(`knowledge:${record.id}`);
+    const outcome = current ? mergeKnowledge(baseRaw ? JSON.parse(baseRaw) : null, current, record) : { kind: 'merged' as const, value: record };
+    if (outcome.kind === 'conflict') {
+      await putVaultRaw(`conflict:knowledge:${record.id}`, { kind: 'knowledge', recordId: record.id, local: current, remote: record, fields: outcome.fields });
+      conflicts++; continue;
+    }
+    if (!await upsertVaultKnowledge(outcome.value, current)) continue;
+    await setSyncSnapshot(`knowledge:${record.id}`, vaultRecordJson(record));
+    await putVaultRaw(`conflict:knowledge:${record.id}`, null);
+    if (vaultRecordJson(current) !== vaultRecordJson(outcome.value)) updated++;
+    if (vaultRecordJson(outcome.value) !== vaultRecordJson(record)) await enqueueKnowledgeWrite(outcome.value);
+  }
+  if (scan.readFailures === 0 && scan.broken.length === 0) {
+    const present = new Set(scan.knowledge.map(k => k.record.id));
+    const removed = new Set([...scan.deletedKnowledge, ...(await listSyncSnapshotIds()).filter(k => k.startsWith('knowledge:') && !present.has(k.slice(10))).map(k => k.slice(10))]);
+    for (const id of removed) {
+      if (pendingKeys.has(`knowledge:${id}`)) continue;
+      const current = localKnowledge.get(id) ?? null;
+      const base = await getSyncSnapshot(`knowledge:${id}`);
+      if (current && base && vaultRecordJson(current) !== base && !scan.deletedKnowledge.includes(id)) {
+        await putVaultRaw(`conflict:knowledge:${id}`, { kind: 'knowledge', recordId: id, local: current, remote: null }); conflicts++; continue;
+      }
+      if (!await deleteKnowledge(id, false, current)) continue;
+      await deleteSyncSnapshot(`knowledge:${id}`);
+      if(current)await putVaultRaw(`conflict:knowledge:${id}`, null);
+      if (current) deleted++;
     }
   }
 
@@ -478,6 +542,7 @@ async function adoptConnectedVault(prepareSwitch?: () => Promise<void>): Promise
     const entries = await listEntries();
     for (const e of entries) await enqueueVocabWrite(entryViewToVaultRecord(e));
     for (const s of await listSentences()) await enqueueSentenceWrite(sentenceToVaultRecord(s));
+    for (const k of await listKnowledge()) await enqueueKnowledgeWrite(k);
     for (const c of await listChats()) {
       const record = await getChat(c.chatId);
       if (record) await enqueueChatWrite(record);

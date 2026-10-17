@@ -295,6 +295,23 @@ const fullRecord = record({
   check('3.5 笔记双改不同 → conflict', m5.kind === 'conflict' && m5.fields.some((f) => f.field === 'note'), JSON.stringify(m5.kind === 'conflict' ? m5.fields : m5));
 }
 
+{
+  const formCases: [string, string[] | null, string[], string[], string[]][] = [
+    ['本机移除', ['old', 'keep'], ['keep'], ['old', 'keep'], ['keep']],
+    ['文件移除', ['old', 'keep'], ['old', 'keep'], ['keep'], ['keep']],
+    ['移除与双方新增并存', ['old', 'keep'], ['keep', 'local-new'], ['old', 'keep', 'file-new'], ['keep', 'local-new', 'file-new']],
+    ['双方移除不同旧词形', ['first', 'second'], ['second', 'local-new'], ['first', 'file-new'], ['local-new', 'file-new']],
+    ['双方新增', [], ['local-new'], ['file-new'], ['local-new', 'file-new']],
+    ['没有共同快照不推断移除', null, ['local-new'], ['file-new'], ['local-new', 'file-new']],
+    ['同步移除后可再次主动新增', [], ['old'], [], ['old']],
+  ];
+  for (const [label, before, here, there, expected] of formCases) {
+    const ancestor = before === null ? null : record({ id: 'ja::forms', forms: before });
+    const result = mergeVocabRecord(ancestor, record({ id: 'ja::forms', forms: here }), record({ id: 'ja::forms', forms: there }));
+    check(`3.6 词形${label}`, result.kind === 'merged' && JSON.stringify(result.value.forms) === JSON.stringify(expected), JSON.stringify(result));
+  }
+}
+
 // ---- 4. 坏输入 -------------------------------------------------------------------
 
 {

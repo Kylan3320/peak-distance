@@ -25,6 +25,13 @@ export type LearningResult =
       model?: string;
     };
 
+export function generalMeaning(result?: LearningResult): string | null {
+  if (!result) return null;
+  return result.kind === 'dictionary'
+    ? result.entry.senses[result.selectedSense ?? 0]?.definition ?? null
+    : result.text;
+}
+
 export interface ContextExplanation {
   kind: 'ai-context'; source: 'deepseek' | 'ai'; provider?: import('./aiConfig').AiProvider; model?: string; text: string; sentence: string; neighbors?: string;
 }

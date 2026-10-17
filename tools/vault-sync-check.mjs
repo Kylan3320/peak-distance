@@ -149,6 +149,30 @@ async function open(kind) {
 try {
   const chrome = await open("chrome");
   const edge = await open("edge");
+  const firstKnowledge = await chrome.evaluate(async () => {
+    const {db,emptyChat}=Vault;
+    const source={sourceType:'article',sourceKey:'web:https://example.com/knowledge',title:'Original A',url:'https://example.com/knowledge'};
+    const chat={...emptyChat(),id:'knowledge-chat',source:{...source,title:'New B'},snapshots:[{source,version:1,createdAt:1,label:'A',blocks:[{id:'p1',text:'An independently saved quotation.'},{id:'p2',text:'Do not copy the whole article.'}]}],messages:[
+      {id:'question',role:'user',turnId:'one',text:'Same question',snapshotVersion:1,at:1},
+      {id:'answer',role:'assistant',turnId:'one',text:'Original answer [p1]',state:'stopped',at:2},
+      {id:'question2',role:'user',turnId:'two',text:'Same question',snapshotVersion:1,at:3},
+      {id:'answer2',role:'assistant',turnId:'two',text:'Different answer [p2]',state:'done',at:4},
+    ]};
+    await db.upsertChatRecordFromVault(chat);
+    const first=await db.saveAnswerKnowledge(chat.id,'answer','Edited title','Edited body [p1]',null);
+    const duplicate=await db.saveAnswerKnowledge(chat.id,'answer','Must not overwrite','Must not overwrite',null);
+    const second=await db.saveAnswerKnowledge(chat.id,'answer2','Same question','Different answer [p2]',null);
+    await db.deleteKnowledge(second.record.id);
+    await db.clearChat(chat.id);
+    return {first,duplicate,second,chat:await db.getChat(chat.id),records:await db.listKnowledge()};
+  });
+  assert.equal(firstKnowledge.chat,null);
+  assert.equal(firstKnowledge.duplicate.existing,true);
+  assert.equal(firstKnowledge.duplicate.record.body,'Edited body [p1]');
+  assert.notEqual(firstKnowledge.first.record.id,firstKnowledge.second.record.id);
+  assert.equal(firstKnowledge.records[0].source.title,'Original A');
+  assert.equal(firstKnowledge.records[0].quotes.length,1);
+  const knowledgeId=firstKnowledge.first.record.id;
   await chrome.evaluate(async () => {
     const { db } = window.Vault;
     await db.saveSnapshot({ source: "web", expression: "engineer", sentence: "A senior engineer.", url: "https://example.com/one", title: "One", lang: "en" }, {
@@ -169,6 +193,13 @@ try {
   await edge.evaluate(() => window.Vault.db.saveSnapshot({ source: "web", expression: "speculation", sentence: "Pure speculation.", url: "https://example.com/two", title: "Two", lang: "en" }, {}));
   assert.ok((await chrome.evaluate(() => window.Vault.adoptVault())).ok);
   assert.ok((await edge.evaluate(() => window.Vault.adoptVault())).ok);
+  for(const page of [chrome,edge]) {
+    const records=await page.evaluate(()=>Vault.db.listKnowledge());
+    assert.equal(records.length,1);assert.equal(records[0].body,'Edited body [p1]');assert.equal(records[0].quotes[0].text,'An independently saved quotation.');
+    assert.equal(await page.evaluate(()=>Vault.db.getChat('knowledge-chat')),null);
+  }
+  assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/identity.json'),'utf8')).formatVersion,3);
+  console.log('PASS offline independent knowledge survives original chat deletion, first connection and complete readback in another browser; duplicate saves preserve edits');
   assert.equal((await chrome.evaluate(() => window.Vault.synchronizeVault())).error, void 0);
   for (const page of [chrome, edge]) {
     assert.equal((await page.evaluate(() => window.Vault.db.listEntries())).length, 2);
@@ -192,6 +223,52 @@ try {
   assert.equal(merged.status, "learning");
   assert.equal(merged.note, "在原句里理解。");
   console.log("PASS different-field changes merge across browsers without losing notes or state");
+
+  async function seedForms(id) {
+    await chrome.evaluate(async id => {
+      const record = { id, language:'en', expression:id.slice(4), status:'saved', forms:['old-form','keep-form'], note:'', createdAt:1, updatedAt:1, contexts:[] };
+      await Vault.files.writeVocabToVault(__vaultDirectory, record);
+    }, id);
+    for (const page of [chrome, edge]) assert.equal((await page.evaluate(() => Vault.syncFromVault())).error, undefined);
+  }
+  async function addForm(page, id, form) {
+    await page.evaluate(async ({id,form}) => {
+      const api=Vault, previous=api.entryViewToVaultRecord(await api.db.getEntry(id));
+      const next={...previous,forms:[...previous.forms,form],updatedAt:Date.now()};
+      const {entry,contexts}=api.vaultRecordToEntry(next,next.note);
+      if(!await api.db.importVaultEntry(entry,contexts,previous))throw Error('Expected an idle record for the local form addition');
+      await api.db.enqueueVaultWrite({id:`vocab:${id}`,kind:'vocab',recordId:id,payload:next,queuedAt:Date.now()});
+    }, {id,form});
+  }
+  async function assertFormsEverywhere(id, expected) {
+    for(const page of [chrome,edge]) {
+      const forms=await page.evaluate(async id=>(await Vault.db.getEntry(id)).forms,id);
+      assert.deepEqual(forms.slice().sort(),expected.slice().sort());
+    }
+    const disk=await chrome.evaluate(async id=>(await Vault.files.scanVault(__vaultDirectory)).vocab.find(item=>item.record.id===id).record.forms,id);
+    assert.deepEqual(disk.slice().sort(),expected.slice().sort());
+  }
+  const removedFormsId='en::forms-remove';
+  await seedForms(removedFormsId);
+  assert.equal(await chrome.evaluate(id=>Vault.db.removeForm(id,'old-form'),removedFormsId),true);
+  assert.equal((await chrome.evaluate(()=>Vault.synchronizeVault())).error,undefined);
+  assert.equal((await edge.evaluate(()=>Vault.synchronizeVault())).error,undefined);
+  await assertFormsEverywhere(removedFormsId,['keep-form']);
+  assert.equal(await edge.evaluate(id=>Vault.db.removeForm(id,'keep-form'),removedFormsId),true);
+  for(const page of [edge,chrome,edge])assert.equal((await page.evaluate(()=>Vault.synchronizeVault())).error,undefined);
+  await assertFormsEverywhere(removedFormsId,[]);
+  for(const first of [chrome,edge]) {
+    const id=first===chrome?'en::forms-chrome-first':'en::forms-edge-first';
+    await seedForms(id);
+    await addForm(chrome,id,'chrome-new');
+    assert.equal(await chrome.evaluate(id=>Vault.db.removeForm(id,'old-form'),id),true);
+    await addForm(edge,id,'edge-new');
+    const second=first===chrome?edge:chrome;
+    for(const page of [first,second,first,second])assert.equal((await page.evaluate(()=>Vault.synchronizeVault())).error,undefined);
+    await assertFormsEverywhere(id,['keep-form','chrome-new','edge-new']);
+    assert.equal((await first.evaluate(()=>Vault.synchronizeVault())).committed,0);
+  }
+  console.log('PASS form removals propagate in both directions, including clearing all forms; concurrent additions from both browsers survive either publish order without resurrecting removals');
 
   const sentenceBook = join(directory, '句子.md');
   writeFileSync(sentenceBook, readFileSync(sentenceBook, 'utf8') + '\n### 我的笔记\nKEEP THIS PERSONAL NOTE\n');
@@ -292,7 +369,7 @@ try {
   assert.equal((await edge.evaluate(() => window.Vault.db.getEntry("en::legacy"))).note, "保留旧笔记");
   assert.ok(existsSync(join(directory, ".peak-distance/legacy/词汇/en/legacy.md")));
   assert.ok(!existsSync(join(directory, "词汇/en/legacy.md")));
-  assert.equal(readdirSync(directory).filter((name) => name.endsWith(".md")).length, 2);
+  assert.equal(readdirSync(directory).filter((name) => name.endsWith(".md")).length, 3);
   console.log("PASS legacy records consolidate into two Markdown collections with verified backups");
 
   const completeChat = await chrome.evaluate(async () => {
@@ -381,6 +458,56 @@ try {
   assert.equal((await chrome.evaluate(() => window.Vault.synchronizeVault())).error, undefined);
   console.log('PASS preferences update in both directions, merge independent rules, preserve conflicting values and exclude credentials');
 
+  const knowledgeBook=join(directory,'知识点.md');
+  const updateKnowledge=(page,title,body)=>page.evaluate(async({knowledgeId,title,body})=>Vault.db.updateKnowledge(knowledgeId,title,body,(await Vault.db.getDataVaultIdentity()).vaultId),{knowledgeId,title,body});
+  await updateKnowledge(chrome,'Local title','Edited body [p1]');
+  writeFileSync(knowledgeBook,readFileSync(knowledgeBook,'utf8').replace('Edited body [p1]','External body'));
+  assert.equal((await chrome.evaluate(()=>Vault.synchronizeVault())).error,undefined);
+  await edge.evaluate(()=>Vault.synchronizeVault());
+  let savedKnowledge=(await edge.evaluate(()=>Vault.db.listKnowledge()))[0];
+  assert.equal(savedKnowledge.title,'Local title');assert.equal(savedKnowledge.body,'External body');
+  await updateKnowledge(chrome,'Conflicting local title','External body');
+  writeFileSync(knowledgeBook,readFileSync(knowledgeBook,'utf8').replace('title: "Local title"','title: "Remote title"'));
+  assert.equal((await chrome.evaluate(()=>Vault.synchronizeVault())).error,'conflict');
+  const knowledgeConflict=await chrome.evaluate(id=>Vault.db.getVaultRaw(`conflict:knowledge:${id}`),knowledgeId);
+  assert.equal(knowledgeConflict.local.title,'Conflicting local title');assert.equal(knowledgeConflict.remote.title,'Remote title');
+  await updateKnowledge(chrome,'Remote title','External body');
+  await chrome.evaluate(()=>Vault.synchronizeVault());
+  assert.equal(await chrome.evaluate(id=>Vault.db.getVaultRaw(`conflict:knowledge:${id}`),knowledgeId),null);
+  console.log('PASS external Markdown and local knowledge changes merge by field; same-field conflict preserves both and clears after resolution');
+
+  const beforeAtomic=await chrome.evaluate(()=>Vault.db.listKnowledge());
+  const atomic=await chrome.evaluate(async id=>{
+    const original=IDBObjectStore.prototype.put;
+    let failed=false;
+    IDBObjectStore.prototype.put=function(...args){if(this.name==='vaultQueue')throw Error('Controlled queue failure');return original.apply(this,args);};
+    try{await Vault.db.updateKnowledge(id,'Must roll back','Must roll back',(await Vault.db.getDataVaultIdentity()).vaultId);}catch{failed=true;}finally{IDBObjectStore.prototype.put=original;}
+    return {failed,records:await Vault.db.listKnowledge(),queue:await Vault.db.listVaultQueue()};
+  },knowledgeId);
+  assert.equal(atomic.failed,true);assert.deepEqual(atomic.records,beforeAtomic);assert.equal(atomic.queue.length,0);
+  await updateKnowledge(chrome,'Remote title','Pending local body');
+  failDiskWritePath='知识点.md';
+  assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,'io');
+  assert.ok((await chrome.evaluate(()=>Vault.db.listVaultQueue())).some(w=>w.kind==='knowledge'));
+  assert.ok(readFileSync(knowledgeBook,'utf8').includes('External body'));
+  assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
+  const staleReceipt=await chrome.evaluate(async id=>{
+    const owner=(await Vault.db.getDataVaultIdentity()).vaultId;
+    await Vault.db.updateKnowledge(id,'Remote title','First queued',owner);
+    const old=(await Vault.db.listVaultQueue()).find(w=>w.kind==='knowledge');
+    await Vault.db.updateKnowledge(id,'Remote title','Newest queued',owner);
+    await Vault.db.removeVaultWrite(old);await Vault.db.markVaultWriteAttempt(old,'old error');
+    return (await Vault.db.listVaultQueue()).find(w=>w.kind==='knowledge');
+  },knowledgeId);
+  assert.equal(staleReceipt.payload.body,'Newest queued');
+  await chrome.evaluate(()=>Vault.synchronizeVault());await edge.evaluate(()=>Vault.syncFromVault());
+  const healthyKnowledge=readFileSync(knowledgeBook,'utf8');
+  writeFileSync(knowledgeBook,healthyKnowledge.replace('<!-- peak-distance:knowledge -->',''));
+  assert.ok((await edge.evaluate(()=>Vault.syncFromVault())).broken>0);
+  assert.equal((await edge.evaluate(()=>Vault.db.listKnowledge())).length,1);
+  writeFileSync(knowledgeBook,healthyKnowledge);
+  console.log('PASS knowledge queue failure rolls back the record, disk failure preserves pending work, old receipts retain newer edits, and malformed collections never become empty libraries');
+
   const switched = await chrome.evaluate(async () => {
     const api = window.Vault;
     const a = window.__vaultDirectory;
@@ -423,19 +550,27 @@ try {
     await browser.storage.local.set({defaultComprehensionLang:'fr',comprehensionOverrides:{ja:'en'}});
     await api.enqueuePreferenceWrite();await api.synchronizeVault();
     await api.db.putVaultRaw('conflict:scoped',{owner:'A'});
+    const knowledge=(await api.db.listKnowledge())[0];
+    const knowledgeOwner=(await api.db.getDataVaultIdentity()).vaultId;
     const other={id:'en::owner',language:'en',expression:'owner',status:'known',note:'B note',forms:[],createdAt:1,updatedAt:2,contexts:[]};
     await api.files.ensureVault(b);await api.files.writeVocabToVault(b,other);
+    const edit=await api.files.editCollection(b,'knowledge');edit.set({...knowledge,body:'B independent body'});await edit.commit();
     await api.files.writePreferenceToVault(b,{defaultComprehensionLang:'de',comprehensionOverrides:{}});
     await api.disconnectVault();__vaultDirectory=b;await api.db.setVaultHandle('B');await api.adoptVault();
     const inB={keys:(await api.db.listEntries()).map(e=>e.key),note:(await api.db.getEntry(other.id)).note,
-      staleEdit:await api.db.setEntryNote('en::a-private','Must not copy A'),conflict:await api.db.getVaultRaw('conflict:scoped'),preference:await browser.storage.local.get(['defaultComprehensionLang'])};
+      staleEdit:await api.db.setEntryNote('en::a-private','Must not copy A'),knowledge:(await api.db.listKnowledge())[0].body,conflict:await api.db.getVaultRaw('conflict:scoped'),preference:await browser.storage.local.get(['defaultComprehensionLang'])};
+    try {await api.db.updateKnowledge(knowledge.id,'Stale A title','Stale A body',knowledgeOwner);inB.staleKnowledgeRejected=false;}catch{inB.staleKnowledgeRejected=true;}
+    inB.staleStatus=await api.db.setStatus(other.id,'saved',knowledgeOwner);
+    inB.staleNote=await api.db.setEntryNote(other.id,'Stale A note',knowledgeOwner);
     await api.db.setEntryNote(other.id,'B revised note');await api.synchronizeVault();
     await api.disconnectVault();__vaultDirectory=a;await api.db.setVaultHandle('A');await api.adoptVault();
-    const inA={keys:(await api.db.listEntries()).map(e=>e.key),note:(await api.db.getEntry(other.id)).note,conflict:await api.db.getVaultRaw('conflict:scoped'),preference:await browser.storage.local.get(['defaultComprehensionLang','comprehensionOverrides'])};
+    const inA={keys:(await api.db.listEntries()).map(e=>e.key),knowledge:(await api.db.listKnowledge())[0].body,note:(await api.db.getEntry(other.id)).note,conflict:await api.db.getVaultRaw('conflict:scoped'),preference:await browser.storage.local.get(['defaultComprehensionLang','comprehensionOverrides'])};
     return {inB,inA,bFile:(await api.files.scanVault(b)).vocab.map(v=>({id:v.record.id,note:v.note}))};
   });
   assert.deepEqual(isolation.inB.keys,['en::owner']);assert.equal(isolation.inB.note,'B note');
   assert.equal(isolation.inB.staleEdit,false);assert.equal(isolation.inB.conflict,null);
+  assert.equal(isolation.inB.knowledge,'B independent body');assert.equal(isolation.inB.staleKnowledgeRejected,true);assert.equal(isolation.inA.knowledge,'Newest queued');
+  assert.equal(isolation.inB.staleStatus,false);assert.equal(isolation.inB.staleNote,false);
   assert.equal(isolation.inB.preference.defaultComprehensionLang,'de');
   assert.ok(isolation.inA.keys.includes('en::a-private'));assert.equal(isolation.inA.note,'A note');
   assert.deepEqual(isolation.inA.conflict,{owner:'A'});
@@ -464,6 +599,35 @@ try {
   assert.equal(offline.ok,true);assert.equal(offline.note,'Saved while disconnected');assert.equal(offline.newSaved,true);
   assert.equal(offline.deletedFile,true);assert.equal(offline.deletedLocal,true);assert.equal(offline.pending.length,0);
   console.log('PASS disconnected additions, edits and deletions survive module restart and commit on reconnect without resurrection');
+
+  await chrome.evaluate(async id=>{
+    await Vault.disconnectVault();const owner=(await Vault.db.getDataVaultIdentity()).vaultId;
+    await Vault.db.updateKnowledge(id,'Offline knowledge title','Offline knowledge body',owner);
+    await Vault.db.setVaultHandle('A');await Vault.adoptVault();
+  },knowledgeId);
+  await edge.evaluate(()=>Vault.syncFromVault());
+  assert.equal((await edge.evaluate(()=>Vault.db.listKnowledge()))[0].body,'Offline knowledge body');
+  await updateKnowledge(edge,'Stale pending title','Offline knowledge body');
+  await chrome.evaluate(async id=>{await Vault.db.deleteKnowledge(id);await Vault.flushVaultWrites();},knowledgeId);
+  assert.ok(!(await chrome.evaluate(()=>Vault.db.listKnowledge())).length);
+  await edge.evaluate(()=>Vault.synchronizeVault());
+  assert.ok(!(await edge.evaluate(()=>Vault.db.listKnowledge())).length);
+  const staleKnowledgeConflict=await edge.evaluate(id=>Vault.db.getVaultRaw(`conflict:knowledge:${id}`),knowledgeId);
+  assert.equal(staleKnowledgeConflict.local.title,'Stale pending title');assert.equal(staleKnowledgeConflict.remote,null);
+  assert.match((await edge.evaluate(()=>Vault.db.getVaultStatus())).lastError,/conflict/);
+  await chrome.evaluate(record=>Vault.enqueueKnowledgeWrite(record),firstKnowledge.first.record);
+  assert.ok(!(await chrome.evaluate(()=>Vault.db.listVaultQueue())).some(w=>w.kind==='knowledge'));
+  const resavedKnowledge=await chrome.evaluate(async record=>{
+    const {db,emptyChat}=Vault,owner=(await db.getDataVaultIdentity()).vaultId;
+    const chat={...emptyChat(),id:record.origin.chatId,snapshots:[{source:record.source,version:1,createdAt:1,label:'A',blocks:record.quotes}],messages:[{id:'q',role:'user',turnId:'t',text:record.title,snapshotVersion:1,at:1},{id:record.origin.messageId,role:'assistant',turnId:'t',text:record.body,state:'done',at:2}]};
+    await db.upsertChatRecordFromVault(chat);
+    const saved=await db.saveAnswerKnowledge(chat.id,record.origin.messageId,record.title,record.body,owner);
+    await db.clearChat(chat.id);await Vault.flushVaultWrites();return saved;
+  },firstKnowledge.first.record);
+  assert.notEqual(resavedKnowledge.record.id,knowledgeId);assert.equal(resavedKnowledge.existing,false);
+  await edge.evaluate(()=>Vault.syncFromVault());
+  assert.equal((await edge.evaluate(()=>Vault.db.listKnowledge()))[0].id,resavedKnowledge.record.id);
+  console.log('PASS knowledge retains ownership while disconnected and across libraries; deletion reaches stale pending copies without resurrection, and explicit resave gets a new ID');
 
   const conflictLifecycle=await chrome.evaluate(async()=>{
     const api=Vault,id='en::conflict-cleanup';
