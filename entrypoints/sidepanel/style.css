@@ -57,6 +57,8 @@ main {min-height:0;min-width:0;overflow:auto;padding:20px 16px;flex:1;overscroll
 #view-subs {display:flex;flex-direction:column;padding:12px 16px 16px;overflow:hidden}#video-workspace {flex:1;min-height:0}#web-selection {overflow:auto;min-height:0}#subs-head:empty,#subs-ctrl:empty{display:none}
 .review-progress {font-size:12px;color:var(--pd-muted);text-align:right;margin-bottom:24px}.review-card {background:var(--pd-surface);border:1px solid var(--pd-line);border-radius:8px;padding:20px}.review-card .sentence {font:20px/1.7 Georgia,SimSun,serif;margin-top:0}.review-reveal {border-top:1px solid var(--pd-line);margin-top:20px;padding-top:16px}.review-reveal .word {font:600 20px Georgia,serif}.no-def {color:var(--pd-muted)}.review-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}.review-actions button:not(.ghost){background:var(--pd-blue);color:white;border-color:var(--pd-blue)}
 #view-review {background:linear-gradient(#fffdfaf2,#fffdfae8),url('/brand/mountain-coast.png') bottom/cover}
+.review-navigation {display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 20px}
+.review-annotation {margin-top:16px}
 #view-settings {padding:24px 20px}
 #settings-back {display:grid;place-items:center;width:36px;height:36px;flex:none;padding:7px;border-radius:7px;background:var(--pd-surface);color:var(--pd-ink)}
 #settings-back:hover {background:var(--pd-selected);color:var(--pd-blue)}
@@ -221,3 +223,19 @@ main {min-height:0;min-width:0;overflow:auto;padding:20px 16px;flex:1;overscroll
 .note-box textarea::placeholder {color:var(--pd-muted)}
 .note-actions {display:flex;align-items:center;gap:8px;margin-top:8px}
 .note-actions .hint {margin:0}
+
+/* Article learning shares the existing list, controls and reading rhythm. */
+#web-selection {overflow-wrap:anywhere}
+.article-tools {display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-block:16px}
+.article-tools select {max-width:100%}
+.article-tools button[aria-pressed="true"] {background:var(--pd-selected);color:var(--pd-blue)}
+.knowledge-row {padding-block:16px;border-bottom:1px solid var(--pd-line)}
+.knowledge-row summary {cursor:pointer;font-size:16px;font-weight:600}
+.knowledge-row > button {margin:12px 8px 0 0}
+.knowledge-body {white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;margin-block:16px}
+.knowledge-editor {display:flex;flex-wrap:wrap;gap:8px;margin-block:16px}
+.knowledge-editor label {flex:0 0 100%;font-size:12px;color:var(--pd-muted)}
+.knowledge-editor input,.knowledge-editor textarea {display:block;width:100%;margin-top:4px;font:inherit;font-size:14px;color:var(--pd-ink);resize:vertical}
+.knowledge-editor .hint {flex-basis:100%}
+.knowledge-row blockquote,#review-body blockquote {margin:12px 0;padding:8px 12px;border-left:1px solid var(--pd-line);white-space:pre-wrap;overflow-wrap:anywhere}
+.selection-area {margin-block:24px}

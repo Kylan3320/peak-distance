@@ -68,6 +68,7 @@ interface PinnedState {
   onClose: (() => void) | undefined;
   onContinueAsk: PopupOpenArgs['onContinueAsk'];
   savedContextId: number | null;
+  saving?: boolean;
   definition: string | null;
   result?: LearningResult;
   explanation?: ContextExplanation;
@@ -526,6 +527,7 @@ export function createLookupPopup(opts: {
   async function doSave(status?: VocabStatus): Promise<void> {
     if (!pinned) return;
     const p = pinned;
+    p.saving = true;
     setFeedback(false, message('保存中…'));
     const r = await send<SaveResult | BgcError>({
       type: 'save',
@@ -534,6 +536,7 @@ export function createLookupPopup(opts: {
       result: p.result,
       explanation: p.explanation,
     });
+    p.saving = false;
     if (r && r.ok) {
       p.savedContextId = r.contextId;
       p.entryKey = r.key; // 保存返回的词条键（可能是作用域键）
@@ -568,7 +571,9 @@ export function createLookupPopup(opts: {
 
   function closePopup(silent = false): void {
     document.getElementById(POPUP_ID)?.remove();
-    for (const requestId of [pinned?.lookupRequest, pinned?.aiRequest]) if (requestId) void send({ type: 'cancelOnline', requestId });
+    // A saved or saving context still needs this lookup's result after the card closes.
+    const lookup = pinned && pinned.savedContextId === null && !pinned.saving ? pinned.lookupRequest : undefined;
+    for (const requestId of [lookup, pinned?.aiRequest]) if (requestId) void send({ type: 'cancelOnline', requestId });
     const cb = pinned?.onClose;
     pinned = null;
     if (!silent) cb?.();

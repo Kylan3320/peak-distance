@@ -9,7 +9,7 @@ const extension=path.resolve(process.env.PEAK_DISTANCE_UI_EXTENSION || '.output/
 const profile=await mkdtemp(path.join(os.tmpdir(),'peak-distance-ui-'));
 const output=process.env.PEAK_DISTANCE_UI_OUTPUT;
 if(output)await mkdir(output,{recursive:true});
-const context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,viewport:{width:1100,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
+const context=await chromium.launchPersistentContext(profile,{...(process.env.BLC_CHROME?{executablePath:process.env.BLC_CHROME}:{channel:'chromium'}),headless:true,viewport:{width:1100,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
 const errors=[];
 context.on('page',page=>page.on('pageerror',error=>errors.push(error.message)));
 try {

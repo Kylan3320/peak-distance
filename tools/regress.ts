@@ -1,4 +1,5 @@
 import { cached } from '../lib/onlineCache';
+import './current-content-learning-check';
 import { lookupDictionarySource } from '../lib/onlineDictionary';
 import { translateSentences } from '../lib/aiClient';
 import { defaultAiProfile } from '../shared/aiConfig';

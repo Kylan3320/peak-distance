@@ -9,7 +9,7 @@ import type { ChatRecord } from './chat';
 import type { VideoRef, VocabStatus, LearningResult, ContextExplanation } from './vocab';
 import type { LanguageTag } from './languages';
 
-export const VAULT_FORMAT_VERSION = 2;
+export const VAULT_FORMAT_VERSION = 3;
 export type VaultError = 'not-connected' | 'no-permission' | 'io' | 'conflict' | 'format';
 
 export function vaultErrorCode(error: unknown): VaultError {
@@ -35,7 +35,7 @@ export interface VaultIdentity {
   createdAt: number;
 }
 
-export type VaultRecordKind = 'vocab' | 'sentence' | 'chat' | 'preference';
+export type VaultRecordKind = 'vocab' | 'sentence' | 'knowledge' | 'chat' | 'preference';
 
 // ---- 写入方向：待写入队列 → 学习库 ----------------------------------------------
 
@@ -48,7 +48,7 @@ export interface VaultPendingWrite {
   /** 稳定记录标识：词条 = 语言作用域键、句子 = sentenceId、会话 = chatId */
   recordId: string;
   /** null deletes the record from its connected vault. */
-  payload: VaultVocabRecord | VaultSentenceRecord | VaultChatRecord | VaultPreferenceRecord | null;
+  payload: VaultVocabRecord | VaultSentenceRecord | VaultChatRecord | VaultPreferenceRecord | import('./knowledge').KnowledgeRecord | null;
   queuedAt: number;
   /** Distinguishes an in-flight write from a newer edit of the same record. */
   revision?: string;
@@ -126,7 +126,7 @@ export interface VaultRecordUpdate {
   recordId: string;
   language?: LanguageTag;
   /** 解析后的记录本体（形状同写入方向的 payload） */
-  content: VaultVocabRecord | VaultSentenceRecord | VaultChatRecord | VaultPreferenceRecord;
+  content: VaultVocabRecord | VaultSentenceRecord | VaultChatRecord | VaultPreferenceRecord | import('./knowledge').KnowledgeRecord;
   /** 文件内最后修改时间（毫秒，可空）；仅展示用，不裁决冲突 */
   modifiedAt?: number | null;
 }

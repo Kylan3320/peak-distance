@@ -58,6 +58,10 @@ export type BgcRequest =
   | { type: 'subtitleMode'; videoId: string; mode?: 'regular' | 'ai'; autoPause?: boolean }
   | { type: 'saveSentence'; sentence: import('./vocab').SavedSentence }
   | { type: 'listSentences' }
+  | { type: 'listKnowledge' }
+  | { type: 'saveKnowledge'; chatId: string; messageId: string; title: string; body: string; vaultId: string | null }
+  | { type: 'updateKnowledge'; id: string; title: string; body: string; vaultId: string | null }
+  | { type: 'deleteKnowledge'; id: string; vaultId: string | null }
   | { type: 'deleteSentence'; id: string }
   | { type: 'openLearning'; view: 'list' | 'sentences' | 'review' }
   | { type: 'captionCache'; key: string; cues?: import('./protocol').Cue[] }
@@ -73,10 +77,10 @@ export type BgcRequest =
     }
   | { type: 'backfillResult'; contextId: number; result?: LearningResult; explanation?: ContextExplanation }
   | { type: 'backfillDefinition'; contextId: number; definition: string }
-  | { type: 'setStatus'; key: string; status: VocabStatus } // 落到关联词条
-  | { type: 'setNote'; key: string; note: string } // 个人笔记（学习库“我的笔记”同源）
-  | { type: 'deleteEntry'; key: string }
-  | { type: 'removeForm'; key: string; form: string }
+  | { type: 'setStatus'; key: string; status: VocabStatus; vaultId?: string | null } // 落到关联词条
+  | { type: 'setNote'; key: string; note: string; vaultId?: string | null } // 个人笔记（学习库“我的笔记”同源）
+  | { type: 'deleteEntry'; key: string; vaultId?: string | null }
+  | { type: 'removeForm'; key: string; form: string; vaultId?: string | null }
   | { type: 'listEntries'; query?: string; language?: string } // language: 'all'（缺省）| 语言标签 | 'und'
   | { type: 'vocabIndex' } // 轻量索引：content script 标记用，不含上下文
   | { type: 'getSettings' } // 不含 key
@@ -193,6 +197,7 @@ export type VaultMutationResult = { ok: true } | BgcError;
  *（runtime 广播到不了 content script）。
  */
 export type BroadcastEvent =
+  | { type: 'knowledge-changed' }
   | { type: 'ai-service-changed' }
   | { type: 'vocab-changed' }
   | { type: 'sentences-changed' }

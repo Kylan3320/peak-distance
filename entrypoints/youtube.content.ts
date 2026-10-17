@@ -137,7 +137,7 @@ export default defineContentScript({
     const translationSources = new Map<number, string>();
     let translationEpoch = 0;
     let requestId: string | null = null;
-    let platformRequest: string | null = null;
+    let platformRequest: { id: string; cacheKey: string; targetLang: string } | null = null;
     let platformState: 'idle' | 'waiting' | 'done' = 'idle';
     let platformTimer: ReturnType<typeof setTimeout> | null = null;
     const failedCues = new Set<number>();
@@ -1171,7 +1171,12 @@ export default defineContentScript({
       const next: Settings = { ...DEFAULT_SETTINGS, ...r.settings };
       // 在途写入不回滚：广播读到旧值时保留本地刚写的状态
       if (pendingWriteBlocks('subtitleSize', next.subtitleSize)) next.subtitleSize = settings.subtitleSize;
+      const previousTarget = targetLangOf();
       settings = next; settingsReady = true;
+      const targetChanged = previousTarget !== targetLangOf();
+      if (targetChanged) {
+        stopTranslation(); translations.clear(); translationSources.clear(); failedCues.clear(); platformState = 'idle';
+      }
       setDisplayLanguage(settings.displayLanguage,browser.i18n.getUILanguage());
       if (!pendingWriteBlocks('bilingualEnabled', settings.bilingualEnabled)) bilingualOn = settings.bilingualEnabled;
       if (!pendingWriteBlocks('chineseVisible', settings.chineseVisible)) zhVisible = settings.chineseVisible;
@@ -1179,6 +1184,7 @@ export default defineContentScript({
       if (!bilingualOn || !zhVisible) stopTranslation();
       if (bilingualOn) { hideNativeCaptions(); ensureCaptionsOn(20); } else restoreNativeCaptions();
       renderBar();
+      if (targetChanged) { queueRender(); scheduleTranslate(); }
     }
 
     /** 当前内容的理解语言（M11：按源语言覆盖优先；轨道语言缺省用全局默认）。 */
@@ -1186,22 +1192,23 @@ export default defineContentScript({
       return comprehensionLangFor(settings, lastTrackLang || undefined);
     }
 
-    function captionCacheKey(): string {
-      return JSON.stringify([currentVideoId, lastTrackId, targetLangOf()]);
+    function captionCacheKey(targetLang: string): string {
+      return JSON.stringify([currentVideoId, lastTrackId, targetLang]);
     }
 
     function requestPlatform(): void {
       platformState = 'waiting';
       queueRender();
       const epoch = translationEpoch;
-      const key = captionCacheKey();
+      const targetLang = targetLangOf();
+      const key = captionCacheKey(targetLang);
       void send<{ ok: boolean; cues?: Cue[] }>({ type: 'captionCache', key }).then(r => {
         if (epoch !== translationEpoch) return;
         if (r?.cues?.length) {
-          applyPlatformCues(r.cues); platformState = 'done'; scheduleTranslate(); return;
+          applyPlatformCues(r.cues, targetLang); platformState = 'done'; scheduleTranslate(); return;
         }
-        platformRequest = crypto.randomUUID();
-        postToInject({ type: 'translation-request', requestId: platformRequest, videoId: currentVideoId, trackId: lastTrackId, targetLang: targetLangOf() });
+        platformRequest = { id: crypto.randomUUID(), cacheKey: key, targetLang };
+        postToInject({ type: 'translation-request', requestId: platformRequest.id, videoId: currentVideoId, trackId: lastTrackId, targetLang });
         platformTimer = setTimeout(() => {
           if (epoch !== translationEpoch) return;
           postToInject({ type: 'translation-cancel' }); platformRequest = null; platformState = 'done'; scheduleTranslate();
@@ -1209,9 +1216,9 @@ export default defineContentScript({
       });
     }
 
-    function applyPlatformCues(translated: Cue[]): void {
+    function applyPlatformCues(translated: Cue[], targetLang: string): void {
       const byTime = new Map(translated.filter(c => c.zh).map(c => [`${c.start}|${c.text}`, c.zh!]));
-      const sourceLabel = `YouTube · ${langDisplayName(targetLangOf())} · ${tr('平台翻译')}`;
+      const sourceLabel = `YouTube · ${langDisplayName(targetLang)} · ${tr('平台翻译')}`;
       cues.forEach((cue, id) => { const zh = byTime.get(`${cue.start}|${cue.text}`); if (zh) { translations.set(id, zh); translationSources.set(id, sourceLabel); } });
       queueRender();
     }
@@ -1494,12 +1501,13 @@ export default defineContentScript({
           return;
         }
         if (d.type === 'translation') {
-          if (d.requestId !== platformRequest || d.trackId !== lastTrackId || translationMode !== 'regular') return;
+          const request = platformRequest;
+          if (!request || d.requestId !== request.id || d.trackId !== lastTrackId || translationMode !== 'regular') return;
           if (platformTimer) clearTimeout(platformTimer);
           platformRequest = null; platformState = 'done';
           const translated = Array.isArray(d.cues) ? d.cues : [];
-          applyPlatformCues(translated);
-          if (translated.some(c => c.zh)) void send({ type: 'captionCache', key: captionCacheKey(), cues: translated });
+          applyPlatformCues(translated, request.targetLang);
+          if (translated.some(c => c.zh)) void send({ type: 'captionCache', key: request.cacheKey, cues: translated });
           scheduleTranslate();
           return;
         }

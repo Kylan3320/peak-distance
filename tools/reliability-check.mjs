@@ -10,6 +10,7 @@ const root = resolve(import.meta.dirname, '..');
 const temporary = await mkdtemp(join(tmpdir(), 'pd-reliability-'));
 const extension = join(root, '.output/chrome-mv3');
 const contexts = [];
+const browserBinary=process.env.BLC_CHROME?{executablePath:process.env.BLC_CHROME}:{channel:'chromium'};
 async function until(check) {
   const deadline = Date.now() + 8000;
   while (!await check()) {
@@ -18,7 +19,7 @@ async function until(check) {
   }
 }
 try {
-  const context = await chromium.launchPersistentContext(join(temporary, 'extension'), { channel:'chromium', headless:true,
+  const context = await chromium.launchPersistentContext(join(temporary, 'extension'), { ...browserBinary, headless:true,
     args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`] });
   contexts.push(context);
   const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
@@ -202,7 +203,7 @@ try {
   assert.equal(returned.messages.at(-1).state,'stopped');assert.equal(returned.snapshots[0].label,'Owned by A');
   console.log('PASS native OPFS library switching stops owned generation, clears stale editors and hides old data; returning restores the committed A conversation');
 
-  const plain=await chromium.launchPersistentContext(join(temporary,'plain'),{channel:'chromium',headless:true});contexts.push(plain);
+  const plain=await chromium.launchPersistentContext(join(temporary,'plain'),{...browserBinary,headless:true});contexts.push(plain);
   const page=await plain.newPage();
   await page.setContent('<!doctype html><html lang="en"><body><main></main></body></html>');
   const marker=await build({absWorkingDir:root,stdin:{contents:"export {createMarker} from './shared/marker';",resolveDir:root},bundle:true,write:false,format:'iife',globalName:'MarkerCheck'});

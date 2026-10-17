@@ -1,4 +1,5 @@
 import { lookupOnline, type LookupRequestContext } from '@/lib/lookupService';
+import { listKnowledgeState, saveAnswerKnowledge, updateKnowledge, deleteKnowledge } from '@/lib/db';
 import { handlePanelMessage, openPanel, startNativePanel, initPanelLifecycle } from '@/lib/panelService';
 import { handleSelectionCandidateMessage, initSelectionCandidateStore } from '@/lib/selectionCandidates';
 import { selectionError } from '@/shared/panel';
@@ -19,7 +20,7 @@ import {
   backfillResult,
   deleteEntry,
   getEntry,
-  listEntries,
+  listEntriesState,
   listIndex,
   removeForm,
   resolveEntry,
@@ -99,6 +100,7 @@ function broadcastVaultChanges(changed = true): void {
   if (changed) {
     broadcast({ type: 'vocab-changed' });
     broadcast({ type: 'sentences-changed' });
+    broadcast({ type: 'knowledge-changed' });
   }
 }
 
@@ -258,6 +260,30 @@ async function handle(
       await browser.storage.session.set({ [key]: state });
       return { ok: true, ...state };
     }
+    case 'listKnowledge': {
+      if (!sender.url?.startsWith(browser.runtime.getURL(''))) return bad('forbidden-sender');
+      return { ok: true, ...await listKnowledgeState() };
+    }
+    case 'saveKnowledge':
+    case 'updateKnowledge':
+    case 'deleteKnowledge': {
+      if (!sender.url?.startsWith(browser.runtime.getURL(''))) return bad('forbidden-sender');
+      if (m.vaultId !== null && typeof m.vaultId !== 'string') return bad('bad-payload');
+      if ((m.type === 'saveKnowledge' || m.type === 'updateKnowledge') && (typeof m.title !== 'string' || !m.title.trim() || m.title.length > 4000 || typeof m.body !== 'string' || !m.body.trim() || m.body.length > 200000)) return bad('bad-payload');
+      try {
+        let result = {};
+        if (m.type === 'saveKnowledge') {
+          if (typeof m.chatId !== 'string' || typeof m.messageId !== 'string') return bad('bad-payload');
+          result = await saveAnswerKnowledge(m.chatId, m.messageId, m.title!, m.body!, m.vaultId!);
+        } else if (m.type === 'updateKnowledge' || m.type === 'deleteKnowledge') {
+          if (typeof m.id !== 'string') return bad('bad-payload');
+          if (m.type === 'deleteKnowledge') await deleteKnowledge(m.id, true, undefined, m.vaultId!);
+          else if(m.type==='updateKnowledge') await updateKnowledge(m.id, m.title!, m.body!, m.vaultId!);
+        }
+        broadcast({ type: 'knowledge-changed' }); queueVaultWriteAfterSave();
+        return { ok: true, ...result };
+      } catch (error) { return bad(vaultErrorCode(error)); }
+    }
     case 'listSentences': return { ok: true, sentences: await listSentences() };
     case 'saveSentence': {
       const s = m.sentence;
@@ -397,7 +423,8 @@ async function handle(
       if (!key || !isVocabStatus(m.status)) return bad('bad-payload');
       // 词形关联：把 'went' 的状态修改落到词条 'go'
       const target = (await resolveEntry(key))?.key ?? key;
-      const ok = await setStatus(target, m.status);
+      if(m.vaultId!==undefined&&m.vaultId!==null&&typeof m.vaultId!=='string')return bad('bad-payload');
+      const ok = await setStatus(target, m.status,m.vaultId);
       if (!ok) return bad('not-found');
       broadcast({ type: 'vocab-changed' });
       // 状态是学习库受管字段：连接时排队写回
@@ -408,7 +435,8 @@ async function handle(
       const key = typeof m.key === 'string' ? normalizeEntryKey(m.key) : '';
       if (!key || typeof m.note !== 'string' || m.note.length > 4000) return bad('bad-payload');
       const target = (await resolveEntry(key))?.key ?? key;
-      const ok = await setEntryNote(target, m.note);
+      if(m.vaultId!==undefined&&m.vaultId!==null&&typeof m.vaultId!=='string')return bad('bad-payload');
+      const ok = await setEntryNote(target, m.note,m.vaultId);
       if (!ok) return bad('not-found');
       broadcast({ type: 'vocab-changed' });
       queueVaultWriteAfterSave();
@@ -416,8 +444,9 @@ async function handle(
     }
     case 'deleteEntry': {
       if (typeof m.key !== 'string' || !m.key) return bad('bad-payload', 'key');
+      if(m.vaultId!==undefined&&m.vaultId!==null&&typeof m.vaultId!=='string')return bad('bad-payload');
       const target = (await resolveEntry(normalizeEntryKey(m.key)))?.key ?? normalizeEntryKey(m.key);
-      const ok = await deleteEntry(target);
+      const ok = await deleteEntry(target, true, undefined, m.vaultId);
       if (!ok) return bad('not-found');
       broadcast({ type: 'vocab-changed' });
       queueVaultWriteAfterSave();
@@ -426,8 +455,9 @@ async function handle(
     case 'removeForm': {
       if (typeof m.key !== 'string' || !m.key) return bad('bad-payload', 'key');
       if (typeof m.form !== 'string' || !m.form.trim()) return bad('bad-payload', 'form');
+      if(m.vaultId!==undefined&&m.vaultId!==null&&typeof m.vaultId!=='string')return bad('bad-payload');
       const target = (await resolveEntry(normalizeEntryKey(m.key)))?.key ?? normalizeEntryKey(m.key);
-      const removed = await removeForm(target, normalizeExpression(m.form));
+      const removed = await removeForm(target, normalizeExpression(m.form), m.vaultId);
       const r: RemoveFormResult = { ok: true, removed };
       if (removed) { broadcast({ type: 'vocab-changed' }); queueVaultWriteAfterSave(); }
       return r;
@@ -440,7 +470,7 @@ async function handle(
       if (m.language !== undefined && m.language !== 'all' && !isLanguageTag(m.language)) {
         return bad('bad-payload', 'language');
       }
-      return { ok: true, entries: await listEntries(m.query, m.language) };
+      return { ok: true, ...await listEntriesState(m.query, m.language) };
     }
     case 'vocabIndex': {
       const r: VocabIndexResult = { ok: true, items: await listIndex() };
