@@ -1,5 +1,5 @@
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
-import { brandTokens } from './brand';
+import { brandTokens, sharedControls } from './brand';
 import type { DictionarySource } from '@/lib/onlineDictionary';
 // 共用查词弹窗（网页与 YouTube 字幕共用，M1 行为原样提取）：
 //   Shadow DOM 卡片、宿主 fixed+inset:0+满 z-index（不被页面悬浮层盖住）、
@@ -152,7 +152,7 @@ export function createLookupPopup(opts: {
       const root = host.attachShadow({ mode: 'open' });
       const style = document.createElement('style');
       style.textContent = `
-        ${brandTokens}:host { font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif; text-shadow:none; letter-spacing:normal; text-transform:none; color:var(--pd-ink); }
+        ${brandTokens}${sharedControls}:host { font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif; text-shadow:none; letter-spacing:normal; text-transform:none; color:var(--pd-ink); }
         * { box-sizing:border-box; }
         ::selection { background:var(--pd-selected); color:var(--pd-ink); }
         .card {
@@ -203,7 +203,7 @@ export function createLookupPopup(opts: {
         button.save:hover { background: #1765cc; }
         button.ghost { background: transparent; color: var(--pd-ink); border-color:var(--pd-line); }
         button.ghost:hover { background: var(--pd-selected); }
-        select {appearance:none;cursor:pointer;max-width:100%;min-height:34px;padding:6px 30px 6px 10px;border:1px solid #b9b4a8;border-radius:7px;font:13px/1.5 system-ui;background:var(--pd-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2359636b' stroke-width='1.5'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E") right 8px center/16px no-repeat}
+        select {cursor:pointer;max-width:100%;min-height:34px;padding:6px 10px;border:1px solid var(--pd-line);border-radius:6px;font:13px/1.5 system-ui;background:var(--pd-surface)}
         select:hover {border-color:var(--pd-muted)}
         option {background:var(--pd-surface);color:var(--pd-ink)}
         @media(max-width:359px) {.sources select {width:100%;margin-bottom:4px}}

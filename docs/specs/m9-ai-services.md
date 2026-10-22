@@ -4,7 +4,7 @@
 
 ## 交付边界
 
-- 服务商预设：DeepSeek、OpenAI、Anthropic、Gemini、GLM、Kimi。预设选择后填写 Key，点击“保存并使用”；高级设置提供协议、Base URL、模型，自定义服务使用相同表单。
+- 服务商预设：DeepSeek、OpenAI、Anthropic、Gemini、GLM、Kimi。预设选择后填写 Key，手动保存后启用；协议、Base URL、模型按需展开修改，自定义服务使用相同表单。
 - 支持 OpenAI Chat Completions、Anthropic Messages、Gemini generateContent / streamGenerateContent。只处理当前产品使用的纯文本消息与回答，不宣称支持所有供应商的专有扩展或仅 Responses 接口的模型。
 - 各服务配置分开持久化；旧 `deepseekApiKey` 在未建立新配置时继续读取，首次保存纳入 DeepSeek 配置，清除 DeepSeek Key 同时清除旧字段。
 - 新地址只申请对应 HTTPS 域名权限；失败不替换活动服务，保留输入。地址／协议变更不自动复用原 Key。

@@ -69,7 +69,7 @@ async function frameStatus(tabId: number, stage: string): Promise<PanelFrameStat
 
 export function startNativePanel(message: unknown, sender: Sender): Promise<boolean> | undefined {
   const m=message as {type?:string;fullscreen?:boolean;openPanel?:boolean};
-  if(!sender.tab?.id || m.fullscreen || !(['panelOpen','openSettings','openLearning'].includes(m.type??'') || (m.type==='chatEnsure'&&m.openPanel)))return;
+  if(!sender.tab?.id || m.fullscreen || !(['panelOpen','openSettings','openLearning','viewSelectionKnowledge'].includes(m.type??'') || (m.type==='chatEnsure'&&m.openPanel)))return;
   return browser.sidePanel.open({windowId:sender.tab.windowId}).then(()=>true,()=>false);
 }
 
@@ -128,9 +128,9 @@ export async function handlePanelMessage(message: unknown, sender: Sender, nativ
     await browser.runtime.sendMessage({type:'pd-panel-fullscreen',windowId,tabId,fullscreen:!!m.fullscreen}).catch(()=>{});return {ok:true};
   }
   if (m.type === 'selectionSnapshot') {
-    const s = m.snapshot as {text?:unknown;url?:unknown;title?:unknown};
+    const s = m.snapshot as import('@/shared/panel').SelectionSnapshot;
     if (!s || typeof s.text !== 'string' || s.text.length > 20000 || typeof s.url !== 'string' || typeof s.title !== 'string') return {ok:false};
-    await browser.storage.session.set({[`selection:${windowId}`]:{text:s.text,url:s.url,title:s.title,tabId}});
+    await browser.storage.session.set({[`selection:${windowId}`]:{text:s.text,url:s.url,title:s.title,source:s.source,sourceLang:s.sourceLang,languageEvidence:s.languageEvidence,position:s.position,tabId}});
     return {ok:true};
   }
   if (!uiSender(sender) && !['panelOpen','panelClose','panelHostClosed','panelOutsideClick','panelFrameStatus','panelFrameRetry'].includes(m.type)) return {ok:false,error:'forbidden-sender'};

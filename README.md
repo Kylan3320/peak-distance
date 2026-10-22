@@ -12,15 +12,15 @@ Peak Distance 是一款浏览器语言学习扩展。读网页、刷 X 或看 Yo
 
 界面支持简体中文、繁體中文、English、Deutsch 和 Français，也可跟随浏览器。在「设置 → 语言设置 → 显示语言」切换；AI 问答跟随生效的显示语言。查词解释和译文使用独立的「解释语言」设置。
 
-[English](README.en.md) · [下载安装包](https://github.com/Rayyy3320/peak-distance/releases/latest) · [安装方法](#安装) · [使用](#使用) · [隐私与服务](#隐私与服务) · [许可](#许可)
+[English](README.en.md) · [下载安装包](https://github.com/Kylan3320/peak-distance/releases/latest) · [安装方法](#安装) · [使用](#使用) · [隐私与服务](#隐私与服务) · [许可](#许可)
 
 ## 安装
 
-需要桌面 **Chrome 142 或更新版本**。当前发布版为 [v0.6.8](https://github.com/Rayyy3320/peak-distance/releases/tag/v0.6.8)。
+需要桌面 **Chrome 142 或更新版本**。当前发布版为 [v0.6.8](https://github.com/Kylan3320/peak-distance/releases/tag/v0.6.8)。
 
 本 README 描述主线功能，可能领先于上方发布版；安装包以 Releases 为准。
 
-1. 从 [Releases](https://github.com/Rayyy3320/peak-distance/releases/latest) 下载名称以 `-chrome.zip` 结尾的安装包，解压到一个固定文件夹。
+1. 从 [Releases](https://github.com/Kylan3320/peak-distance/releases/latest) 下载名称以 `-chrome.zip` 结尾的安装包，解压到一个固定文件夹。
 2. 在 Chrome 地址栏输入 `chrome://extensions`，开启右上角的「开发者模式」。
 3. 点击「加载已解压的扩展程序」，选择包含 `manifest.json` 的文件夹。
 
@@ -38,7 +38,7 @@ npm run build
 
 然后按上面的步骤加载 `.output/chrome-mv3`。开发时可用 `npm run dev`。普通改动按受影响范围和风险选择必要检查；`npm run verify-local` 提供跨模块的本地检查，发布时按 ROADMAP 的发布约定执行。需要浏览器回归时，首次运行前执行 `npx playwright-core install chromium`。重新构建后，还需要重新加载扩展并刷新目标网页。
 
-开发入口见仓库中的 [ARCHITECTURE](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ARCHITECTURE.md)，任务、已知缺陷及 Git／发布约定见 [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md)。`npm run zip:source` 从当前 HEAD 生成源码包，排除规则由 `.gitattributes` 定义；正式发布使用对应版本标签。
+开发入口见仓库中的 [ARCHITECTURE](https://github.com/Kylan3320/peak-distance/blob/main/docs/ARCHITECTURE.md)，任务、已知缺陷及 Git／发布约定见 [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md)。`npm run zip:source` 从当前 HEAD 生成源码包，排除规则由 `.gitattributes` 定义；Release 附件仅提供安装包，源码可从对应版本标签获取。
 
 </details>
 
@@ -47,6 +47,8 @@ npm run build
 ### 读网页：查词，也保存原句
 
 选中单词或短语，点击「查词」；选中句子或段落，点击「翻译」。保存表达时，原句和来源也会一起留下。
+
+翻译卡可以拖动或保持展开，点击书签可将原文和译文收藏为独立知识点；查询过程中也能先收藏原文，结果返回后补齐译文。在生词本的「知识点」分类可以查找、编辑或删除，网页摘录也会出现在「当前内容」中，按本篇来源和语言复习。
 
 例如，读到 “She is comfortable **with** people.”，保存 **with** 后，复习时还能看到这句原文，不用只对着一个孤立的词回想。
 
@@ -74,11 +76,11 @@ npm run build
 
 在 Obsidian 中修改词条状态或「我的笔记」，扩展会读回这些变化。同一台电脑上的 Chrome 和 Edge 连接同一个目录后，可以共享学习记录；词语和句子出现同字段修改冲突时，会保留双方内容并提示冲突。
 
-词语统一保存在「生词本.md」，句子统一保存在「句子.md」，每条记录占一个小节；AI 对话仍按会话保存。完整释义、视频位置等恢复数据放在 `.peak-distance` 辅助目录，迁移旧散文件时也会在这里保留备份。请保留整个学习文件夹。
+词语统一保存在「生词本.md」，句子统一保存在「句子.md」，独立知识点保存在「知识点.md」，每条记录占一个小节；AI 对话仍按会话保存。完整释义、视频位置等恢复数据放在 `.peak-distance` 辅助目录，迁移旧散文件时也会在这里保留备份。请保留整个学习文件夹。
 
 两边都更新扩展后，分别连接同一个文件夹并点击「立即同步」。同步会写入本机修改，再读回另一浏览器已写入的内容；切回浏览器时也会读取共享文件。权限不足、文件损坏或冲突会明确提示，未提交内容保留在本机。
 
-本版修复了聊天材料／引用恢复、删除后同步复活、换库待办串用、语言偏好更新与窗口关闭后的状态残留等可靠性问题。原生共享目录的权限恢复与跨程序同时写入仍待实机验证，具体范围和修复状态见仓库中的 [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md)。
+本版新增翻译摘录与独立知识点共享，并修复字幕翻译缓存、跨库操作和词形增删同步。共享同一学习库的浏览器都需要更新到本版，新格式学习库不支持旧版写入。原生共享目录的权限恢复与跨程序同时写入仍待实机验证，具体范围和修复状态见仓库中的 [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md)。
 
 不连接文件夹也能使用，记录仍保存在浏览器扩展中。断开学习库不会删除已有文件，API Key 和 AI 服务配置也不会写入学习库。
 

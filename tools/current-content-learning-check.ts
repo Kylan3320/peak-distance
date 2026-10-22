@@ -120,26 +120,30 @@ try {
     return () => { gate = undefined; resolve(); };
   };
   const mount = document.querySelector<HTMLElement>('main')!;
-  let reviewed: ArticleLearningSnapshot | undefined;
+  let viewEntries:EntryView[]=[];
+  let reviewed:ArticleLearningSnapshot|undefined;
   const article = createArticleLearning(mount, {
     send: async <T>(request: unknown): Promise<T> => {
       await gate;
       return ((request as { type: string }).type === 'listEntries'
-        ? { ok: true, entries: [], vaultId: null }
+        ? { ok: true, entries: viewEntries, vaultId: null }
         : { ok: true, records: [], vaultId: null }) as T;
     },
     entry: () => document.createElement('article'),
-    review: state => { reviewed = state; },
+    review: state => { reviewed=state; },
     translate: () => {}, changed: () => {},
   });
   const otherSource = { ...source, sourceKey: 'web:https://example.com/B', title: 'B', url: 'https://example.com/B' };
   await article.update(source, null);
+  assert.equal(mount.querySelector<HTMLButtonElement>('[data-i18n-aria-label="复习本篇"]')!.hidden,true);
+  viewEntries=[{...entry('en::reading'),contexts:[context(source.url,'A sentence','A meaning',1)]}];
+  await article.update(source,null);
   const editor = document.createElement('form'); editor.className = 'knowledge-editor'; mount.append(editor);
   await article.update(otherSource, null);
   assert.equal(article.snapshot().source?.sourceKey, source.sourceKey);
   assert.equal(mount.querySelector('h1')!.textContent, 'A');
-  mount.querySelector<HTMLButtonElement>('[data-i18n="复习本篇"]')!.click();
-  assert.equal(reviewed?.source?.sourceKey, source.sourceKey);
+  mount.querySelector<HTMLButtonElement>('[data-i18n-aria-label="复习本篇"]')!.click();
+  assert.equal(reviewed?.source?.sourceKey,source.sourceKey);
   editor.remove();
   const note = document.createElement('textarea'); note.value = 'Unsaved note'; mount.append(note); focused = note;
   await article.update(otherSource, null);

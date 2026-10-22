@@ -20,7 +20,7 @@ let diskWrites = [];
 let afterDiskWrite = null;
 const bundle = await build({
   absWorkingDir: root,
-  stdin: { contents: "export * from './lib/vault/sync'; export * from './lib/vault/records'; export * as db from './lib/db'; export * as format from './lib/vault/format'; export * as chatFormat from './lib/vault/chatFormat'; export * as files from './lib/vault/fs'; export {emptyChat} from './shared/chat';", resolveDir: root },
+  stdin: { contents: "export * from './lib/vault/sync'; export * from './lib/vault/records'; export * as db from './lib/db'; export * as format from './lib/vault/format'; export * as chatFormat from './lib/vault/chatFormat'; export * as files from './lib/vault/fs'; export {emptyChat} from './shared/chat'; export * as knowledge from './shared/knowledge';", resolveDir: root },
   bundle: true,
   write: false,
   platform: "browser",
@@ -149,6 +149,40 @@ async function open(kind) {
 try {
   const chrome = await open("chrome");
   const edge = await open("edge");
+  if (process.argv.includes('--translation-only')) {
+    // Keep this mode limited to the new source and its existing collection lifecycle.
+    const snapshot={text:'US policy\nCafé!',url:'https://example.com/translation#section',title:'Translation'};
+    const first=await chrome.evaluate(async snapshot=>{
+      const saved=await Vault.db.saveTranslationKnowledge(snapshot,'auto','zh-Hans',null,'美国政策\n咖啡！','en');
+      const duplicate=await Vault.db.saveTranslationKnowledge(snapshot,'auto','zh-Hans',null,'Must not overwrite','en');
+      const source=Vault.knowledge.selectionSource(snapshot);
+      const chat={...Vault.emptyChat(),id:'legacy-answer',snapshots:[{source,version:1,createdAt:1,label:'Source',blocks:[]}],messages:[{id:'q',role:'user',turnId:'t',text:'AI question',snapshotVersion:1,at:1},{id:'a',role:'assistant',turnId:'t',text:'AI body',state:'done',at:2}]};
+      await Vault.db.upsertChatRecordFromVault(chat);await Vault.db.saveAnswerKnowledge(chat.id,'a','AI title','AI body',null);await Vault.db.clearChat(chat.id);
+      return {saved,duplicate};
+    },snapshot);
+    assert.equal(first.saved.record.id,first.duplicate.record.id);assert.equal(first.duplicate.record.body,'US policy\nCafé!\n\n美国政策\n咖啡！');
+    // Begin with an earlier supported identity; adoption upgrades the same vault.
+    mkdirSync(join(directory,'.peak-distance'),{recursive:true});
+    writeFileSync(join(directory,'.peak-distance/identity.json'),JSON.stringify({vaultId:'translation-vault',formatVersion:3,createdAt:1}));
+    const adopted=await chrome.evaluate(()=>Vault.adoptVault());assert.ok(adopted.ok,JSON.stringify(adopted));
+    assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/identity.json'),'utf8')).formatVersion,4);
+    const oldReader=(await build({absWorkingDir:root,stdin:{contents:"export {ensureVault} from './lib/vault/fs';",resolveDir:root},bundle:true,write:false,platform:'browser',format:'iife',globalName:'OldVault',plugins:[{name:'version-3-reader',setup(builder){builder.onLoad({filter:/[/\\]shared[/\\]vault\.ts$/},({path})=>({contents:readFileSync(path,'utf8').replace(/VAULT_FORMAT_VERSION = \d+/, 'VAULT_FORMAT_VERSION = 3'),loader:'ts',resolveDir:root}));}}]})).outputFiles[0].text;
+    await chrome.addScriptTag({content:oldReader});
+    await assert.rejects(chrome.evaluate(()=>OldVault.ensureVault(__vaultDirectory)),/format: identity/);
+    const disk=readFileSync(join(directory,'知识点.md'),'utf8');assert.ok(disk.includes('US policy'));assert.ok(disk.includes('美国政策'));assert.ok(disk.includes('AI body'));
+    assert.ok((await edge.evaluate(()=>Vault.adoptVault())).ok);
+    const independent=await edge.evaluate(()=>Vault.db.listKnowledge());assert.equal(independent.length,2);assert.deepEqual(independent.find(k=>k.id===first.saved.record.id),first.saved.record);
+    const receipt=await chrome.evaluate(async snapshot=>Vault.db.translationKnowledgeState(Vault.knowledge.translationIdentity(snapshot,'auto','zh-Hans'),'translation-vault'),snapshot);assert.equal(receipt.written,true);
+    await chrome.evaluate(async id=>Vault.db.updateKnowledge(id,'Edited translation','User edited body','translation-vault'),first.saved.record.id);
+    const pending=await chrome.evaluate(async snapshot=>Vault.db.translationKnowledgeState(Vault.knowledge.translationIdentity(snapshot,'auto','zh-Hans'),'translation-vault'),snapshot);assert.equal(pending.written,false);
+    await chrome.evaluate(()=>Vault.synchronizeVault());await edge.evaluate(()=>Vault.syncFromVault());
+    assert.equal((await edge.evaluate(()=>Vault.db.listKnowledge())).find(k=>k.id===first.saved.record.id).body,'User edited body');
+    await chrome.evaluate(async id=>Vault.db.deleteKnowledge(id,true,undefined,'translation-vault'),first.saved.record.id);await chrome.evaluate(()=>Vault.synchronizeVault());await edge.evaluate(()=>Vault.syncFromVault());
+    assert.ok(!(await edge.evaluate(()=>Vault.db.listKnowledge())).some(k=>k.id===first.saved.record.id));
+    const newRecord=await chrome.evaluate(async snapshot=>Vault.db.saveTranslationKnowledge(snapshot,'auto','zh-Hans','translation-vault'),snapshot);assert.notEqual(newRecord.record.id,first.saved.record.id);
+    await chrome.evaluate(()=>Vault.synchronizeVault());await edge.evaluate(()=>Vault.syncFromVault());assert.equal((await edge.evaluate(()=>Vault.db.listKnowledge())).length,2);
+    console.log('PASS translation-only: offline/duplicate saving, v3→v4 upgrade, mixed AI + translation real disk collection, independent browser readback, exact-revision receipt, edit/delete propagation and explicit resave identity (adapted directory handles)');
+  } else {
   const firstKnowledge = await chrome.evaluate(async () => {
     const {db,emptyChat}=Vault;
     const source={sourceType:'article',sourceKey:'web:https://example.com/knowledge',title:'Original A',url:'https://example.com/knowledge'};
@@ -198,7 +232,7 @@ try {
     assert.equal(records.length,1);assert.equal(records[0].body,'Edited body [p1]');assert.equal(records[0].quotes[0].text,'An independently saved quotation.');
     assert.equal(await page.evaluate(()=>Vault.db.getChat('knowledge-chat')),null);
   }
-  assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/identity.json'),'utf8')).formatVersion,3);
+  assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/identity.json'),'utf8')).formatVersion,4);
   console.log('PASS offline independent knowledge survives original chat deletion, first connection and complete readback in another browser; duplicate saves preserve edits');
   assert.equal((await chrome.evaluate(() => window.Vault.synchronizeVault())).error, void 0);
   for (const page of [chrome, edge]) {
@@ -831,6 +865,7 @@ try {
   await assert.rejects(edge.evaluate(() => window.Vault.syncFromVault()), /conflict: legacy file changed/);
   assert.ok(readFileSync(join(directory, '词汇/en/race.md'), 'utf8').includes('LATEST USER NOTE'));
   console.log('PASS legacy changes during backup are retained and migration stops with a conflict');
+  }
 } finally {
   await Promise.all(contexts.map((context) => context.close()));
   await new Promise((done) => server.close(() => done()));

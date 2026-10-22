@@ -32,7 +32,7 @@ window.addEventListener('message',e=>{const m=e.data;if(m?.source!=='blc-content
 async function select(page,selector){await page.locator(selector).evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);document.dispatchEvent(new Event('selectionchange'));});}
 try {
   if(process.argv.includes('--live-translation')){
-    const live=await send({type:'translateSelection',text:'Learning a language opens a window to the world.',requestId:'live-check'});
+    const live=await send({type:'translateSelection',text:'Learning a language opens a window to the world.',snapshot:{text:'Learning a language opens a window to the world.',url:'https://example.com/translation-check',title:'Translation check'},requestId:'live-check'});
     check('真实常规翻译返回中文',live.ok&&/[\u4e00-\u9fff]/.test(live.text));
   }
   await worker.evaluate(()=>{
@@ -89,7 +89,7 @@ try {
   check('key 输入保存后清空',await frame.locator('#key').inputValue()==='');
   check('宿主无法读取扩展 iframe',await page.locator('#pd-floating-panel iframe').evaluate(el=>el.contentDocument===null));
   check('普通设置快照不含 key',!JSON.stringify(await send({type:'getSettings'})).includes('m8-disposable-test-key'));
-  await frame.locator('#markingEnabled').uncheck();await frame.locator('#online-state').filter({hasText:'已保存'}).waitFor();
+  await frame.locator('#markingEnabled').uncheck();await frame.locator('#markingEnabled').locator('..').locator('.settings-field-state.ok').filter({hasText:'已保存'}).waitFor();
   check('设置写入实际存储',(await send({type:'getSettings'})).settings.markingEnabled===false);
   await frame.locator('#settings-back').click();
   await frame.getByRole('button',{name:'AI 问答',exact:true}).click();
@@ -131,7 +131,7 @@ try {
 
   for(const [i,word]of ['journey','understand'].entries())await send({type:'save',snapshot:{source:'web',expression:word,sentence:`Every ${word} begins with a single step.`,url:'https://example.com/article',title:'A journey'},definition:'从语境中理解新的表达'});
   await frame.getByRole('button',{name:'生词本',exact:true}).click();await frame.locator('.entry').first().waitFor();await page.waitForTimeout(200);await page.screenshot({path:join(output,'vocabulary.png')});
-  await frame.getByRole('button',{name:'原句复习 →'}).click();await frame.getByRole('button',{name:'揭示',exact:true}).click();
+  await frame.getByRole('button',{name:'原句复习'}).click();await frame.getByRole('button',{name:'揭示',exact:true}).click();
   await frame.getByRole('button',{name:'设置',exact:true}).click();await frame.locator('#settings-back').click();
   check('设置往返保留复习揭示状态',await frame.getByRole('button',{name:'下一条',exact:true}).isVisible());
   await page.screenshot({path:join(output,'review.png')});

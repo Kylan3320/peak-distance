@@ -34,7 +34,7 @@ try {
   const panel=await context.newPage();
   await panel.goto(`chrome-extension://${id}/sidepanel.html#list`);
   await panel.waitForFunction(()=>!document.body.inert);
-  await panel.locator('.note-box summary').click();
+  await panel.getByRole('button',{name:'添加笔记',exact:true}).click();
   await panel.locator('.note-box textarea').fill('保留解释 {literal} — my unsaved note');
   await options.locator('#key').fill('local-test-key');
   await options.locator('#ai-advanced summary').click();
@@ -68,15 +68,15 @@ try {
   await options.waitForFunction(()=>document.querySelector('#displayLanguage')?.value==='fr');
   assert.equal((await options.evaluate(()=>chrome.storage.local.get('comprehensionOverrides'))).comprehensionOverrides.ja,'en');
 
-  await options.locator('details.settings-section summary').click();
+  await options.locator('details').filter({has:options.locator('#cacheLimit')}).locator('summary').click();
   await options.locator('#cacheLimit').fill('501');
   await options.locator('#cacheLimit').dispatchEvent('change');
-  await options.waitForFunction(()=>document.querySelector('#online-state')?.classList.contains('err'));
+  await options.waitForFunction(()=>document.querySelector('#cacheLimit')?.closest('.settings-field').querySelector('.settings-field-state')?.classList.contains('err'));
   assert.notEqual((await options.evaluate(()=>chrome.storage.local.get('cacheLimit'))).cacheLimit,501);
   await options.evaluate(()=>{globalThis.originalStorageSet=chrome.storage.local.set;chrome.storage.local.set=async()=>{throw new Error('test-save-failure');};});
   await options.locator('#cacheLimit').fill('100');
   await options.locator('#cacheLimit').dispatchEvent('change');
-  await options.waitForFunction(()=>document.querySelector('#online-state')?.textContent.includes('Réessayez'));
+  await options.waitForFunction(()=>document.querySelector('#cacheLimit')?.closest('.settings-field').querySelector('.settings-field-state')?.textContent.includes('Réessayez'));
   assert.equal(await options.locator('#cacheLimit').inputValue(),'100');
   await options.evaluate(()=>{chrome.storage.local.set=globalThis.originalStorageSet;});
   await options.locator('#key').fill('local-test-key');
@@ -90,7 +90,7 @@ try {
   await options.locator('#ai-model').fill('deepseek-flash');
   assert.equal(await options.locator('#state').getAttribute('data-i18n'),'已配置');
   await panel.locator('[data-view="chat"]').click();
-  assert.ok((await panel.locator('#chat-head .native-delete-main').boundingBox()).width>60);
+  assert.equal(await panel.locator('#chat-actions').isVisible(),false);
   for(const [index,locale] of Object.keys(headings).entries()) {
     await options.locator('#displayLanguage').selectOption(locale);
     await panel.waitForFunction(locale=>document.documentElement.lang===locale,locale);
@@ -104,7 +104,7 @@ try {
   await options.locator('#displayLanguage').selectOption('de');
   await panel.waitForFunction(()=>document.documentElement.lang==='de');
   assert.equal(await panel.locator('#chat-input').inputValue(),'未发送的问题 {literal}');
-  assert.equal(await panel.locator('#chat-head .chat-tool').first().innerText(),newChatLabels.de);
+  assert.equal(await panel.locator('#chat-head [data-i18n-aria-label="新对话"]').getAttribute('aria-label'),newChatLabels.de);
   assert.equal((await worker.evaluate(()=>globalThis.aiRequests)).length,5);
   await options.locator('#displayLanguage').selectOption('auto');
   const browserLanguage=await options.evaluate(()=>chrome.i18n.getUILanguage());

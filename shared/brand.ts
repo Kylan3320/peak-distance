@@ -1,6 +1,9 @@
 import tokens from './tokens.css?inline';
+import controls from './controls.css?inline';
 export const brandTokens = tokens;
+export const sharedControls = controls;
 export const brandControls = `
+  ${controls}
   button,select,input,textarea { font:inherit; box-sizing:border-box; }
   button,select { cursor:pointer; } button { border:1px solid var(--pd-line); border-radius:6px; background:var(--pd-surface); color:var(--pd-ink); padding:6px 10px; }
   button:hover { background:var(--pd-selected); } button:disabled { cursor:wait; opacity:.6; }

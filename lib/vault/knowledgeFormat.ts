@@ -51,8 +51,19 @@ export function parseKnowledge(text: string): KnowledgeRecord {
   const record = { ...metadata, body } as KnowledgeRecord;
   if (typeof record.id !== 'string' || !record.id || typeof record.title !== 'string' || !record.title.trim() || !body.trim() || !isLanguageTag(record.language)
     || typeof record.source?.sourceKey !== 'string' || !record.source.sourceKey || !/^https?:\/\//.test(record.source.url) || typeof record.source.title !== 'string'
-    || !['article', 'x'].includes(record.source.sourceType) || typeof record.origin?.chatId !== 'string' || !record.origin.chatId || typeof record.origin.messageId !== 'string' || !record.origin.messageId
+    || !validOrigin(record)
     || !Array.isArray(record.quotes) || !record.quotes.every(q => typeof q.id === 'string' && typeof q.text === 'string')
     || !Number.isFinite(record.createdAt) || !Number.isFinite(record.updatedAt)) throw new Error('format: knowledge');
   return record;
+}
+
+function validOrigin(record: KnowledgeRecord): boolean {
+  const o = record.origin;
+  if (o?.type !== 'translation') return ['article', 'x'].includes(record.source.sourceType) && typeof o?.chatId === 'string' && !!o.chatId && typeof o.messageId === 'string' && !!o.messageId;
+  const p = o.position;
+  return ['article', 'x', 'youtube'].includes(record.source.sourceType) && typeof o.identity === 'string' && !!o.identity && typeof o.text === 'string' && !!o.text.trim()
+    && (o.translation === undefined || typeof o.translation === 'string') && (o.sourceMode === 'auto' || isLanguageTag(o.sourceMode)) && isLanguageTag(o.targetLang) && o.service === 'google-gtx'
+    && (o.bodyEdited === undefined || typeof o.bodyEdited === 'boolean')
+    && (record.source.sourceType !== 'youtube' || !!p)
+    && (!p || typeof p.videoId === 'string' && !!p.videoId && typeof p.trackId === 'string' && !!p.trackId && ['manual', 'asr'].includes(p.trackKind) && isLanguageTag(p.trackLang) && Number.isFinite(p.startMs) && p.startMs >= 0 && Number.isFinite(p.endMs) && p.endMs >= p.startMs);
 }

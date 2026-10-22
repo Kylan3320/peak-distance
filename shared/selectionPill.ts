@@ -10,6 +10,7 @@ import { detectTextLanguage } from './tokenize';
 import { classifyRangeIn, inlineRunContainer } from './selection';
 import { materialFromCandidate, type SelectionCandidate, type SourceDescriptor } from './chat';
 import type { LookupPopup } from './lookupPopup';
+import { isLanguageTag, normalizeLangTag } from './languages';
 import type { SelectionSnapshot } from './panel';
 
 export const PILL_ID = 'blc-lookup-pill';
@@ -25,6 +26,7 @@ export interface PillSelectionInfo {
   sentence: string | null;
   blockText: string;
   source: SourceDescriptor | null;
+  sourceLang?: string;
   rect: DOMRect | null;
 }
 
@@ -115,6 +117,7 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       sentence: cls?.sentence ?? null,
       blockText: blockText.slice(0, 600),
       source: deps.buildSource(),
+      sourceLang: inheritedSelectionLanguage(range.startContainer),
       rect,
     };
   }
@@ -147,9 +150,8 @@ export function createSelectionPill(deps: SelectionPillDeps) {
         if (!info) return;
         dismissSelection();
         lookup.close();
-        // 卡片展示与翻译请求同一文本：词/短语/句段首尾均用补全/清洗后的
-        // 有效表达（残缺词补齐、去词外标点；句段内部保持原文）
-        translation.open({ text: info.expression ?? info.raw, url: location.href, title: document.title }, info.rect);
+        // Translation preserves the actual selection and its frozen source.
+        translation.open({ text: info.raw, url: info.source?.url ?? location.href, title: info.source?.title ?? document.title, ...(info.source ? {source:info.source} : {}), ...(info.sourceLang ? {sourceLang:info.sourceLang,languageEvidence:'element'} : {}) }, info.rect);
         remove();
       });
       const chat = document.createElement('button');
@@ -249,7 +251,7 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     dismissSelection();
     translation.close();
     const expression = info.expression ?? info.raw;
-    void send({ type: 'selectionSnapshot', snapshot: { text: expression, url: location.href, title: document.title } });
+    void send({ type: 'selectionSnapshot', snapshot: { text: info.raw, url: info.source?.url ?? location.href, title: info.source?.title ?? document.title, source:info.source ?? undefined, sourceLang:info.sourceLang, languageEvidence:info.sourceLang ? 'element' : undefined } });
     lookup.open({
       snapshot: {
         source: 'web',
@@ -306,4 +308,16 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       document.removeEventListener('keyup', onKeyUp, true);
     },
   };
+}
+
+function inheritedSelectionLanguage(node: Node): string | undefined {
+  let element = node instanceof Element ? node : node.parentElement;
+  while (element) {
+    if (element.hasAttribute('lang')) {
+      const lang = element.getAttribute('lang');
+      return isLanguageTag(lang) && lang !== 'und' ? normalizeLangTag(lang) : undefined;
+    }
+    element = element.parentElement ?? (element.getRootNode() instanceof ShadowRoot ? (element.getRootNode() as ShadowRoot).host : null);
+  }
+  return undefined;
 }

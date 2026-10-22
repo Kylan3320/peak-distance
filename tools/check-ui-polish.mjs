@@ -69,7 +69,7 @@ try {
   check('附加菜单展示三个现有入口', await panel.locator('.chat-attachment-menu button:visible').count() === 3);
   await panel.locator('#chat-attachments summary').press('Escape');
   check('Escape 收起菜单并恢复焦点', await panel.locator('#chat-attachments').evaluate(el => !el.open && document.activeElement === el.querySelector('summary')));
-  await panel.locator('#chat-settings').click();
+  await panel.locator('#open-settings').click();
   await panel.locator('#view-settings').waitFor({ state: 'visible' });
   await panel.screenshot({ path: join(output, 'settings-back.png') });
   await panel.locator('#settings-back').click();
@@ -84,9 +84,9 @@ try {
     check(`对话 ${width}px：正文与输入区无横向溢出`, await panel.locator('#view-chat').evaluate(el => el.scrollWidth <= el.clientWidth && document.querySelector('#chat-list').scrollWidth <= document.querySelector('#chat-list').clientWidth));
   }
   await panel.getByRole('button', { name: '保留解释', exact: true }).click();
-  await panel.getByRole('button', { name: '已保留', exact: true }).click();
+  await panel.locator('#chat-head [data-i18n-aria-label="只看本对话已标记回答"]').click();
   check('保留筛选仍显示已保留回答', await panel.locator('#chat-list .msg.assistant').count() === 1);
-  await panel.getByRole('button', { name: '历史', exact: true }).click();
+  await panel.locator('#chat-head [data-i18n-aria-label="历史"]').click();
   await panel.locator('.chat-recent-row').first().waitFor();
   await panel.screenshot({ path: join(output, 'chat-history-320.png') });
   check('历史会话操作可达', await panel.getByRole('button', { name: '删除', exact: true }).first().isVisible());

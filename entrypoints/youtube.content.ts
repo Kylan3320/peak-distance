@@ -2,7 +2,7 @@ import { t as tr, localize, onDisplayLanguageChange, setDisplayLanguage , messag
 import { initFloatingPanel } from '@/shared/floatingPanel';
 import { createTranslationPopup } from '@/shared/translationPopup';
 import { shadowSelection, classifyRangeIn, clampRangeToElement } from '@/shared/selection';
-import { brandTokens, brandControls, CHAT_ADD_ICON, CHAT_ADD_BUTTON_STYLE } from '@/shared/brand';
+import { brandTokens, brandControls, sharedControls, CHAT_ADD_ICON, CHAT_ADD_BUTTON_STYLE } from '@/shared/brand';
 import { detectTextLanguage } from '@/shared/tokenize';
 import { sendRuntime } from '@/shared/runtime';
 import { createSelectionPill } from '@/shared/selectionPill';
@@ -455,7 +455,7 @@ export default defineContentScript({
           button,select { font:inherit; color:inherit; background:#292b30; border:1px solid #555; border-radius:5px; padding:5px 9px; cursor:pointer; }
           button:focus-visible,select:focus-visible { outline:2px solid #8ab4f8; }
           #learning { background:transparent; border:0; padding:0 12px; height:100%; }
-          ${brandTokens}
+          ${brandTokens}${sharedControls}
           #menu { color:var(--pd-ink);position:absolute; right:0; bottom:calc(100% + 12px); width:280px; box-sizing:border-box; max-height:calc(var(--blc-player-height,360px) - 72px); overflow-y:auto; background:var(--pd-paper); border:1px solid var(--pd-line); border-radius:8px; padding:12px; box-shadow:0 6px 24px #0008; }
           [hidden] { display:none!important; } label { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:7px 0; } small { color:var(--pd-muted); } #menu button,#menu select { background:var(--pd-surface);border-color:var(--pd-line);color:var(--pd-ink); } #menu input {accent-color:var(--pd-blue)}
           label:has(select) {display:grid;grid-template-columns:minmax(0,1fr);gap:4px} #menu select {width:100%;min-width:0}
@@ -638,7 +638,7 @@ export default defineContentScript({
       const en = root.querySelector<HTMLElement>('.en');
       if (!selected || !en) return null;
       const clamped = clampRangeToElement(selected.range, en);
-      const raw = clamped.toString().replace(/\s+/g, ' ').trim();
+      const raw = clamped.toString().trim();
       if (!raw) return null;
       const cueIndex = Number(en.dataset.cue ?? currentIdx);
       const cue = cues[cueIndex];
@@ -695,7 +695,10 @@ export default defineContentScript({
       root.querySelector<HTMLElement>('#translate')!.hidden = info.kind === 'word';
       const rect = info.rect ?? undefined;
       root.querySelector('#lookup')!.addEventListener('click',()=>{host.remove();openLookup(info.expression ?? info.raw, info.cueIndex);});
-      root.querySelector('#translate')!.addEventListener('click',()=>{host.remove();popup.close();translationPopup.open({text:info.expression??info.raw,url:videoContextUrl(currentVideoId,cues[info.cueIndex]?.start??0),title:document.title},rect);});
+      const selectedCue = cues[info.cueIndex];
+      const translationSnapshot = {text:info.raw,url:videoContextUrl(currentVideoId,selectedCue?.start??0),title:document.title,source:buildVideoSource()??undefined,sourceLang:lastTrackLang||undefined,languageEvidence:'track' as const,
+        position:{videoId:currentVideoId,trackId:lastTrackId,trackKind:lastTrack==='asr'?'asr' as const:'manual' as const,trackLang:lastTrackLang||'und',startMs:selectedCue?.start??0,endMs:(selectedCue?.start??0)+(selectedCue?.dur??0)}};
+      root.querySelector('#translate')!.addEventListener('click',()=>{host.remove();popup.close();translationPopup.open(translationSnapshot,rect);});
       root.querySelector('#chat')!.addEventListener('click',()=>{host.remove();popup.close();void attachSubtitleSelection(info);});
       host.addEventListener('mousedown',e=>e.preventDefault());
       // 选区形成即固定候选（面板进入/字幕重绘不清空）

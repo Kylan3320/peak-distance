@@ -6,8 +6,18 @@
 // 转换集中在这里。移除按英文字母占比判定失败的旧规则（M11 spec 3.3）：
 // 专名或同语输入返回原文不算失败，由调用方按需展示。
 
+import { isLanguageTag, normalizeLangTag } from '@/shared/languages';
+import { cached } from './onlineCache';
+
+export function translationCacheKey(text: string, source: string, target: string): string {
+  return JSON.stringify(['translation', 'google-gtx', 'v2', source === 'und' ? 'auto' : source, target, text.trim()]);
+}
+export function queryTranslation(text: string, source: string, target: string, signal?: AbortSignal, fresh = false) {
+  return cached(translationCacheKey(text, source, target), s => translateRegularText(text, s, {source: source === 'und' ? 'auto' : source, target}), signal, fresh);
+}
+
 export type RegularTranslationResult =
-  | { ok: true; source: 'google-gtx'; text: string }
+  | { ok: true; source: 'google-gtx'; text: string; detectedLang?: string }
   | { ok: false; source: 'google-gtx'; error: 'empty' | 'restricted' | 'network' | 'http' | 'bad-response' | 'aborted'; detail?: string };
 
 export interface TranslationLangs {
@@ -56,10 +66,13 @@ export async function translateRegularText(
   if ([403, 429, 503].includes(response.status)) return { ok: false, source: 'google-gtx', error: 'restricted', detail: `http ${response.status}` };
   if (!response.ok) return { ok: false, source: 'google-gtx', error: 'http', detail: `http ${response.status}` };
   try {
-    const translated = parseGoogleTranslation(await response.json());
+    const json = await response.json();
+    const translated = parseGoogleTranslation(json);
+    const detected = Array.isArray(json) ? json[2] : undefined;
+    const detectedLang = isLanguageTag(detected) && detected !== 'und' ? normalizeLangTag(detected) : undefined;
     if (!translated) return { ok: false, source: 'google-gtx', error: 'empty' };
     // 专名／无变化输入：保持原文，不算失败（不伪造译文也不阻断展示）
-    return { ok: true, source: 'google-gtx', text: translated };
+    return { ok: true, source: 'google-gtx', text: translated, ...(detectedLang ? { detectedLang } : {}) };
   } catch (error) {
     return { ok: false, source: 'google-gtx', error: 'bad-response', detail: String(error) };
   }

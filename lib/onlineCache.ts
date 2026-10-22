@@ -1,111 +1,123 @@
-// 会话缓存使用现有 storage.session；只保存成功结果，消费者独立取消。
-const STORE = 'online-cache-v1';
-// 2MB 上限与校准节奏：字节账目是近似值（每条 JSON 成员长度之和），
-// 全量重算只在 load、每 ~50 次 put、或记录数与账目不符（外部清理）
-// 时发生，避免每次 put 都全量 JSON.stringify。
+// One memory mirror and request coalescer; ordinary queries survive browser restarts.
+const SESSION_STORE = 'online-cache-v1';
+const QUERY_STORE = 'query-cache-v2';
+const TTL = 30 * 24 * 60 * 60 * 1000;
 const BYTE_LIMIT = 2_000_000;
-const RECALC_EVERY = 50;
-
-let records: Record<string, { value: unknown; at: number }> = {};
+interface RecordValue { value: unknown; writtenAt: number; usedAt: number; expiresAt?: number }
+let records: Record<string, RecordValue> = {};
 let ready: Promise<void> | undefined;
+let limit = 200;
 let write = Promise.resolve();
-const pending = new Map<string, { controller: AbortController; users: Set<symbol>; result: Promise<any> }>();
+let queryEpoch = 0;
+const pending = new Map<string, { controller: AbortController; cacheable: boolean; users: Set<symbol>; result: Promise<any> }>();
+const ordinary = (key: string) => /^\["(?:dictionary|translation)"/.test(key);
+const size = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 
-// 近似字节数与记录数账目（load / 校准时全量重算，put / 删除时增量调整）。
-let bytes = 0;
-let trackedCount = 0;
-let putsSinceRecalc = 0;
-
-function recalc(): void {
-  bytes = JSON.stringify(records).length;
-  trackedCount = Object.keys(records).length;
-  putsSinceRecalc = 0;
+let dirty = false;
+let writing = false;
+function persist(): void {
+  dirty = true;
+  if (writing) return;
+  writing = true;
+  write = (async () => {
+    try {
+      while (dirty) {
+        dirty = false;
+        const local = Object.fromEntries(Object.entries(records).filter(([key]) => ordinary(key)));
+        const session = Object.fromEntries(Object.entries(records).filter(([key]) => !ordinary(key)));
+        for (const [area, key, value] of [[browser.storage.local, QUERY_STORE, local], [browser.storage.session, SESSION_STORE, session]] as const) {
+          try { await area.set({ [key]: value }); }
+          catch (error) { console.warn('[pd] online cache persistence failed', error); }
+        }
+      }
+    } finally { writing = false; }
+  })();
 }
-
-/** 单条记录的 JSON 成员近似长度（键 + 冒号 + 值，逗号误差可忽略）。 */
-function entryBytes(key: string, rec: { value: unknown; at: number }): number {
-  return JSON.stringify(key).length + JSON.stringify(rec).length + 1;
+function prune(): boolean {
+  let changed = false;
+  const remove = (key: string) => { delete records[key]; changed = true; };
+  for (const [key, record] of Object.entries(records)) if (record.expiresAt !== undefined && Date.now() >= record.expiresAt) remove(key);
+  const sorted = Object.keys(records).sort((a, b) => records[a]!.usedAt - records[b]!.usedAt || records[a]!.writtenAt - records[b]!.writtenAt || a.localeCompare(b));
+  while (sorted.length > limit || size(records) > BYTE_LIMIT) {
+    const key = sorted.shift(); if (!key) break; remove(key);
+  }
+  return changed;
 }
-
 async function load(): Promise<void> {
-  ready ??= browser.storage.session.get(STORE).then(r => {
-    records = (r[STORE] ?? {}) as typeof records;
-    recalc();
-  });
+  ready ??= (async () => {
+    const [local, session] = await Promise.all([
+      browser.storage.local.get([QUERY_STORE, 'cacheLimit']).catch(error => { console.warn('[pd] query cache load failed', error); return {} as Record<string, unknown>; }),
+      browser.storage.session.get(SESSION_STORE).catch(error => { console.warn('[pd] session cache load failed', error); return {} as Record<string, unknown>; }),
+    ]);
+    limit = Math.max(20, Math.min(500, Number(local.cacheLimit) || 200));
+    const now = Date.now();
+    for (const [key, record] of Object.entries((session[SESSION_STORE] ?? {}) as Record<string, any>)) {
+      if (!ordinary(key)) records[key] = record.writtenAt !== undefined ? record : { value: record.value, writtenAt: record.at ?? now, usedAt: record.at ?? now };
+    }
+    for (const [key, record] of Object.entries((local[QUERY_STORE] ?? {}) as Record<string, RecordValue>)) {
+      if (ordinary(key) && Number.isFinite(record.expiresAt) && Number.isFinite(record.writtenAt) && Number.isFinite(record.usedAt)) records[key] = record;
+    }
+    prune(); persist();
+  })();
   await ready;
 }
-
 export async function cacheGet<T>(key: string): Promise<T | undefined> {
   await load();
-  return records[key]?.value as T | undefined;
+  if (prune()) persist();
+  const record = records[key];
+  if (record) record.usedAt = Date.now();
+  return record?.value as T | undefined;
 }
-
-export async function cachePut(key: string, value: unknown): Promise<void> {
+export async function cachePut(key: string, value: unknown, valid: () => boolean = () => true): Promise<void> {
   await load();
-  const prev = records[key];
-  if (prev) bytes -= entryBytes(key, prev);
-  const rec = { value, at: Date.now() };
-  records[key] = rec;
-  bytes += entryBytes(key, rec);
-  if (!prev) trackedCount++;
-  putsSinceRecalc++;
-  await trimCache();
+  if (!valid()) return;
+  const now = Date.now();
+  const record = { value, writtenAt: now, usedAt: now, ...(ordinary(key) ? { expiresAt: now + TTL } : {}) };
+  delete records[key];
+  if (size({ [key]: record }) <= BYTE_LIMIT) records[key] = record;
+  prune(); persist();
 }
-
 export async function trimCache(): Promise<void> {
   await load();
   const settings = await browser.storage.local.get('cacheLimit');
-  const limit = Math.max(20, Math.min(500, Number(settings.cacheLimit) || 200));
-  const evict = (key: string): void => {
-    bytes -= entryBytes(key, records[key]!);
-    trackedCount--;
-    delete records[key];
-  };
-  for (const [old] of Object.entries(records).sort((a, b) => b[1].at - a[1].at).slice(limit)) evict(old);
-  // storage.session 配额内保留最近结果；超大字幕快照也受字节上限约束。
-  while (bytes > BYTE_LIMIT) {
-    const oldest = Object.keys(records).sort((a, b) => records[a]!.at - records[b]!.at)[0];
-    if (!oldest) break;
-    evict(oldest);
-  }
-  if (putsSinceRecalc >= RECALC_EVERY || Object.keys(records).length !== trackedCount) recalc();
-  write = write.then(async () => {
-    try { await browser.storage.session.set({ [STORE]: records }); }
-    catch (error) { console.warn('[pd] online cache persistence failed', error); }
-  });
-  await write;
+  limit = Math.max(20, Math.min(500, Number(settings.cacheLimit) || 200));
+  prune(); persist();
 }
-
-export async function cached<T extends { ok: boolean }>(key: string, run: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
+export async function clearQueryCache(): Promise<void> {
+  await load(); queryEpoch++;
+  for (const key of Object.keys(records)) if (ordinary(key)) delete records[key];
+  // Pre-clear consumers may finish, but new consumers start in the new generation.
+  for (const key of pending.keys()) if (ordinary(key)) pending.delete(key);
+  persist(); await write;
+}
+export async function cached<T extends { ok: boolean }>(key: string, run: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal, fresh = false): Promise<T> {
   signal?.throwIfAborted();
   const hit = await cacheGet<T>(key);
   signal?.throwIfAborted();
-  if (hit) return hit;
-  let task = pending.get(key);
+  if (hit && !fresh) return hit;
+  let task = fresh ? undefined : pending.get(key);
   if (!task) {
-    const controller = new AbortController();
-    task = { controller, users: new Set(), result: Promise.resolve() };
+    if (fresh && pending.has(key)) pending.get(key)!.cacheable = false;
+    const controller = new AbortController(), epoch = queryEpoch;
+    task = { controller, cacheable:true, users: new Set(), result: Promise.resolve() };
     const current = task;
-    task.result = run(controller.signal).then(async result => {
-      if (result.ok && !controller.signal.aborted) await cachePut(key, result);
+    task.result = Promise.resolve().then(() => run(controller.signal)).then(result => {
+      if (result.ok && !controller.signal.aborted && pending.get(key) === current && (!ordinary(key) || epoch === queryEpoch)) void cachePut(key, result, () => current.cacheable && !controller.signal.aborted && (!ordinary(key) || epoch === queryEpoch));
       return result;
     }).finally(() => { if (pending.get(key) === current) pending.delete(key); });
     pending.set(key, task);
   }
-  const user = Symbol();
-  task.users.add(user);
-  const current = task;
+  const user = Symbol(), current = task;
+  current.users.add(user);
   return new Promise<T>((resolve, reject) => {
     const release = () => {
       signal?.removeEventListener('abort', abort);
       current.users.delete(user);
-      if (!current.users.size && pending.get(key) === current) {
-        pending.delete(key);
-        current.controller.abort();
-      }
+      if (!current.users.size && pending.get(key) === current) { pending.delete(key); current.controller.abort(); }
     };
     const abort = () => { release(); reject(new DOMException('Cancelled', 'AbortError')); };
     signal?.addEventListener('abort', abort, { once: true });
-    current.result.then(resolve, reject).finally(release);
+    if (signal?.aborted) { abort(); return; }
+    void current.result.then(resolve, reject).finally(release);
   });
 }
