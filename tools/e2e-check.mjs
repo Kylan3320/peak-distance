@@ -164,7 +164,7 @@ try {
   let active = await send({ type: 'chatActive', windowId: await panel.evaluate(async () => (await chrome.windows.getCurrent()).id) });
   let id = active.chat.id;
   const historyBefore = (await send({type:"chatRecent"})).chats.length;
-  for (let i=0;i<3;i++) await panel.getByRole("button",{name:"新对话",exact:true}).click();
+  for (let i=0;i<3;i++) await panel.locator('#chat-head [data-i18n-aria-label="新对话"]').click();
   await panel.waitForTimeout(3200);
   check("连续新建和轮询不新增历史", (await send({type:"chatRecent"})).chats.length===historyBefore);
   const windowId = await panel.evaluate(async () => (await chrome.windows.getCurrent()).id);
@@ -219,7 +219,7 @@ try {
   await panel.locator('.cite').first().click();
   check('同名引用块按原消息快照解析', (await panel.locator('#chat-cite-panel').innerText()).includes('MATERIAL_A_SECRET_TEST'));
   await panel.screenshot({ path: join(output, 'chat.png') });
-  await panel.getByRole('button', { name: '新对话', exact: true }).click();
+  await panel.locator('#chat-head [data-i18n-aria-label="新对话"]').click();
   await panel.waitForFunction(() => document.querySelector('#chat-list').innerText.includes('从一句话'));
   let second = (await send({ type: 'chatActive', windowId })).chat;
   check('新会话身份独立且引用面板清空', second.id !== id && await panel.locator('#chat-cite-panel').isHidden());
@@ -227,7 +227,7 @@ try {
   await panel.waitForTimeout(1700);
   check('附加材料与引用不持久化',second.id===''&&(await send({type:'chatRecent'})).chats.length===historyBefore+1);
   await panel.locator('#chat-input').fill('临时编辑');
-  await panel.getByRole('button',{name:'历史',exact:true}).click();
+  await panel.locator('#chat-head [data-i18n-aria-label="历史"]').click();
   await panel.waitForFunction(()=>document.querySelector('.chat-recent-row'));
   const originalRow=panel.locator('.chat-recent-row').filter({hasText:'普通问题'});
   await originalRow.getByRole('button',{name:'Delete',exact:true}).click();
@@ -237,7 +237,7 @@ try {
   await originalRow.locator('.chat-tool').click();
   await panel.waitForFunction(()=>document.getElementById('chat-input').value==='');
   check('成功换会话丢弃未发送材料引用并恢复已提交材料', !(await panel.locator('#chat-attachment').innerText()).includes('焦点：') && (await send({type:'chatActive',windowId})).chat.source.title==='Material B');
-  await panel.getByRole('button',{name:'新对话',exact:true}).click();
+  await panel.locator('#chat-head [data-i18n-aria-label="新对话"]').click();
   await panel.waitForFunction(()=>document.querySelector('#chat-list').innerText.includes('从一句话'));
   await send({type:'chatEnsure',windowId,source:materialA,material:{label:'A',blocks:[{id:'p1',text:'MATERIAL_A_SECRET_TEST'}]},quote:{blockIds:['p1']}});
   await panel.waitForTimeout(1600);
@@ -253,8 +253,9 @@ try {
   check('停止后重试使用新尝试且不重复用户问题', retried.messages.filter(m => m.role === 'user').length === 1);
   await uiSend('删除中生成');
   await panel.waitForFunction(() => !document.getElementById('chat-stop').hidden);
-  await panel.getByRole('button',{name:'清空',exact:true}).click();
-  await panel.getByRole('button',{name:'Confirm',exact:true}).click();
+  await panel.locator('#chat-actions > button').click();
+  await panel.locator('#chat-actions .native-delete-main').click();
+  await panel.locator('#chat-actions .native-delete-main').click();
   await panel.waitForTimeout(4500);
   check('清空后迟到结果不能恢复旧消息', (await send({ type: 'chatGet', chatId: second.id })).chat === null && (await send({type:'chatActive',windowId})).chat.id==='');
   await uiSend('保留停止记录');
@@ -344,7 +345,7 @@ try {
     await panel.getByRole('button',{name:'AI 问答',exact:true}).click();
     await send({type:'chatSelect',chatId:second.id});await panel.waitForFunction(()=>document.querySelector('#chat-head').innerText.includes('保留停止记录'));
     await panel.locator('#chat-input').fill('Keep current edit while deleting another chat.');
-    await panel.getByRole('button',{name:'历史',exact:true}).click();
+    await panel.locator('#chat-head [data-i18n-aria-label="历史"]').click();
     await panel.locator('.chat-recent-row').first().waitFor();
     const nonCurrent=panel.locator('.chat-recent-row').filter({hasText:'普通问题'});
     await nonCurrent.getByRole('button',{name:'Delete',exact:true}).click();await nonCurrent.getByRole('button',{name:'Confirm',exact:true}).click();await nonCurrent.waitFor({state:'detached'});

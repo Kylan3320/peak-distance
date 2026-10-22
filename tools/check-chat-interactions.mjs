@@ -140,9 +140,9 @@ try {
   await ask('移除选区之后继续问');
   const afterRemove = await worker.evaluate(() => globalThis.chatRequests.at(-1));
   assert.ok(!JSON.stringify(afterRemove).includes(selectedText));
-  await panel.locator('#chat-head [data-i18n="新对话"]').click();
+  await panel.locator('#chat-head [data-i18n-aria-label="新对话"]').click();
   await panel.locator('.chat-welcome').waitFor();
-  await panel.locator('#chat-head [data-i18n="历史"]').click();
+  await panel.locator('#chat-head [data-i18n-aria-label="历史"]').click();
   await panel.locator('.chat-recent-row .chat-tool').click();
   await panel.waitForFunction(() => document.querySelectorAll('#chat-list .msg.user').length === 2);
   assert.equal(await panel.locator('.chat-welcome').count(), 0);

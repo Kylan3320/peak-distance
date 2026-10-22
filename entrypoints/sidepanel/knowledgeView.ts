@@ -30,3 +30,25 @@ export function appendKnowledgeBody(parent: HTMLElement, record: KnowledgeRecord
     const block = document.createElement('blockquote'); block.textContent = `[${quote.id}] ${quote.text}`; parent.append(block);
   }
 }
+
+export function knowledgeRow(record: KnowledgeRecord, vaultId: string | null, send: <T>(message: unknown) => Promise<T>, changed: () => void): HTMLDetailsElement {
+  const row = document.createElement('details'); row.className = 'knowledge-row'; row.dataset.id = record.id;
+  const summary = document.createElement('summary'); summary.textContent = record.title; row.append(summary);
+  const origin = document.createElement('a'); origin.className = 'source'; origin.href = record.source.url; origin.target = '_blank'; origin.rel = 'noopener'; origin.textContent = record.source.title || record.source.url; row.append(origin);
+  appendKnowledgeBody(row, record);
+  const status = document.createElement('p'); status.className = 'hint'; status.setAttribute('role', 'status');
+  const edit = document.createElement('button'); edit.className = 'ghost'; setText(edit, message('编辑'));
+  edit.onclick = () => { if (row.querySelector('form')) return; knowledgeEditor(row, record, async (title, body) => {
+    const result = await send<{ok:boolean}>({type:'updateKnowledge',id:record.id,title,body,vaultId});
+    if (!result?.ok) return false;
+    queueMicrotask(changed); return true;
+  }); };
+  const remove = document.createElement('button'); remove.className = 'ghost'; setText(remove, message('删除知识点'));
+  remove.onclick = async () => {
+    if (remove.dataset.confirm !== 'yes') { remove.dataset.confirm = 'yes'; setText(remove, message('确认删除知识点')); return; }
+    remove.disabled = true;
+    const result = await send<{ok:boolean}>({type:'deleteKnowledge',id:record.id,vaultId});
+    if (result?.ok) changed(); else {remove.disabled=false;setText(status,message('删除失败，请重试'));}
+  };
+  row.append(edit,remove,status); return row;
+}

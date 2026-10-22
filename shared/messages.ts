@@ -43,6 +43,9 @@ export type BgcRequest =
       requestId: string;
       sourceLang?: LanguageTag;
       targetLang?: LanguageTag;
+      snapshot?: import('./panel').SelectionSnapshot;
+      fresh?: boolean;
+      replaceRequestId?: string;
     }
   | {
       type: 'lookup';
@@ -54,6 +57,10 @@ export type BgcRequest =
       requestId?: string;
     }
   | { type: 'explainContext'; snapshot: LookupSnapshot; targetLang?: LanguageTag; requestId?: string }
+  | { type: 'selectionKnowledgeState'; snapshot: import('./panel').SelectionSnapshot; sourceMode: string; targetLang: string; vaultId?: string | null }
+  | { type: 'saveSelectionKnowledge'; requestId: string; vaultId: string | null }
+  | { type: 'viewSelectionKnowledge'; id: string; vaultId: string | null }
+  | { type: 'clearQueryCache' }
   | { type: 'cancelOnline'; requestId: string }
   | { type: 'subtitleMode'; videoId: string; mode?: 'regular' | 'ai'; autoPause?: boolean }
   | { type: 'saveSentence'; sentence: import('./vocab').SavedSentence }

@@ -12,15 +12,15 @@ It supports many languages beyond English. You choose the language used for tran
 
 The interface supports Simplified Chinese, Traditional Chinese, English, German and French, or follows your browser. Choose **Settings → Languages → Display language**. AI chat answers use the active display language; definitions and translations use the separate **Explanation language** setting.
 
-[中文](README.md) · [Download](https://github.com/Rayyy3320/peak-distance/releases/latest) · [Installation](#installation) · [Usage](#usage) · [Privacy & Services](#privacy--services) · [License](#license)
+[中文](README.md) · [Download](https://github.com/Kylan3320/peak-distance/releases/latest) · [Installation](#installation) · [Usage](#usage) · [Privacy & Services](#privacy--services) · [License](#license)
 
 ## Installation
 
-Requires desktop **Chrome 142 or newer**. The current release is [v0.6.8](https://github.com/Rayyy3320/peak-distance/releases/tag/v0.6.8).
+Requires desktop **Chrome 142 or newer**. The current release is [v0.6.8](https://github.com/Kylan3320/peak-distance/releases/tag/v0.6.8).
 
 This README describes main-branch features, which may be newer than the release above. Download installable packages from Releases.
 
-1. Download the package whose name ends with `-chrome.zip` from [Releases](https://github.com/Rayyy3320/peak-distance/releases/latest) and unzip it into a fixed folder.
+1. Download the package whose name ends with `-chrome.zip` from [Releases](https://github.com/Kylan3320/peak-distance/releases/latest) and unzip it into a fixed folder.
 2. Type `chrome://extensions` in Chrome's address bar and turn on **Developer mode** (开发者模式) in the top-right corner.
 3. Click **Load unpacked** (加载已解压的扩展程序) and select the folder that contains `manifest.json`.
 
@@ -38,7 +38,7 @@ npm run build
 
 Then load `.output/chrome-mv3` following the steps above. During development you can use `npm run dev`. For ordinary changes, select the necessary checks based on the affected scope and risk; `npm run verify-local` provides local checks across modules. For releases, follow ROADMAP's release instructions. When browser regression checks are needed, run `npx playwright-core install chromium` before the first run. After rebuilding, reload the extension and refresh the target pages.
 
-See the repository's [ARCHITECTURE](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ARCHITECTURE.md) for code entry points and [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md) for tasks, known defects and Git/release conventions (both in Chinese). `npm run zip:source` archives the current HEAD using `.gitattributes`; release source archives use the matching version tag.
+See the repository's [ARCHITECTURE](https://github.com/Kylan3320/peak-distance/blob/main/docs/ARCHITECTURE.md) for code entry points and [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md) for tasks, known defects and Git/release conventions (both in Chinese). `npm run zip:source` archives the current HEAD using `.gitattributes`; release assets include only the extension package. Source is available from the matching version tag.
 
 </details>
 
@@ -47,6 +47,8 @@ See the repository's [ARCHITECTURE](https://github.com/Rayyy3320/peak-distance/b
 ### Reading the web: look up words, keep the sentence
 
 Select a word or phrase and click **Look up** (查词); select a sentence or paragraph and click **Translate** (翻译). When you save an expression, its original sentence and source are kept too.
+
+Move or pin the translation card, then use its bookmark button to save the original and translation as an independent knowledge record. You can save while translation is pending; the result fills in when ready. Find, edit or delete records in the vocabulary book’s **Knowledge** category. Web excerpts also appear in **Current content**, with review scoped to the article and language.
 
 For example, reading “She is comfortable **with** people.” and saving **with** means later reviews still show this sentence — you are not left recalling an isolated word.
 
@@ -74,11 +76,11 @@ In **Settings → Shared files** (设置 → 文件共享), click **Choose folde
 
 When you change an entry's status or **My notes** (我的笔记) in Obsidian, the extension reads those changes back. Chrome and Edge on the same computer can connect to the same directory and share learning records; conflicting edits to the same field of a vocabulary or sentence record keep both versions and report a conflict.
 
-Words are kept in `生词本.md` (vocabulary) and sentences in `句子.md` (sentences), one section per record; AI chats are still saved per conversation. Recovery data such as full definitions and video positions lives in the `.peak-distance` helper directory, which also keeps a backup when migrating older scattered files. Please keep the whole learning folder.
+Words are kept in `生词本.md` (vocabulary) and sentences in `句子.md` (sentences), independent knowledge records in `知识点.md`, one section per record; AI chats are still saved per conversation. Recovery data such as full definitions and video positions lives in the `.peak-distance` helper directory, which also keeps a backup when migrating older scattered files. Please keep the whole learning folder.
 
 After updating the extension on both browsers, connect the same folder in each and click **Sync now** (立即同步). Syncing writes local changes first, then reads back what the other browser wrote; switching back to a browser also reads the shared files. Insufficient permissions, corrupted files and conflicts are reported clearly; uncommitted content stays on the machine where it was made.
 
-This release fixes chat material/citation recovery, deleted chats reappearing, pending writes crossing vaults, language preference updates and leftover state after a window closes. Native shared-folder permission recovery and simultaneous writes across applications still need real-world verification. See the repository's [ROADMAP](https://github.com/Rayyy3320/peak-distance/blob/main/docs/ROADMAP.md) for details and repair status (in Chinese).
+This release adds shared translation excerpts and independent knowledge records, and fixes subtitle translation caching, cross-vault actions and word-form merging. Update every browser using the same vault; older versions cannot write the new vault format. Native shared-folder permission recovery and simultaneous writes across applications still need real-world verification. See the repository's [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md) for details and repair status (in Chinese).
 
 The extension works without connecting a folder — records stay in the browser extension. Disconnecting the vault never deletes existing files, and API keys and AI service settings are never written into it.
 

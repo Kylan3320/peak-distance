@@ -1,4 +1,7 @@
 import { buildSegments, CHAT_MATERIAL_BUDGET_CHARS, parseAnswerCitations, snapshotChars, type ChatRecord, type MaterialBlock, type SourceDescriptor } from './chat';
+import type { SelectionSnapshot } from './panel';
+import { isLanguageTag, normalizeLangTag } from './languages';
+import { sourceKeyOf, statusIdFromXUrl } from './chat';
 import { vaultRecordJson } from './vault';
 
 /** Self-contained learning material. Origin is for deduplication, never for reading. */
@@ -9,7 +12,7 @@ export interface KnowledgeRecord {
   language: string;
   source: SourceDescriptor;
   quotes: MaterialBlock[];
-  origin: { chatId: string; messageId: string };
+  origin: { type?: 'answer'; chatId: string; messageId: string } | TranslationOrigin;
   createdAt: number;
   updatedAt: number;
 }
@@ -42,4 +45,51 @@ export function mergeKnowledge(base: KnowledgeRecord | null, local: KnowledgeRec
   }
   value.updatedAt = Math.max(local.updatedAt, remote.updatedAt);
   return fields.length ? { kind: 'conflict', fields } : { kind: 'merged', value };
+}
+
+export interface TranslationOrigin {
+  type: 'translation';
+  identity: string;
+  text: string;
+  translation?: string;
+  sourceMode: string;
+  targetLang: string;
+  service: 'google-gtx';
+  position?: SelectionSnapshot['position'];
+  bodyEdited?: boolean;
+}
+export const normalizedTranslationText = (text: string) => text.replace(/\r\n?/g, '\n').normalize('NFC').trim();
+export function selectionSource(snapshot: SelectionSnapshot): SourceDescriptor | null {
+  try {
+    const url = new URL(snapshot.source?.url ?? snapshot.url);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    const title = snapshot.source?.title || snapshot.title;
+    if (snapshot.position) {
+      const p = snapshot.position;
+      return { sourceType: 'youtube', sourceKey: `yt:${p.videoId}`, title,
+        url: `https://www.youtube.com/watch?v=${encodeURIComponent(p.videoId)}&t=${Math.floor(p.startMs / 1000)}s`,
+        video: { videoId: p.videoId, trackId: p.trackId, trackKind: p.trackKind, trackLang: p.trackLang } };
+    }
+    if (/(^|\.)(x\.com|twitter\.com)$/.test(url.hostname)) {
+      const statusId = statusIdFromXUrl(url.href);
+      return statusId ? { sourceType: 'x', sourceKey: sourceKeyOf({ sourceType: 'x', statusId }), title, url: url.href } : null;
+    }
+    return { sourceType: 'article', sourceKey: sourceKeyOf({ sourceType: 'article', url: url.href }), title, url: url.href };
+  } catch { return null; }
+}
+export function translationIdentity(snapshot: SelectionSnapshot, sourceMode: string, targetLang: string): string {
+  const source = selectionSource(snapshot), p = snapshot.position;
+  return JSON.stringify([source?.sourceKey, p ? [p.videoId, p.trackId, p.startMs, p.endMs] : null, normalizedTranslationText(snapshot.text), sourceMode, targetLang]);
+}
+export function translationBody(origin: TranslationOrigin): string {
+  return origin.text + (origin.translation ? `\n\n${origin.translation}` : '');
+}
+export function knowledgeFromTranslation(snapshot: SelectionSnapshot, sourceMode: string, targetLang: string, translation?: string, detectedLang?: string): Omit<KnowledgeRecord, 'id' | 'createdAt' | 'updatedAt'> {
+  const source = selectionSource(snapshot);
+  if (!source) throw new Error('invalid translation source');
+  const origin: TranslationOrigin = { type: 'translation', identity: translationIdentity(snapshot, sourceMode, targetLang),
+    text: snapshot.text, sourceMode, targetLang, service: 'google-gtx', ...(translation ? { translation } : {}), ...(snapshot.position ? { position: structuredClone(snapshot.position) } : {}) };
+  const language = sourceMode !== 'auto' ? sourceMode : detectedLang;
+  return { title: Array.from(snapshot.text.replace(/\s+/g, ' ').trim()).slice(0, 80).join(''), body: translationBody(origin),
+    language: language && isLanguageTag(language) ? normalizeLangTag(language) : 'und', source, origin, quotes: [] };
 }

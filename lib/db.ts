@@ -37,7 +37,7 @@ import { planLegacyLanguage } from '@/shared/vocab';
 import { vaultRecordJson, type VaultIdentity, type VaultPendingWrite, type VaultStatus, type VaultPreferenceRecord } from '@/shared/vault';
 import { entryViewToVaultRecord, sentenceToVaultRecord } from './vault/records';
 import type { VaultVocabRecord } from '@/shared/vault';
-import { knowledgeFromAnswer, type KnowledgeRecord } from '@/shared/knowledge';
+import { knowledgeFromAnswer, knowledgeFromTranslation, translationIdentity, translationBody, type KnowledgeRecord } from '@/shared/knowledge';
 
 export const DB_NAME = 'blc-learning';
 export const DB_VERSION = 8;
@@ -801,7 +801,7 @@ export async function saveAnswerKnowledge(chatId: string, messageId: string, tit
     await assertKnowledgeOwner(tx, owner);
     const store = tx.objectStore('knowledge');
     const all = await px(store.getAll()) as KnowledgeRecord[];
-    const existing = all.find(k => k.origin.chatId === chatId && k.origin.messageId === messageId);
+    const existing = all.find(k => k.origin.type !== 'translation' && k.origin.chatId === chatId && k.origin.messageId === messageId);
     if (existing) return { record: existing, existing: true };
     const chat = await px(tx.objectStore(CHATS).get(chatId)) as ChatRecord | undefined;
     const content = chat && knowledgeFromAnswer(chat, messageId);
@@ -814,13 +814,60 @@ export async function saveAnswerKnowledge(chatId: string, messageId: string, tit
   });
 }
 
+export async function saveTranslationKnowledge(snapshot: import('@/shared/panel').SelectionSnapshot, sourceMode: string, targetLang: string, owner: string | null, translation?: string, detectedLang?: string): Promise<{ record: KnowledgeRecord; existing: boolean }> {
+  return writeKnowledge(['knowledge', VAULT, VAULT_QUEUE], async tx => {
+    await assertKnowledgeOwner(tx, owner);
+    const store = tx.objectStore('knowledge');
+    const all = await px(store.getAll()) as KnowledgeRecord[];
+    const identity = translationIdentity(snapshot, sourceMode, targetLang);
+    const existing = all.find(k => k.origin.type === 'translation' && k.origin.identity === identity);
+    if (existing) return { record: existing, existing: true };
+    const now = Date.now();
+    const record = { ...knowledgeFromTranslation(snapshot, sourceMode, targetLang, translation, detectedLang), id: crypto.randomUUID(), createdAt: now, updatedAt: now };
+    store.add(record); await queueCurrentRecord(tx, 'knowledge', record.id);
+    return { record, existing: false };
+  });
+}
+export async function backfillTranslationKnowledge(id: string, identity: string, owner: string | null, text: string, detectedLang?: string, valid: () => boolean = () => true): Promise<boolean> {
+  return writeKnowledge(['knowledge', VAULT, VAULT_QUEUE], async tx => {
+    const library = await px(tx.objectStore(VAULT).get('lastIdentity')) as VaultIdentity | undefined;
+    if ((library?.vaultId ?? null) !== owner) return false;
+    const store = tx.objectStore('knowledge');
+    const record = await px(store.get(id)) as KnowledgeRecord | undefined;
+    if (!record || record.origin.type !== 'translation' || record.origin.identity !== identity || record.origin.translation || record.origin.bodyEdited || record.body !== translationBody(record.origin) || !valid()) return false;
+    record.origin = { ...record.origin, translation: text };
+    record.body = translationBody(record.origin);
+    if (record.origin.sourceMode === 'auto' && detectedLang) record.language = detectedLang;
+    record.updatedAt = Date.now(); store.put(record); await queueCurrentRecord(tx, 'knowledge', id);
+    return true;
+  });
+}
+/** Narrow content-script read: one translation identity and its exact committed revision. */
+export async function translationKnowledgeState(identity: string, owner?: string | null) {
+  return withDb(async db => {
+    const tx = db.transaction(['knowledge', VAULT, VAULT_QUEUE], 'readonly');
+    const meta = tx.objectStore(VAULT);
+    const library = await px(meta.get('lastIdentity')) as VaultIdentity | undefined;
+    const vaultId = library?.vaultId ?? null;
+    if (owner !== undefined && owner !== vaultId) { await txDone(tx); return { changed: true, vaultId }; }
+    const handle = await px(meta.get('handle')) as {name?: string} | undefined;
+    const all = await px(tx.objectStore('knowledge').getAll()) as KnowledgeRecord[];
+    const record = all.find(k => k.origin.type === 'translation' && k.origin.identity === identity);
+    const receipt = record && await px(meta.get(`receipt:${vaultId}:knowledge:${record.id}`));
+    const pending = record && await px(tx.objectStore(VAULT_QUEUE).get(`${vaultId}:knowledge:${record.id}`));
+    await txDone(tx);
+    return { changed: false, vaultId, connected: !!handle, folder: handle?.name ?? '', id: record?.id,
+      written: !!record && !!handle && !pending && receipt === vaultRecordJson(record) };
+  });
+}
+
 export async function updateKnowledge(id: string, title: string, body: string, owner: string | null): Promise<void> {
   return writeKnowledge(['knowledge', VAULT, VAULT_QUEUE], async tx => {
     await assertKnowledgeOwner(tx, owner);
     const store = tx.objectStore('knowledge');
     const record = await px(store.get(id)) as KnowledgeRecord | undefined;
     if (!record || !title.trim() || !body.trim()) throw new Error('invalid knowledge record');
-    store.put({ ...record, title: title.trim(), body: body.trim(), updatedAt: Date.now() });
+    store.put({ ...record, title: title.trim(), body: body.trim(), ...(record.origin.type === 'translation' && body.trim() !== record.body ? { origin: { ...record.origin, bodyEdited: true } } : {}), updatedAt: Date.now() });
     await queueCurrentRecord(tx, 'knowledge', id);
   });
 }
@@ -834,6 +881,8 @@ export async function deleteKnowledge(id: string, enqueueDeletion = true, expect
       return false;
     }
     store.delete(id);
+    const library = await px(tx.objectStore(VAULT).get('lastIdentity')) as VaultIdentity | undefined;
+    tx.objectStore(VAULT).delete(`receipt:${library?.vaultId ?? null}:knowledge:${id}`);
     if (enqueueDeletion) await queueDeletedRecord(tx, 'knowledge', id);
     return true;
   });
@@ -1049,13 +1098,14 @@ export async function listVaultQueue(includeUnbound = false): Promise<VaultPendi
 }
 
 /** 写入成功后出队。 */
-export async function removeVaultWrite(write: VaultPendingWrite): Promise<void> {
+export async function removeVaultWrite(write: VaultPendingWrite, committedPayload = write.payload): Promise<void> {
   return withDb(async db => {
     const tx = db.transaction([VAULT_QUEUE, VAULT], 'readwrite');
     const store = tx.objectStore(VAULT_QUEUE);
     const current = await px(store.get(write.id)) as VaultPendingWrite | undefined;
     if (current?.revision === write.revision) {
       store.delete(write.id);
+      if (write.kind === 'knowledge' && committedPayload) tx.objectStore(VAULT).put(vaultRecordJson(committedPayload), `receipt:${write.vaultId}:knowledge:${write.recordId}`);
       tx.objectStore(VAULT).delete(`conflict:${write.vaultId}:${write.kind === 'chat' || write.kind === 'knowledge' ? write.kind + ':' + write.recordId : write.kind === 'preference' ? 'preference' : write.recordId}`);
     }
     await txDone(tx);

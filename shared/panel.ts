@@ -1,4 +1,4 @@
-export const PANEL_VIEWS = ['subs', 'list', 'sentences', 'review', 'chat', 'settings'] as const;
+export const PANEL_VIEWS = ['subs', 'list', 'sentences', 'knowledge', 'review', 'chat', 'settings'] as const;
 export type PanelView = typeof PANEL_VIEWS[number];
 export type PanelMode = 'fixed' | 'floating';
 export const isPanelView = (value: unknown): value is PanelView => PANEL_VIEWS.includes(value as PanelView);
@@ -24,6 +24,10 @@ export interface SelectionSnapshot {
   text: string;
   url: string;
   title: string;
+  source?: import('./chat').SourceDescriptor;
+  sourceLang?: string;
+  languageEvidence?: 'track' | 'element' | 'heuristic';
+  position?: { videoId: string; trackId: string; trackKind: 'manual' | 'asr'; trackLang: string; startMs: number; endMs: number };
 }
 
 export const MAX_SELECTION_CHARS = 5000;

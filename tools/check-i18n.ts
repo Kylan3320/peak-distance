@@ -39,7 +39,8 @@ for(const [key, translations] of Object.entries(UI_MESSAGES)) {
     assert.ok(text.trim(),key);
     assert.deepEqual([...text.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),placeholders,key);
   }
-  for(const text of translations.slice(2)) assert.ok(!/\p{Script=Han}/u.test(text),`${key}: untranslated copy`);
+  // The shared vault filename is identical in every display language.
+  for(const text of translations.slice(2)) assert.ok(!/\p{Script=Han}/u.test(text.replaceAll('知识点.md','')),`${key}: untranslated copy`);
 }
 
 const {document,window}=parseHTML('<html><body><button id="action"></button><textarea id="note">保留解释 {literal}</textarea><select id="choice"><option value="en" selected>English</option></select><details open><summary data-i18n="单独设置"></summary></details><aside></aside></body></html>');

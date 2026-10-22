@@ -1,10 +1,13 @@
 import { lookupOnline, type LookupRequestContext } from '@/lib/lookupService';
-import { listKnowledgeState, saveAnswerKnowledge, updateKnowledge, deleteKnowledge } from '@/lib/db';
+import { listKnowledgeState, saveAnswerKnowledge, updateKnowledge, deleteKnowledge, translationKnowledgeState } from '@/lib/db';
 import { handlePanelMessage, openPanel, startNativePanel, initPanelLifecycle } from '@/lib/panelService';
 import { handleSelectionCandidateMessage, initSelectionCandidateStore } from '@/lib/selectionCandidates';
 import { selectionError } from '@/shared/panel';
+import { startSelectionQuery, saveSelectionQuery, cancelSelectionQuery, detachSelectionScope } from '@/lib/translationLearning';
+import { selectionSource, translationIdentity } from '@/shared/knowledge';
+import type { SelectionSnapshot } from '@/shared/panel';
 import { translateRegularText } from '@/lib/regularTranslation';
-import { cached, cacheGet, cachePut, trimCache } from '@/lib/onlineCache';
+import { cached, cacheGet, cachePut, trimCache, clearQueryCache } from '@/lib/onlineCache';
 import { comprehensionLangFor, DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
 import { resolveDisplayLocale, translate } from '@/shared/i18n';
 import type { LearningResult, ContextExplanation } from '@/shared/vocab';
@@ -179,6 +182,18 @@ function broadcast(evt: BroadcastEvent): void {
     .catch(() => {});
 }
 
+/** Only the snapshot fields needed for independent translation saving cross this boundary. */
+function parseTranslationSnapshot(value: unknown): SelectionSnapshot | null {
+  if (!value || typeof value !== 'object') return null;
+  const s = value as SelectionSnapshot;
+  if (selectionError(s.text) || typeof s.url !== 'string' || s.url.length > 10000 || typeof s.title !== 'string' || s.title.length > 4000) return null;
+  const p = s.position;
+  if (p && (!parseVideoRef(p) || !isLanguageTag(p.trackLang) || !Number.isFinite(p.endMs) || p.endMs < p.startMs)) return null;
+  const source = selectionSource(s);
+  if (!source) return null;
+  return { text: s.text, url: source.url, title: source.title, source, ...(p ? {position: { ...parseVideoRef(p)!, endMs: p.endMs }} : {}) };
+}
+
 async function getSettings(): Promise<SettingsView> {
   const got = await browser.storage.local.get(Object.keys(DEFAULT_SETTINGS));
   return Object.fromEntries(Object.entries(DEFAULT_SETTINGS).map(([key, value]) => [key, validSetting(key, got[key]) ? got[key] : value])) as unknown as SettingsView;
@@ -231,20 +246,42 @@ async function handle(
     case 'translateSelection': {
       const error = selectionError(m.text);
       if (error || typeof m.requestId !== 'string') return bad('bad-payload', error ?? 'requestId');
-      const sourceLang = parseLangField(m.sourceLang);
+      const sourceLang = m.sourceLang === 'auto' ? undefined : parseLangField(m.sourceLang);
       const targetLang = parseLangField(m.targetLang);
       if (sourceLang === null || targetLang === null) return bad('bad-payload', 'lang');
-      const text = m.text!;
-      const controller = new AbortController();
-      const key = `${sender.tab?.id ?? sender.url}|${m.requestId}`;
-      onlineRequests.set(key, controller);
-      // 缓存身份随语言对区分；未提供时沿用旧 'en-zh' 作用域（迁移前缓存兼容）。
-      const scope = sourceLang && targetLang ? `${sourceLang}|${targetLang}` : 'en-zh';
-      const selLangs = { source: sourceLang ?? 'en', target: targetLang ?? 'zh-Hans' };
-      try { return await cached(JSON.stringify(['translation','google-gtx',scope,text]), signal => translateRegularText(text,signal,selLangs),controller.signal); }
-      finally { if(onlineRequests.get(key)===controller) onlineRequests.delete(key); }
+      const snapshot = parseTranslationSnapshot(m.snapshot ?? {text:m.text, url:sender.tab?.url ?? '', title:sender.tab?.title ?? ''});
+      if (!snapshot || snapshot.text !== m.text) return bad('bad-payload', 'snapshot');
+      return startSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId, snapshot, sourceLang && sourceLang !== 'und' ? sourceLang : 'auto', targetLang ?? 'zh-Hans', m.fresh === true, m.replaceRequestId, () => {broadcast({type:'knowledge-changed'});queueVaultWriteAfterSave();});
+    }
+    case 'selectionKnowledgeState': {
+      const snapshot = parseTranslationSnapshot(m.snapshot);
+      if (!snapshot || !(m.sourceMode === 'auto' || isLanguageTag(m.sourceMode)) || !isLanguageTag(m.targetLang) || (m.vaultId !== undefined && m.vaultId !== null && typeof m.vaultId !== 'string')) return bad('bad-payload');
+      return {ok:true, ...await translationKnowledgeState(translationIdentity(snapshot, m.sourceMode!, m.targetLang!), m.vaultId)};
+    }
+    case 'saveSelectionKnowledge': {
+      if (typeof m.requestId !== 'string' || m.vaultId !== null && typeof m.vaultId !== 'string') return bad('bad-payload');
+      try {
+        const changed = () => {broadcast({type:'knowledge-changed'});queueVaultWriteAfterSave();};
+        const result = await saveSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId, m.vaultId!, changed);
+        changed(); return {ok:true, id:result.record.id, existing:result.existing};
+      } catch (error) { return bad(vaultErrorCode(error)); }
+    }
+    case 'viewSelectionKnowledge': {
+      if (typeof m.id !== 'string' || m.vaultId !== null && typeof m.vaultId !== 'string') return bad('bad-payload');
+      const state = await listKnowledgeState();
+      if (state.vaultId !== m.vaultId) return bad('conflict');
+      if (!state.records.some(k => k.id === m.id)) return bad('not-found');
+      const tab = sender.tab ?? (await browser.tabs.query({active:true,currentWindow:true}))[0];
+      if (tab?.windowId === undefined || tab.id === undefined) return bad('not-found');
+      await browser.storage.session.set({[`knowledge-focus:${tab.windowId}`]:{id:m.id,vaultId:m.vaultId}});
+      return openPanel(tab.id, tab.windowId, 'knowledge', undefined, nativeOpen);
+    }
+    case 'clearQueryCache': {
+      if (!sender.url?.startsWith(browser.runtime.getURL(''))) return bad('forbidden-sender');
+      await clearQueryCache(); return {ok:true};
     }
     case 'cancelOnline': {
+      cancelSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId!);
       onlineRequests.get(`${sender.tab?.id ?? sender.url}|${m.requestId}`)?.abort();
       return { ok: true };
     }
@@ -544,7 +581,7 @@ async function handle(
         const translations: { id: number; text: string }[] = [];
         const cueLangs = { source: sourceLang ?? 'en', target: targetLang ?? 'zh-Hans' };
         for (const item of items) {
-          const r = await cached(JSON.stringify(['translation', 'google-gtx', langScope, item.text]), signal => translateRegularText(item.text, signal, cueLangs), controller.signal);
+          const r = await cached(JSON.stringify(['subtitle-translation', 'google-gtx', langScope, item.text]), signal => translateRegularText(item.text, signal, cueLangs), controller.signal);
           if (r.ok) translations.push({ id: item.id, text: r.text });
         }
         return { ok: true, translations };
@@ -630,6 +667,7 @@ export default defineBackground(() => {
 
   browser.tabs.onRemoved.addListener(tabId => {
     void browser.storage.session.remove(`video-session:${tabId}`);
+    detachSelectionScope(String(tabId));
     for (const [key, controller] of onlineRequests) if (key.startsWith(`${tabId}|`)) controller.abort();
   });
 

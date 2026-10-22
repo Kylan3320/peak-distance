@@ -16,11 +16,12 @@ import { CHAT_ADD_ICON, CHAT_ADD_BUTTON_STYLE } from '@/shared/brand';
 // 数据全部来自 background 的 IndexedDB；vocab-changed 广播后刷新。
 // 字幕控制消息经 tabs.sendMessage 直达当前标签页，携带 videoId 防串页。
 
+import { iconButton, uiIcon } from '@/shared/uiControls';
 import type { EntryView, SubViewState, ChatSourceInfo } from '@/shared/messages';
 import { videoContextUrl, blankExpression, generalMeaning, VOCAB_STATUS_LABEL, type LearningResult, type SavedSentence, type VocabStatus } from '@/shared/vocab';
 import { buildReviewQueue, refreshQueue, scopeEntries, type LearningScope, type ReviewItem } from '@/shared/review';
 import { createArticleLearning, articleSource, type ArticleLearningSnapshot, type LearningCategory } from './articleLearning';
-import { appendKnowledgeBody } from './knowledgeView';
+import { appendKnowledgeBody, knowledgeRow } from './knowledgeView';
 import type { KnowledgeRecord } from '@/shared/knowledge';
 import { vaultRecordJson } from '@/shared/vault';
 import type { SourceDescriptor } from '@/shared/chat';
@@ -140,7 +141,7 @@ async function persistPanel() {
 
 
 function switchView(view: string): void {
-  if (view === currentView) return;
+  if (view === currentView) {if(view==='knowledge')void refreshKnowledge();return;}
   feedback('');
   lookupPopup.close();closeLangMenu();document.getElementById('panel-selection-actions')?.remove();
   const prev = currentView;
@@ -152,27 +153,38 @@ function switchView(view: string): void {
   currentView = view;
   history.replaceState(null,'',`#${view}`);
   for (const btn of document.querySelectorAll<HTMLButtonElement>('#views button')) {
-    btn.classList.toggle('active', btn.dataset.view === (view==='review'&&reviewSession.returnTo!=='list'?'subs':['list','sentences','review'].includes(view)?'list':view));
+    btn.classList.toggle('active', btn.dataset.view === (view==='review'&&reviewSession.returnTo!=='list'?'subs':['list','sentences','knowledge','review'].includes(view)?'list':view));
   }
   document.getElementById('view-sentences')!.hidden = view !== 'sentences';
   document.getElementById('view-list')!.hidden = view !== 'list';
+  document.getElementById('view-knowledge')!.hidden = view !== 'knowledge';
+  document.getElementById('review-library')!.hidden = view === 'knowledge';
   document.getElementById('view-subs')!.hidden = view !== 'subs';
   document.getElementById('view-review')!.hidden = view !== 'review';
   document.getElementById('view-chat')!.hidden = view !== 'chat';
   document.getElementById('view-settings')!.hidden = view !== 'settings';
-  document.getElementById('library-tools')!.hidden = !['list','sentences'].includes(view);
+  document.getElementById('library-tools')!.hidden = !['list','sentences','knowledge'].includes(view);
   document.querySelectorAll<HTMLButtonElement>('.library-tabs button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
   currentMain()?.scrollTo(0,savedScroll[view]??0);
-  document.getElementById('search-combo')!.style.display = view === 'list' ? '' : 'none';
+  document.getElementById('search-combo')!.style.display = ['list','knowledge'].includes(view) ? '' : 'none';
+  setLocalizedAttribute(document.getElementById('search')!, 'placeholder', message(view === 'knowledge' ? '搜索知识点标题或正文…' : '搜索表达…'));
+  setLocalizedAttribute(document.getElementById('search')!, 'aria-label', message(view === 'knowledge' ? '搜索知识点标题或正文…' : '搜索表达'));
   // 侧栏各视图共用同一连接；显式停止或窗口关闭才停止生成
   if (view === 'chat') chatViewEnter();
-  if (view === 'list') void refresh();
+  if (view === 'list' || view === 'knowledge') void refresh();
   if (view === 'subs') pollSubs();
   if (view === 'sentences') void refreshSentences();
   if (view === 'review') {if(reviewQueue.length||knowledgeQueue.length){renderReview();void refreshReviewQueue();}else void startReview();}
   if (view === 'settings')void settingsView.refresh();
   void persistPanel();
 }
+
+document.getElementById('open-settings')!.innerHTML = uiIcon('settings');
+document.getElementById('panel-close')!.innerHTML = uiIcon('close');
+const libraryReview = document.getElementById('review-library')!;
+libraryReview.innerHTML = uiIcon('review');
+setLocalizedAttribute(libraryReview, 'title', message('原句复习'));
+setLocalizedAttribute(libraryReview, 'aria-label', message('原句复习'));
 
 for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-view]')) {
   btn.addEventListener('click', () => { if (btn.dataset.view === 'review') beginReview({category:'vocab', returnTo:'list', language: localStorage.getItem('blc-lang-filter') === 'all' ? undefined : localStorage.getItem('blc-lang-filter') ?? undefined}); else switchView(btn.dataset.view!); });
@@ -246,7 +258,7 @@ function renderContextMeta(c: EntryView['contexts'][number]): HTMLElement {
   meta.appendChild(type);
   meta.appendChild(el('time', 'time', fmtTime(c.createdAt)));
   if(c.sourceType!=='video') {
-    const locate=el('button','ghost',message('定位原句')),status=el('span','hint');status.setAttribute('role','status');
+    const locate=iconButton('locate',message('定位原句')),status=el('span','hint locate-state');locate.classList.add('locate');status.setAttribute('role','status');
     let noticeTimer: ReturnType<typeof setTimeout> | undefined;
     locate.onclick=async()=>{
       clearTimeout(noticeTimer);
@@ -284,17 +296,17 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
   const expr = el('h2', 'expr', entry.expression);
   const entryLang = effectiveEntryLanguage(entry);
   if (entryLang && isRtlLanguage(entryLang)) expr.dir = 'rtl';
-  head.appendChild(expr);
+  const title = el('div','entry-title'); title.append(expr); head.append(title);
   const kind = el('span', 'kind', entry.kind === 'word' ? message('词') : message('短语'));
-  head.appendChild(kind);
   // 语言徽标：缺失（迁移前旧记录）不显示，不冒充任何语言
   if (entryLang) {
     const chip = el('span', 'kind', languageLabel(entryLang));
     chip.title = entryLang;
-    head.appendChild(chip);
+    title.appendChild(chip);
   }
 
   const sel = el('select', 'status') as HTMLSelectElement;
+  setLocalizedAttribute(sel, 'aria-label', message('{expression} 学习状态', {expression:entry.expression}));
   for (const s of ['saved', 'learning', 'known'] as const) {
     const opt = el('option', undefined, message(VOCAB_STATUS_LABEL[s]));
     opt.value = s;
@@ -311,14 +323,17 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
     if (!r?.ok) sel.value = entry.status;
   });
   head.appendChild(sel);
+  const noteEdit = iconButton('edit', message('编辑笔记'));
+  head.append(noteEdit);
 
-  const del = el('button', 'delete', message('删除'));
+  const del = iconButton('trash', message('删除'));
+  del.classList.add('ui-danger');
   del.addEventListener('click', async () => {
     if (!confirm(tr('删除「{expression}」及其 {count} 条上下文？', {expression:entry.expression,count:entry.contexts.length}))) return;
     await send({ type: 'deleteEntry', key: entry.key, vaultId });
     // vocab-changed 广播会触发刷新
   });
-  if (!scoped) head.appendChild(del);
+  if (!scoped) head.append(del);
   card.appendChild(head);
 
   const first=entry.contexts[0];
@@ -332,28 +347,59 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
   else if(scoped)card.append(el('p','hint',message('未保存释义')));
   if(scoped && first){card.append(el('p','sentence',first.sentence),renderContextMeta(first));}
 
-  // 个人笔记（学习库“我的笔记”同源；就地编辑，正常保存给就近状态）
+  // Existing notes stay readable; editing is an explicit, compact state.
+  let savedNote = entry.note ?? '';
   const noteBox = el('details', 'note-box');
-  if (entry.note) noteBox.open = true;
-  const noteSummary = el('summary', undefined, entry.note ? message('我的笔记') : message('添加笔记'));
-  noteBox.appendChild(noteSummary);
-  const noteArea = document.createElement('textarea');
-  noteArea.value = entry.note ?? '';
+  const noteSummary = el('summary');
+  const noteCaption = el('span');
+  const noteSnippet = el('span', 'note-snippet');
+  noteSummary.append(noteCaption, noteSnippet);
+  const noteReading = el('div', 'note-reading');
+  const noteText = el('p', 'note-text');
+  noteReading.append(noteText);
+  const noteEditor = el('div'); noteEditor.hidden = true;
+  const noteArea = el('textarea'); noteArea.rows = 2;
   setLocalizedAttribute(noteArea, 'placeholder', message('写下自己的理解'));
   setLocalizedAttribute(noteArea, 'aria-label', message('{expression} 我的笔记', {expression:entry.expression}));
-  const noteState = el('p', 'hint');
-  const noteSave = el('button', 'ghost', message('保存笔记'));
-  noteSave.addEventListener('click', async () => {
-    noteSave.disabled = true;
-    const r = await send<{ ok: boolean }>({ type: 'setNote', key: entry.key, note: noteArea.value, vaultId });
-    noteSave.disabled = false;
-    setText(noteState, r?.ok ? message('已保存') : message('保存失败，请重试'));
-    if (r?.ok) setText(noteSummary, noteArea.value.trim() ? message('我的笔记') : message('添加笔记'));
-  });
-  const noteRow = el('div', 'note-actions');
-  noteRow.append(noteSave, noteState);
-  noteBox.append(noteArea, noteRow);
-  card.appendChild(noteBox);
+  const noteState = el('p', 'hint'); noteState.setAttribute('role', 'status');
+  const noteSave = iconButton('check', message('保存笔记')); noteSave.classList.add('note-save');
+  const noteCancel = iconButton('close', message('取消'));
+  const noteRow = el('div', 'note-actions'); noteRow.append(noteState, noteCancel, noteSave);
+  noteEditor.append(noteArea, noteRow);
+  const sizeNote = () => { noteArea.style.height = 'auto'; noteArea.style.height = `${Math.min(noteArea.scrollHeight,160)}px`; };
+  noteArea.oninput = sizeNote;
+  const showNote = () => {
+    setText(noteCaption, message(savedNote ? '我的笔记' : '添加笔记'));
+    noteSnippet.textContent = savedNote; noteText.textContent = savedNote;
+    noteBox.hidden = !savedNote; noteBox.open = false; noteSummary.hidden = false;
+    noteReading.hidden = !savedNote;
+    noteEditor.hidden = true; noteEditor.classList.remove('note-editor');
+    setLocalizedAttribute(noteEdit, 'title', message(savedNote ? '编辑笔记' : '添加笔记'));
+    setLocalizedAttribute(noteEdit, 'aria-label', message(savedNote ? '编辑笔记' : '添加笔记'));
+    noteEdit.setAttribute('aria-expanded','false');
+  };
+  const editNote = () => {
+    if (!noteEditor.hidden) { noteArea.focus(); return; }
+    noteArea.value = savedNote; noteReading.hidden = true;
+    noteBox.hidden = false; noteBox.open = true; noteSummary.hidden = true;
+    noteEditor.hidden = false; noteEditor.classList.add('note-editor');
+    noteEdit.setAttribute('aria-expanded','true');
+    setText(noteState, ''); sizeNote(); noteArea.focus();
+  };
+  noteEdit.onclick = editNote;
+  noteCancel.onclick = () => { showNote(); noteEdit.focus(); };
+  noteSave.onclick = async () => {
+    noteSave.disabled = true; noteCancel.disabled = true; noteEdit.disabled = true;
+    noteSave.setAttribute('aria-busy','true');
+    setText(noteState, message('正在保存…'));
+    const note = noteArea.value.trim();
+    const r = await send<{ok:boolean}>({type:'setNote', key:entry.key, note, vaultId});
+    noteSave.disabled = false; noteCancel.disabled = false; noteEdit.disabled = false;
+    noteSave.setAttribute('aria-busy','false');
+    if (!r?.ok) { setText(noteState, message('保存失败，请重试')); return; }
+    savedNote = note; showNote(); noteEdit.focus();
+  };
+  showNote(); noteBox.append(noteSummary, noteReading, noteEditor); card.append(noteBox);
 
   // 词形关联：查看 + 移除错误关联
   if (!scoped && entry.forms.length) {
@@ -373,10 +419,9 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
     card.appendChild(forms);
   }
 
-  const details=el('details','entry-details');const summary=el('summary',undefined,message('原句与详情'));details.append(summary);
+  const details=el('details','entry-details');const summary=el('summary',undefined,message('原句与详情'));details.append(summary,kind);
   for (const c of entry.contexts) {
     const box = el('div', 'context');
-    box.appendChild(renderContextMeta(c));
     box.appendChild(el('p', 'sentence', c.sentence));
     if(scoped && c.result)box.append(el('p','hint',message('一般释义参考')));
     if (c.result?.kind === 'dictionary') {
@@ -388,6 +433,7 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
     if (c.explanation) box.appendChild(el('p', 'definition', message('{source} · {text}',{source:message('AI 语境解释'),text:c.explanation.text})));
     else if (c.definition) box.appendChild(el('p', 'definition', message('{source} · {text}',{source:message('已存语境释义'),text:c.definition})));
     else if(scoped)box.append(el('p','hint',message('未保存释义')));
+    box.appendChild(renderContextMeta(c));
     details.appendChild(box);
   }
   card.append(details);
@@ -396,6 +442,7 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
 
 let listGeneration = 0;
 async function refresh(): Promise<void> {
+  if (currentView === 'knowledge') return refreshKnowledge();
   const generation = ++listGeneration;
   const list = document.getElementById('list')!;
   const q = (document.getElementById('search') as HTMLInputElement).value;
@@ -429,6 +476,38 @@ async function refresh(): Promise<void> {
   currentMain()?.scrollTo(0,savedScroll[currentView]??0);
 }
 
+async function refreshKnowledge(): Promise<void> {
+  const generation = ++listGeneration;
+  const target = document.getElementById('knowledge-list')!;
+  if (target.querySelector('.knowledge-editor')) return;
+  const r = await send<{ok:boolean;records:KnowledgeRecord[];vaultId:string|null}>({type:'listKnowledge'});
+  if (currentView !== 'knowledge' || generation !== listGeneration || target.querySelector('.knowledge-editor')) return;
+  if (!r?.ok) {target.replaceChildren(el('p','empty',message('加载失败，请重试')));return;}
+  const focusKey = `knowledge-focus:${panelWindow}`;
+  const requested = (await browser.storage.session.get(focusKey))[focusKey] as {id:string;vaultId:string|null}|undefined;
+  if (currentView !== 'knowledge' || generation !== listGeneration) return;
+  if (requested) {
+    await browser.storage.session.remove(focusKey);
+    if (requested.vaultId !== r.vaultId) feedback(message('学习库已切换，请重新打开翻译卡'));
+    else if (!r.records.some(k=>k.id===requested.id)) feedback(message('收藏已删除或无法打开'));
+    else {(document.getElementById('search') as HTMLInputElement).value='';localStorage.setItem('blc-lang-filter','all');}
+  }
+  const query = (document.getElementById('search') as HTMLInputElement).value.trim().toLocaleLowerCase();
+  const languages = [...new Set(r.records.map(k=>k.language))].sort();
+  let filter = localStorage.getItem('blc-lang-filter') ?? 'all';
+  if (filter !== 'all' && !languages.includes(filter)) filter = 'all';
+  renderLangControls(filter,languages,r.records.map(k=>({key:k.id,language:k.language})));
+  const opened = new Set([...target.querySelectorAll<HTMLDetailsElement>('details[open]')].map(n=>n.dataset.id));
+  target.replaceChildren();
+  for (const record of r.records.filter(k=>(filter==='all'||k.language===filter) && (!query || `${k.title}\n${k.body}`.toLocaleLowerCase().includes(query)))) {
+    const row = knowledgeRow(record,r.vaultId,send,()=>void refreshKnowledge());
+    row.open = opened.has(record.id) || requested?.vaultId===r.vaultId && requested.id===record.id;
+    target.append(row);
+    if (row.open && requested?.id===record.id) row.scrollIntoView({block:'nearest'});
+  }
+  if (!target.children.length) target.append(el('p','empty',message('暂无知识点，可从翻译卡或问答中收藏。')));
+}
+
 document.getElementById('search')!.addEventListener('input', () => void refresh());
 
 // ---- 语言筛选（globe 菜单 + 可清除 chip） ----------------------------------------
@@ -452,7 +531,7 @@ function setLangFilter(value: string): void {
 }
 
 /** 筛选值驱动 UI：chip 文案/显隐、globe 高亮与圆点、菜单项与计数（计数按语言过滤前的 entries）。 */
-function renderLangControls(filter: string, langs: string[], entries: EntryView[]): void {
+function renderLangControls(filter: string, langs: string[], entries: {key:string;language?:string}[]): void {
   const counts = new Map<string, number>();
   for (const e of entries) {
     const l = effectiveEntryLanguage(e) ?? '';
@@ -554,7 +633,7 @@ const videoWorkspace=createYoutubeWorkspace({
         const en=enOf(first);
         if(!en)return null;
         const clamped=clampRangeToElement(selection.range,en);
-        const raw=clamped.toString().replace(/\s+/g,' ').trim();
+        const raw=clamped.toString().trim();
         if(!raw)return null;
         const lang=((cachedVideo?.trackLang||subsState?.trackLang)||'en').split('-')[0]!;
         // 分类与有效表达的统一计算（shared/selection.ts 的 classifyRangeIn）
@@ -568,7 +647,7 @@ const videoWorkspace=createYoutubeWorkspace({
         const en=enOf(i);
         if(!en)continue;
         const clamped=clampRangeToElement(selection.range,en);
-        const part=clamped.toString().replace(/\s+/g,' ').trim();
+        const part=clamped.toString().trim();
         if(part)parts.push(part);
       }
       const raw=parts.join(' ').trim();
@@ -610,7 +689,7 @@ const videoWorkspace=createYoutubeWorkspace({
       const candidate=listSelectionCandidate(info);
       if(candidate)void send({type:'selectionCandidateSet',tabId:subsTabId??undefined,candidate});
       // 词/短语翻译用补全/清洗后的有效表达；句段/跨行保持实际选文
-      const snapshot={text:info.expression??info.raw,title:subsState.title,url:videoContextUrl(selectedVideo,selectedCue?.startMs??0)};
+      const snapshot:SelectionSnapshot={text:info.raw,title:subsState.title,url:videoContextUrl(selectedVideo,selectedCue?.startMs??0),source:candidate?.source,sourceLang:subsState.trackLang||undefined,languageEvidence:'track',position:{videoId:selectedVideo,trackId:subsState.trackId,trackKind:subsState.trackKind==='asr'?'asr':'manual',trackLang:subsState.trackLang||'und',startMs:selectedCue?.startMs??0,endMs:subsState.cues[info.firstIndex+info.count-1]?.endMs??selectedCue?.endMs??0}};
       // 分类表：word=查词+对话；phrase=查词+翻译+对话；sentence/cross-cue=翻译+对话
       if(info.kind!=='word'){
         const translate=el('button',undefined,message('翻译'));translate.onmousedown=e=>e.preventDefault();translate.onclick=()=>{buttons.remove();selectionPopup.open(snapshot,rect);};buttons.append(translate);
@@ -1010,11 +1089,12 @@ browser.runtime.onMessage.addListener((msg: unknown) => {
   if (t === 'vocab-changed') {
     articleLearning.invalidate();
     subsLibraryDirty=true;
-    if (currentView === 'list') void refresh();
+    if (currentView === 'list' && !document.querySelector('#list .note-editor')) void refresh();
     if (currentView === 'review') void refreshReviewQueue();
     if (currentView === 'subs') void pollSubs();
   }
   if(t==='knowledge-changed') {
+    if(currentView==='knowledge')void refreshKnowledge();
     articleLearning.invalidate();
     if(currentView==='subs')void pollSubs();
     if(currentView==='review'&&reviewSession.category==='knowledge')void refreshReviewQueue();
@@ -1036,7 +1116,7 @@ async function checkLearningLibrary() {
   if(!r?.ok||r.vaultId===libraryId)return;
   libraryId=r.vaultId;reviewOperation++;subsPollGeneration++;reviewQueue=[];knowledgeQueue=[];reviewIdx=0;revealed=false;definitionRevealed=false;reviewSession={category:'vocab',returnTo:'list'};
   articleLearning.reset();returnedVideo=null;subsLibraryDirty=true;cachedVideo=null;
-  if(currentView==='review')switchView('list');else if(currentView==='subs')void pollSubs();
+  if(currentView==='review')switchView('list');else if(currentView==='subs')void pollSubs();else if(currentView==='knowledge')void refreshKnowledge();
   void persistPanel();
 }
 onDisplayLanguageChange(()=>{document.documentElement.lang=getDisplayLocale();localize(document);});
@@ -1050,7 +1130,7 @@ async function boot(){
  const library=await send<{ok:boolean;vaultId:string|null}>({type:'listKnowledge'});libraryId=library?.vaultId??null;
  panelWindow=ctx.windowId;panelTabId=ctx.tabId;floating=ctx.floating;inVideoFullscreen=ctx.fullscreen;
  activePanel=ctx.active;setChatActive(activePanel);
- const mode=document.getElementById('panel-mode')!;setText(mode, floating?message('固定'):message('浮动'));setLocalizedAttribute(mode, 'aria-label', floating?message('切换为固定侧栏'):message('切换为浮动面板'));
+ const mode=document.getElementById('panel-mode')!,modeLabel=floating?message('切换为固定侧栏'):message('切换为浮动面板');mode.innerHTML=uiIcon(floating?'dock':'float');setLocalizedAttribute(mode,'title',modeLabel);setLocalizedAttribute(mode,'aria-label',modeLabel);
  const snapshot=(await browser.storage.session.get(panelStateKey(panelWindow)))[panelStateKey(panelWindow)] as PanelSnapshot|undefined;
  const stored=snapshot?.vaultId===libraryId?snapshot:undefined;
  if(stored){savedScroll=stored.scroll??{};reviewQueue=stored.reviewQueue??[];reviewIdx=stored.reviewIdx??0;revealed=!!stored.revealed;definitionRevealed=!!stored.definitionRevealed;previousView=stored.previousView??'list';(document.getElementById('search') as HTMLInputElement).value=stored.search??'';}
@@ -1093,6 +1173,7 @@ async function restorePanel(view?:unknown) {
     currentMain()?.scrollTo(0,savedScroll[currentView]??0);
   }
   if(version!==restoreVersion)return;
+  if(!s && isPanelView(view))switchView(view);
   workspaceFailureStage='';setChatActive(activePanel&&document.visibilityState!=='hidden');ready=true;document.body.inert=false;
 }
 document.addEventListener('visibilitychange',()=>{if(!ready)return;if(document.visibilityState==='hidden'){void saveDraft(true);void persistPanel();setChatActive(false);}else setChatActive(activePanel);});

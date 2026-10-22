@@ -179,7 +179,7 @@ try {
   await send({type:'chatDelete',chatId:fixture.id});
   await web.bringToFront();await panel.locator('#views [data-view="subs"]').click();
   await panel.getByRole('heading',{name:'Article A',exact:true}).waitFor();
-  await panel.getByRole('button',{name:'知识点',exact:true}).click();
+  await panel.locator('.article-tools [data-category="knowledge"]').click();
   await panel.locator('.knowledge-row summary').click();
   assert.ok((await panel.locator('.knowledge-row').innerText()).includes('Saved citation from Article A.'));
   await panel.getByRole('button',{name:'编辑',exact:true}).click();
@@ -250,7 +250,7 @@ try {
   await floating.getByRole('button',{name:'返回当前内容',exact:true}).focus();
   await floating.getByRole('button',{name:'返回当前内容',exact:true}).press('Enter');
   await floating.getByRole('heading',{name:'Article A',exact:true}).waitFor();
-  assert.equal(await floating.locator('.article-tools button[aria-pressed="true"]').innerText(),'知识点');
+  assert.equal(await floating.locator('.article-tools button[aria-pressed="true"] [data-i18n]').innerText(),'知识点');
   // Resume the standalone fixed test surface through the same panel transfer event.
   const {windowId}=await floating.evaluate(()=>chrome.runtime.sendMessage({type:'panelContext'}));
   await control.evaluate(async windowId=>{await chrome.storage.session.remove(`panel-host:${windowId}`);await chrome.runtime.sendMessage({type:'pd-panel-view',windowId,mode:'fixed'});},windowId);
@@ -315,7 +315,7 @@ try {
       await bbc.locator('#blc-lookup-popup [data-i18n="关闭"]').click();
       await bbc.bringToFront();await panel.locator('#views [data-view="list"]').click();await panel.locator('#views [data-view="subs"]').click();
       await panel.getByRole('heading',{name:evidence.title,exact:true}).waitFor();
-      await panel.locator('.article-tools [data-i18n="生词"]').click();
+      await panel.locator('.article-tools [data-category="vocab"]').click();
       const target=panel.locator('#web-selection .entry').filter({has:panel.getByRole('heading',{name:'targets',exact:true})});
       await target.waitFor();await target.locator('.entry-preview').waitFor();
       const savedMeaning=await target.locator('.entry-preview').innerText();
@@ -343,7 +343,7 @@ try {
       await panel.locator('.knowledge-save > button').click();await panel.locator('.knowledge-editor button[type="submit"]').click();
       await panel.getByText('已保存在本机，待写入学习库',{exact:true}).waitFor();
       await send({type:'chatDelete',chatId:'bbc-existing-answer'});
-      await panel.locator('#views [data-view="subs"]').click();await panel.locator('.article-tools [data-i18n="知识点"]').click();
+      await panel.locator('#views [data-view="subs"]').click();await panel.locator('.article-tools [data-category="knowledge"]').click();
       // Knowledge keeps its own language scope; the vocabulary language is restored only for vocabulary.
       await panel.locator('.article-tools select').selectOption('all');
       await panel.locator('.knowledge-row summary').click();assert.equal(await panel.locator('.knowledge-row blockquote').innerText(),`[${block.id}] ${block.text}`);

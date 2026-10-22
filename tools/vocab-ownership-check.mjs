@@ -77,11 +77,12 @@ try {
   const vaultB = await selectLibrary('B'); assert.notEqual(vaultA, vaultB); await seedLibrary('B', 'learning');
   const before = await send({ type: 'listEntries' });
   const row = expression => panel.locator(`#list .entry[data-key="en::${expression}"]`);
+  await row('noteword').getByRole('button',{name:'编辑笔记',exact:true}).click();
   assert.equal(await row('noteword').locator('textarea').inputValue(), 'A note');
   await row('statusword').locator('select.status').selectOption('known');
   await row('noteword').locator('textarea').fill('Stale A edit');
   await row('noteword').getByRole('button', { name: '保存笔记', exact: true }).click();
-  await row('deleteword').locator('button.delete').click();
+  await row('deleteword').getByRole('button',{name:'删除',exact:true}).click();
   await row('formword').locator('.form-chip button').click();
   await panel.waitForFunction(() => writeResults.length === 4);
   const writes = await panel.evaluate(() => writeResults);
@@ -114,6 +115,7 @@ try {
     await new Promise(requestAnimationFrame);
     chrome.runtime.sendMessage = originalSend;
   }, vaultB);
+  await row('noteword').getByRole('button',{name:'编辑笔记',exact:true}).click();
   assert.equal(await row('noteword').locator('textarea').inputValue(), 'A note', 'a late B response must not replace the freshly loaded A cards');
   await row('statusword').locator('select.status').selectOption('known');
   await control.waitForFunction(async () => (await chrome.runtime.sendMessage({ type: 'getEntry', key: 'en::statusword' })).entry?.status === 'known');
@@ -122,7 +124,7 @@ try {
   await control.waitForFunction(async () => (await chrome.runtime.sendMessage({ type: 'getEntry', key: 'en::noteword' })).entry?.note === 'Fresh A edit');
   await row('formword').locator('.form-chip button').click();
   await control.waitForFunction(async () => (await chrome.runtime.sendMessage({ type: 'getEntry', key: 'en::formword' })).entry?.forms.length === 0);
-  await row('deleteword').locator('button.delete').click();
+  await row('deleteword').getByRole('button',{name:'删除',exact:true}).click();
   await control.waitForFunction(async () => (await chrome.runtime.sendMessage({ type: 'getEntry', key: 'en::deleteword' })).entry === null);
   assert.equal((await send({ type: 'vaultFlush' })).ok, true);
   const fresh = await send({ type: 'listEntries' });

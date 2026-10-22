@@ -671,7 +671,7 @@ console.log('M6 对齐、缓存与来源边界');
   const paired = normalizeAsrCues([{ start: 0, dur: 1200, text: 'the', zh: '这', lastOff: 700 }, { start: 800, dur: 1600, text: 'the plane', zh: '这架飞机', lastOff: 1800 }]);
   check('ASR 英文合并同时转换平台配对译文', paired.length === 1 && paired[0]?.zh === '这架飞机');
   const memory: Record<string, unknown> = {};
-  (globalThis as any).browser = { permissions: {contains:async()=>true}, storage: { session: { get: async () => memory, set: async (r: any) => Object.assign(memory, r) }, local: { get: async () => ({ cacheLimit: 20 }) } } };
+  (globalThis as any).browser = { permissions: {contains:async()=>true}, storage: { session: { get: async () => memory, set: async (r: any) => Object.assign(memory, r) }, local: { get: async () => ({ cacheLimit: 20 }), set: async () => {} } } };
   let calls = 0;
   const first = new AbortController();
   const run = async (signal: AbortSignal) => {
@@ -691,14 +691,20 @@ console.log('M6 对齐、缓存与来源边界');
   const sessionSet = (globalThis as any).browser.storage.session.set;
   const originalWarn = console.warn;
   const cacheWarnings: unknown[][] = [];
+  let diagnosticReceived!: () => void;
+  const diagnostic = new Promise<void>(resolve => { diagnosticReceived = resolve; });
   try {
     (globalThis as any).browser.storage.session.set = async () => { throw new Error('QUOTA_BYTES quota exceeded'); };
-    console.warn = (...args: unknown[]) => { cacheWarnings.push(args); };
+    console.warn = (...args: unknown[]) => { cacheWarnings.push(args); diagnosticReceived(); };
     const uncached = await cached('quota-failure', async () => ({ ok: true, text: 'Successful query' })).catch(() => null);
     check('缓存落盘失败不破坏成功查询', uncached?.ok === true && uncached.text === 'Successful query');
+    await diagnostic;
     check('缓存落盘失败有诊断', cacheWarnings.length === 1);
-    (globalThis as any).browser.storage.session.set = sessionSet;
+    let writeReceived!: () => void;
+    const written = new Promise<void>(resolve => { writeReceived = resolve; });
+    (globalThis as any).browser.storage.session.set = async (value: any) => { await sessionSet(value); writeReceived(); };
     await cached('quota-recovered', async () => ({ ok: true, text: 'Recovered' }));
+    await written;
     check('配额恢复后后续缓存仍能落盘', !!memory['online-cache-v1']);
     await cached('failed-query', async () => { throw new Error('Network failure'); }).then(
       () => check('网络异常仍传给调用者', false),

@@ -1,3 +1,4 @@
+import { iconButton, actionMenu } from '@/shared/uiControls';
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, materialLabel, scopeLabel, type UiText } from '@/shared/i18n';
 import { knowledgeFromAnswer } from '@/shared/knowledge';
 import { knowledgeEditor } from './knowledgeView';
@@ -251,6 +252,7 @@ function inlineError(text: string | UiText): void {
 
 /** 失败信息保留到重试或下一次操作：新操作开始时清除。 */
 function clearInlineError(): void {
+  document.getElementById('chat-settings')!.hidden = true;
   const box = document.getElementById('chat-meta-error');
   if (box) {
     box.textContent = '';
@@ -642,17 +644,22 @@ function renderHead(): void {
   head.textContent = '';
   const row = el('div', 'chat-meta');
   row.appendChild(el('span', 'chat-title', chatRecord?.title==='新对话'&&!chatRecord.messages.length ? message('新对话') : chatRecord?.title ?? message('新对话')));
-  const addButton = (label: string | UiText, action: () => void) => {
-    const b = el('button', 'chat-tool', label); b.addEventListener('click', action); row.appendChild(b);
-  };
-  addButton(message('新对话'), () => void newConversation());
-  addButton(message('历史'), () => { historyOpen = !historyOpen; renderChat(); });
-  row.lastElementChild?.setAttribute('aria-expanded', String(historyOpen));
-  addButton(retainedOnly ? message('显示全部') : message('已保留'), () => { retainedOnly = !retainedOnly; renderChat(); });
-  row.lastElementChild?.setAttribute('aria-pressed', String(retainedOnly));
-  clearButton.setDisabled(!chatId && !chatQuote && !latestSnapshot() && !(document.getElementById('chat-input') as HTMLTextAreaElement).value);
-  row.append(clearButton.element);
+  const create = iconButton('new', message('新对话'));
+  create.onclick = () => void newConversation();
+  const history = iconButton('history', message('历史'));
+  history.onclick = () => { historyOpen = !historyOpen; renderChat(); };
+  history.setAttribute('aria-expanded', String(historyOpen));
+  const marked = iconButton('bookmark', message('只看本对话已标记回答'));
+  marked.onclick = () => { retainedOnly = !retainedOnly; renderChat(); };
+  marked.setAttribute('aria-pressed', String(retainedOnly));
+  const actions = actionMenu(); actions.wrap.id = 'chat-actions';
+  actions.menu.append(clearButton.element);
+  actions.menu.addEventListener('beforetoggle', event => {
+    if ((event as ToggleEvent).newState === 'closed') clearButton.reset();
+  });
+  row.append(create, history, marked, actions.wrap);
   head.appendChild(row);
+  updateClearAction();
   historyList.hidden = !historyOpen;
   historyMeta.hidden = !historyOpen;
   head.append(historyMeta);
@@ -973,6 +980,13 @@ function renderMessages(): void {
   listEl.scrollTop = autoScroll ? listEl.scrollHeight : messageScrollTop;
 }
 
+function updateClearAction(): void {
+  const empty = !chatId && !chatQuote && !latestSnapshot() && !(document.getElementById('chat-input') as HTMLTextAreaElement).value;
+  clearButton.setDisabled(empty);
+  const actions = document.getElementById('chat-actions');
+  if (actions) actions.hidden = empty;
+}
+
 function renderInputState(): void {
   const input = document.getElementById('chat-input') as HTMLTextAreaElement | null;
   const sendBtn = document.getElementById('chat-send') as HTMLButtonElement | null;
@@ -1001,6 +1015,7 @@ function renderInputState(): void {
   sendBtn.hidden = !!streaming;
   stopBtn.hidden = !streaming;
   updateCount();
+  updateClearAction();
 }
 
 function updateCount(): void {
@@ -1146,7 +1161,7 @@ export function initChatView(d: ChatViewDeps): void {
   input?.addEventListener('input', () => {
     updateCount();
     void saveDraft();
-    clearButton.setDisabled(false);
+    updateClearAction();
   });
   input?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229) {

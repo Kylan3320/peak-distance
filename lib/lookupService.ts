@@ -7,7 +7,7 @@
 //   失败回退免费译文；悬停／预览／预取永不触发 LLM；
 // - 缓存键随语言对、原文与 AI 配置区分，词典缓存不混入其它语言同形词。
 import { lookupDictionarySource, type DictionarySource } from './onlineDictionary';
-import { translateRegularText } from './regularTranslation';
+import { queryTranslation, translationCacheKey, type RegularTranslationResult } from './regularTranslation';
 import { cached, cacheGet } from './onlineCache';
 import { lookupExpression } from './aiClient';
 import type { DictionaryResult } from './onlineDictionary';
@@ -47,15 +47,7 @@ async function freeTranslation(
   ctx: LookupRequestContext,
   signal?: AbortSignal,
 ): Promise<OnlineLookupResult> {
-  const r = await cached(
-    JSON.stringify(['translation', 'google-gtx', pairOf(ctx.lang.source, ctx.lang.target), expression]),
-    (s) =>
-      translateRegularText(expression, s, {
-        source: ctx.lang.source === LANG_UNDETERMINED ? 'auto' : ctx.lang.source,
-        target: ctx.lang.target,
-      }),
-    signal,
-  );
+  const r = await queryTranslation(expression, ctx.lang.source, ctx.lang.target, signal);
   if (r.ok) return { ok: true, result: { kind: 'translation', source: r.source, text: r.text } };
   return { ok: false, error: r.error, detail: r.detail };
 }
@@ -115,7 +107,8 @@ export async function lookupOnline(
   ctx?: LookupRequestContext,
 ): Promise<OnlineLookupResult> {
   const lang = ctx?.lang ?? { source: 'en', target: 'zh-Hans' };
-  const query = normalizeExpressionInLanguage(expression, lang.source);
+  const input = expression.trim();
+  const query = normalizeExpressionInLanguage(input, lang.source);
   if (!query) return { ok: false, error: 'bad-payload', detail: 'empty-expression' };
 
   // 免费译文兜底链：明确未命中（或词典不适用）时——AI 优先（开关开启且已配置
@@ -126,10 +119,10 @@ export async function lookupOnline(
     if (allowAi && ctx) {
       const ai = await aiDefinitionFallback(query, { ...ctx, lang }, ctx.aiFallback!.config!, signal);
       if (ai) return ai;
-      const degradedAi: OnlineLookupResult = await freeTranslation(query, { ...ctx, lang }, signal);
+      const degradedAi: OnlineLookupResult = await freeTranslation(input, { ...ctx, lang }, signal);
       return degradedAi.ok ? { ...degradedAi, degraded: 'ai-failed' } : degradedAi;
     }
-    const base = await freeTranslation(query, { ...ctx, lang }, signal);
+    const base = await freeTranslation(input, { ...ctx, lang }, signal);
     // 开关开启但未配置：继续免费路径，同时提示需要配置（spec 3.3）。
     if (
       base.ok && ctx?.aiFallback?.enabled && !ctx.aiFallback.config?.apiKey && activeIntent
@@ -150,14 +143,18 @@ export async function lookupOnline(
   const dictScope = pairOf('en', lang.target);
 
   for (const dictionary of sources) {
-    const hit = await cacheGet<DictionaryResult>(JSON.stringify(['dictionary', dictionary, dictScope, query]));
+    const hit = await cacheGet<DictionaryResult>(JSON.stringify(['dictionary', dictionary, 'v2', dictScope, query]));
     if (hit?.ok) return { ok: true, result: { kind: 'dictionary', entry: hit.entry } };
+  }
+  if (!source && !settings.aiLookupFallback && !ctx?.aiFallback?.enabled) {
+    const hit = await cacheGet<RegularTranslationResult>(translationCacheKey(input, lang.source, lang.target));
+    if (hit?.ok) return { ok: true, result: { kind: 'translation', source: hit.source, text: hit.text } };
   }
   let failure = 'not-found';
   let allMissing = true;
   for (const dictionary of sources) {
     const result = await cached(
-      JSON.stringify(['dictionary', dictionary, dictScope, query]),
+      JSON.stringify(['dictionary', dictionary, 'v2', dictScope, query]),
       (s) => lookupDictionarySource(query, dictionary, s),
       signal,
     );
@@ -169,6 +166,6 @@ export async function lookupOnline(
   if (allMissing) return missFallback();
 
   // 词典故障（网络／限流／解析）：标明故障，可尝试免费译文，但不当作未命中触发 AI。
-  const degraded = await freeTranslation(query, { lang, intent: ctx?.intent, sentence: ctx?.sentence, neighbors: ctx?.neighbors }, signal);
+  const degraded = await freeTranslation(input, { lang, intent: ctx?.intent, sentence: ctx?.sentence, neighbors: ctx?.neighbors }, signal);
   return degraded.ok ? { ...degraded, degraded: 'dictionary-failure' } : { ok: false, error: failure };
 }

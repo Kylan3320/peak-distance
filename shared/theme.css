@@ -1,4 +1,5 @@
 @import './tokens.css';
+@import './controls.css';
 
 * {box-sizing:border-box} [hidden] {display:none!important}
 body {margin:0;font:14px/1.6 system-ui,'Segoe UI','Microsoft YaHei',sans-serif;color:var(--pd-ink);background:var(--pd-paper) url('/brand/paper-tile.png') repeat;background-size:620px}
@@ -13,12 +14,25 @@ h1,h2 {font-family:Georgia,'Noto Serif SC',SimSun,serif;font-weight:600}
 h1 {font-size:22px;margin:0 0 16px} h2 {font-size:18px;margin:0 0 12px}
 .primary {background:var(--pd-blue);border-color:var(--pd-blue);color:white} .primary:hover {background:#154fa6}
 .hint {color:var(--pd-muted);font-size:13px}
-.settings-section {padding:20px 0;border-bottom:1px solid var(--pd-line)} .settings-section:first-child {padding-top:0}
-.settings-field {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,50%);align-items:center;gap:12px;margin:16px 0}
+.settings-page {max-width:768px;margin:32px auto;padding:0 24px}
+#settings-body {max-width:720px;margin-inline:auto}
+.settings-section {padding:0;margin:0 0 28px}
+.settings-section h2 {font-size:16px;margin-bottom:12px}
+.settings-field {display:grid;grid-template-columns:minmax(0,1fr) minmax(144px,220px);align-items:center;column-gap:20px;row-gap:4px;margin:16px 0}
+.settings-copy {min-width:0}
+.settings-copy .hint {display:block;font-size:12px;line-height:1.5;margin-top:4px}
 .settings-field select {width:100%;min-width:0} .settings-field input {justify-self:end} .settings-field input[type=number] {width:86px}
+.settings-field select,.ai-field select {border:0;background:transparent;padding:4px 0;font-size:13px}
+.settings-field select:hover,.ai-field select:hover {background:#2f3a4008}
 .settings-field:has(input[type=checkbox]) {grid-template-columns:minmax(0,1fr) auto}
-@media(max-width:480px){.settings-field:not(:has(input[type=checkbox])) {grid-template-columns:minmax(0,1fr);gap:6px}}
-.settings-details summary {cursor:pointer;padding:8px 0;color:var(--pd-muted)}
+.settings-field-state {grid-column:2;justify-self:end;font-size:12px;line-height:1.4;color:var(--pd-muted)}
+.settings-field-state.err {color:#b3261e}.settings-field-state.ok {color:#24643a}
+.settings-field-state:empty {display:none}
+@media(max-width:480px){.settings-field:not(:has(input[type=checkbox])) {grid-template-columns:minmax(0,1fr);gap:6px}.settings-field:not(:has(input[type=checkbox])) .settings-field-state {grid-column:1}.settings-page {margin-block:24px;padding-inline:16px}}
+.settings-details summary {cursor:pointer;padding:6px 0;color:var(--pd-muted);font-size:13px;list-style:none}
+.settings-details summary::-webkit-details-marker {display:none}
+.settings-details summary::before {content:'';display:inline-block;width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;rotate:-45deg;margin:0 9px 2px 2px}
+.settings-details[open] > summary::before {rotate:45deg}
 .settings-number {display:flex;align-items:center;justify-content:flex-end;gap:8px}
 .language-rule {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:end}
 .language-rule .ai-field {margin:8px 0}
@@ -27,11 +41,37 @@ h1 {font-size:22px;margin:0 0 16px} h2 {font-size:18px;margin:0 0 12px}
 @keyframes settings-reveal {from {opacity:0;transform:translateY(-4px)} to {opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.settings-details[open] > :not(summary){animation:none}}
 .settings-actions {display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
-.settings-status {color:var(--pd-muted);font-size:13px;min-height:20px} .settings-status.err {color:#b3261e} .settings-status.ok {color:#24643a}
-.settings-key {width:100%} .settings-heading {display:flex;align-items:center;gap:12px;margin-bottom:16px} .settings-heading h1 {margin:0}
+.settings-status {color:var(--pd-muted);font-size:12px;margin-top:8px}.settings-status:empty {display:none} .settings-status.err {color:#b3261e} .settings-status.ok {color:#24643a}
+.settings-key {width:100%} .settings-heading {display:flex;align-items:center;gap:8px;max-width:720px;margin:0 auto 24px} .settings-heading h1 {font-size:20px;margin:0}
 #ai-fields {border:0;margin:0;padding:0;min-width:0}
-#ai-current {overflow-wrap:anywhere}
-#ai-advanced {margin-top:16px}
-#ai-advanced summary {cursor:pointer;color:var(--pd-muted);padding:6px 0}
 .ai-field {display:flex;flex-direction:column;gap:6px;margin:14px 0}
 .ai-field input,.ai-field select {width:100%;min-width:0}
+.ai-field .hint {font-size:12px;margin:0}
+
+/* Keep related settings on one content axis, with a shared action column. */
+.vault-section h2 {margin-bottom:4px}
+.vault-description {font-size:12px;line-height:1.6;margin:0}
+.vault-overview {display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-top:12px}
+.vault-summary {flex:1 1 160px;min-width:0}
+#vault-label {display:flex;align-items:center;min-height:34px;font-size:13px;font-weight:500;overflow-wrap:anywhere}
+#vault-meta {display:flex;flex-wrap:wrap;gap:2px 16px;margin-top:2px;font-size:12px;font-variant-numeric:tabular-nums}
+.vault-tools {display:flex;align-items:center;gap:4px;flex:none;margin-inline-start:auto}
+.vault-tools button:not(.ui-icon-button) {font-size:13px}
+#vault-folder-icon {display:flex}
+.vault-tools svg {width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#vault-state {overflow-wrap:anywhere;margin-bottom:4px}
+.ai-description {font-size:12px;line-height:1.6;margin:0 0 16px}
+.ai-section h2 {margin-bottom:4px}
+.ai-form-row {display:flex;flex-direction:column;gap:4px;margin:0 0 16px}
+.ai-form-row > label {font-size:13px}
+.ai-control {min-width:0}
+#ai-provider {width:100%;border:0;background:transparent;padding:6px 0;font-size:13px}
+#ai-provider:hover {background:#2f3a4008}
+#ai-current,#key-help {font-size:12px;margin:4px 0 0;overflow-wrap:anywhere}
+.ai-key-control {display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:center;gap:4px}
+.ai-section #ai-advanced {margin-top:0}
+.ai-footer {display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:center;gap:8px 12px;margin-top:12px}
+.ai-footer #save {grid-column:2;grid-row:1}
+.ai-footer .settings-status {grid-column:1;grid-row:1;align-self:center;margin:0;overflow-wrap:anywhere}
+.ai-footer .primary,.ai-footer .primary:hover {color:white}
+.settings-version {font-size:11px;margin:24px 0 0}

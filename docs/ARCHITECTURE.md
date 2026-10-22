@@ -20,6 +20,7 @@
 - 知识点沿用 `lib/db.ts` 事务、活动库数据集合和待办机制；新增 `知识点.md` 集合并贯通 `shared/vault.ts`、`lib/vault/` 的映射、序列化、恢复、首次导入、双向合并、删除与换库归属。字段、增量升级和格式版本由实施代码定义，不另建同步引擎；共享新类别的两端需使用支持版本，不支持新格式时不能静默删写未知记录。
 
 - 独立记录及同轮来源提取在 `shared/knowledge.ts`；知识点 Markdown 往返在 `lib/vault/knowledgeFormat.ts`。文章 UI 在 `entrypoints/sidepanel/articleLearning.ts`，回答保存／编辑复用 `knowledgeView.ts`；显示和保存不调用 AI。库格式升级后，旧端按原有版本检查拒绝访问，不做双写兼容。
+- 翻译摘录复用同一知识点事务与集合，独立保存输入、译文、语言模式和来源位置。`lib/translationLearning.ts` 只承载当前查询与保存记录的后台关联；关闭 UI 后可完成受编辑／删除／库归属保护的回填，不建立持久翻译任务队列。收藏写库状态按该记录修订的成功回执确认。
 - 知识点正文先按成对包络识别，集合仅在正文之外识别记录分隔；正文中的标记示例不能产生新记录。损坏或无法确定边界的输入报告格式错误，不当作空集合。
 
 ## 代码入口
@@ -40,7 +41,7 @@
 | `lib/db.ts` | 扩展源下的 IndexedDB，集中读写与增量升级 |
 | `shared/vocab.ts`、`shared/cues.ts`、`shared/review.ts`、`shared/chat.ts` | 词汇、时间轴、复习、材料与对话纯逻辑 |
 | `shared/languages.ts`、`shared/tokenize.ts` | 语言身份（标签、稳定键、按语言规范化）与统一分词边界（点击 / 标记 / 词次共用） |
-| `lib/lookupService.ts` | 查询路由：适用词典优先；明确未命中／无适用词典时按授权尝试 AI，否则使用免费译文；词典故障不触发 AI，悬停零 LLM |
+| `lib/lookupService.ts` | 查询路由：先复用适用词典缓存，AI 兜底关闭且未指定词典时可复用 Google 译文缓存；缓存未命中再按词典顺序联网，未命中／无适用词典时按授权尝试 AI；词典故障不触发 AI，悬停零 LLM |
 | `lib/vault/records.ts`、`lib/vault/format.ts`、`lib/vault/collectionFormat.ts`、`lib/vault/chatFormat.ts`、`lib/vault/fs.ts`、`lib/vault/sync.ts` | 学习库：共享记录映射、记录／集合 Markdown 往返与三方合并、会话/材料序列化、目录访问、同步编排 |
 | `shared/messages.ts`、`shared/protocol.ts` | 扩展内部消息；YouTube 页面桥协议 |
 | `shared/subtitleTracker.ts` | YouTube 轨道描述、内容身份、请求 URL 与凭据、明确选轨与播放器确认、捕获归属 |
@@ -66,7 +67,7 @@
 - `lib/onlineDictionary.ts`、`lib/regularTranslation.ts` 是来源请求与纯文本解析模块；`lib/lookupService.ts` 顺序路由常规查询。`lib/aiClient.ts` 负责 AI 释义、字幕和流式问答，`lib/aiTransport.ts` 适配三种接口；仅在明确 AI 动作或有效 AI 模式下调用。
 - AI 服务预设、字段校验与旧配置读取由 `shared/aiConfig.ts` 定义。每次请求固定配置快照，缓存按服务、协议、地址和模型隔离；配置与 Key 不通过普通设置消息下发。新 API 域名通过可选 host permission 在保存手势中授权，请求拒绝重定向。
 - 活动 AI 配置变化广播无凭据事件；YouTube AI 模式取消旧请求并清理内存译文／失败状态，利用原有 epoch 丢弃迟到结果。历史 AI 解释保留原来源，新结果记录服务商与模型。
-- `lib/onlineCache.ts` 使用现有 `storage.session` 保存成功结果并共享在途请求，最后一个消费者取消时 abort；容量由 `shared/settings.ts` 与设置页控制。
+- `lib/onlineCache.ts` 统一管理内存镜像与共享在途请求；普通词典／文本译文保存到 `storage.local`，AI／字幕结果保留会话缓存。普通查询按固定有效期失效，各类结果共用容量上限；最后一个消费者取消时 abort。缓存生命周期约定见 [翻译学习规格第 5 节](specs/translation-learning.md#5-查询缓存与连接实验)，具体键与常量由代码定义。
 - YouTube MAIN world 复用携带有效签名的 timedtext 请求，读取中文轨道与平台翻译；隔离世界负责时间对齐后的显示、缺失句回退、模式与取消。成功字幕缓存不随显示开关清空。MAIN↔隔离世界的 `postMessage` 用 `*` 目标广播：载荷（字幕文本等）对页面脚本可见，这是嗅探架构的固有代价，两世界各自校验来源标记与 videoId/nonce。
 - 有效理解语言变化使旧翻译失效并清除当前译文，再按新目标调度；平台请求的目标语言及字幕缓存键在启动时固定，迟到响应不能写入其他语言的缓存。
 - MAIN 统一管理字幕选轨与获取，明确目标与播放器确认值职责分开，缓存命中的原生选轨通过播放器观察同步；网络捕获只更新匹配轨道的 URL／凭据。内容身份不随签名续期变化，原文、译文及学习记录复用同一身份规则。获取的开始、取消与换视频收口；旧代次的捕获不能恢复已取消获取。

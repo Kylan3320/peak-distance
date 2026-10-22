@@ -9,7 +9,7 @@ import type { ChatRecord } from './chat';
 import type { VideoRef, VocabStatus, LearningResult, ContextExplanation } from './vocab';
 import type { LanguageTag } from './languages';
 
-export const VAULT_FORMAT_VERSION = 3;
+export const VAULT_FORMAT_VERSION = 4;
 export type VaultError = 'not-connected' | 'no-permission' | 'io' | 'conflict' | 'format';
 
 export function vaultErrorCode(error: unknown): VaultError {

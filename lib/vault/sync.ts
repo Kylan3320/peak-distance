@@ -173,7 +173,7 @@ async function flushCollectionWrites(handle: DirHandle, queue: VaultPendingWrite
           }
           await setSyncSnapshot(id, vaultRecordJson(record));
         }
-        await removeVaultWrite(write);
+        await removeVaultWrite(write, record);
         await markVaultWriteAttempt(write);
         result.committed++;
       } catch (error) { await fail(write, error); }

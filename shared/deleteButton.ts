@@ -79,7 +79,7 @@ export function createDeleteButton(args: { buttonText?: string; onDelete(): void
     else { animateState(false); args.onDelete(); }
   });
   cancel.addEventListener('click', () => animateState(false));
-  const dispose=onDisplayLanguageChange(()=>{
+  function syncState() {
     version++;
     for(const node of [element,main,graphic,text,cancel])for(const animation of node.getAnimations())animation.cancel();
     const label=t(expanded?'Confirm':args.buttonText??'Delete');
@@ -87,6 +87,7 @@ export function createDeleteButton(args: { buttonText?: string; onDelete(): void
     main.setAttribute('aria-label',label);cancel.setAttribute('aria-label',t('Cancel delete'));
     main.style.width='';element.style.width='';
     cancel.hidden=!expanded;cancel.classList.toggle('exiting',false);
-  });
-  return { element, dispose, setDisabled(disabled: boolean) { main.disabled = disabled; } };
+  }
+  const dispose=onDisplayLanguageChange(syncState);
+  return { element, dispose, reset() { expanded = false; syncState(); }, setDisabled(disabled: boolean) { main.disabled = disabled; } };
 }
