@@ -194,10 +194,10 @@
 `npm run typecheck`、`npm run build`、`node tools/reading-ui-check.mjs --learning-only` 与 `npx tsx tools/current-content-learning-check.ts` 通过。定向验证笔记取消／失败草稿／保存、原生状态选值、最近选区位置与完整翻译快照、已掌握及空筛选下的复习入口、筛选恢复、普通设置保存与失败、德文切换保留 AI 草稿及 360px 布局；已查看生产截图。旧脚本按新入口及字段反馈位置调整，未重跑全量回归、同步及外部 AI 服务验收。Chrome 原生侧栏和用户登录站点仍需实机复验。
 
 
-### 8.4 v0.6.9 release verification (2026-10-22)
+### 8.4 v0.6.9 发布检查（2026-10-22）
 
-The subsequent release request includes this implementation and current-article learning in v0.6.9. Release assets contain only the Chrome extension package.
+按用户后续发布指令，将本次实现及此前当前文章学习与独立知识点纳入 v0.6.9；已发布到 GitHub，版本号同步到 package 与 lockfile。Release 附件仅保留 Chrome 安装包，不另制作源码附件。
 
-After npm ci, all verify-local components passed: typecheck, build, regression, controlled AI protocols, i18n, reliability and vault sync. Initial failures were corrected in the cache persistence fixture (local storage mock and asynchronous completion), the i18n check (the invariant vault filename), and the production UI check (the relocated cache disclosure). Affected checks passed on rerun.
+`npm ci` 后执行发布检查：`verify-local` 的类型、构建、回归、AI 协议、五语言文案、可靠性与学习库同步检查全部通过。首轮发现旧缓存回归夹具缺少 local 写入及异步落盘等待、文案检查误判固定中文文件名；已修正并通过对应重跑。五语言生产 UI 检查的缓存入口同步到新折叠分组。
 
-Additional production checks passed: check-ui-i18n with PEAK_DISTANCE_UI_EXTENSION=.output/chrome-mv3, translation-learning-check.ts, translation-learning-ui-check.mjs, reading-ui-check.mjs, settings-actions-ui-check.mjs and check-current-content. Existing unverified native sidebar, folder authorization and logged-in site boundaries remain unchanged.
+生产构建补充通过 `check-ui-i18n`（指定 `PEAK_DISTANCE_UI_EXTENSION=.output/chrome-mv3`）、`translation-learning-check.ts`、`translation-learning-ui-check.mjs`、`reading-ui-check.mjs`、`settings-actions-ui-check.mjs` 及 `check-current-content`。这些检查覆盖翻译收藏／回填、语言与缓存、知识点与文章复习、编辑删除、设置反馈和窄布局。原生侧栏转移、用户目录授权及登录态站点等既有未验范围保持不变，不以受控检查代验。

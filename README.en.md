@@ -16,7 +16,7 @@ The interface supports Simplified Chinese, Traditional Chinese, English, German 
 
 ## Installation
 
-Requires desktop **Chrome 142 or newer**. The current release is [v0.6.8](https://github.com/Kylan3320/peak-distance/releases/tag/v0.6.8).
+Requires desktop **Chrome 142 or newer**. The current release is [v0.6.9](https://github.com/Kylan3320/peak-distance/releases/tag/v0.6.9).
 
 This README describes main-branch features, which may be newer than the release above. Download installable packages from Releases.
 
