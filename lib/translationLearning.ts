@@ -2,9 +2,11 @@ import { queryTranslation, type RegularTranslationResult } from './regularTransl
 import { saveTranslationKnowledge, backfillTranslationKnowledge, translationKnowledgeState } from './db';
 import { translationIdentity } from '@/shared/knowledge';
 import type { SelectionSnapshot } from '@/shared/panel';
+import type { TranslationService } from '@/shared/translationService';
 
 interface Query {
   snapshot: SelectionSnapshot; source: string; target: string;
+  service: TranslationService;
   controller: AbortController; valid: boolean; detached: boolean;
   saving: number; retained: boolean; settled: boolean; boundId?: string;
   result: Promise<RegularTranslationResult>;
@@ -27,7 +29,7 @@ export function cancelSelectionQuery(scope: string, requestId: string, supersede
 export function detachSelectionScope(scope: string) {
   for (const key of queries.keys()) if (key.startsWith(`${scope}|`)) cancelSelectionQuery(scope, key.slice(scope.length + 1));
 }
-export async function startSelectionQuery(scope: string, requestId: string, snapshot: SelectionSnapshot, source: string, target: string, fresh: boolean, replace: string | undefined, changed: () => void) {
+export async function startSelectionQuery(scope: string, requestId: string, snapshot: SelectionSnapshot, source: string, target: string, fresh: boolean, replace: string | undefined, changed: () => void, service: TranslationService | Promise<TranslationService> = 'google-gtx') {
   if (replace) cancelSelectionQuery(scope, replace, true);
   const identity = translationIdentity(snapshot,source,target);
   if (fresh) for (const [key, previous] of queries) {
@@ -38,10 +40,13 @@ export async function startSelectionQuery(scope: string, requestId: string, snap
   const key = keyOf(scope, requestId);
   if (queries.has(key)) throw new Error('duplicate translation request');
   const controller = new AbortController();
-  const query: Query = { snapshot: structuredClone(snapshot), source, target, controller, valid: true, detached: false, saving: 0, retained: false, settled: false, result: Promise.resolve({ok:false,source:'google-gtx',error:'aborted'}) };
+  const query: Query = { snapshot: structuredClone(snapshot), source, target, service:typeof service === 'string' ? service : 'google-gtx', controller, valid: true, detached: false, saving: 0, retained: false, settled: false, result: Promise.resolve({ok:false,source:'google-gtx',error:'aborted'}) };
   queries.set(key, query);
-  query.result = queryTranslation(snapshot.text, source, target, controller.signal, fresh).catch(error => {
-    if (controller.signal.aborted) return {ok:false as const,source:'google-gtx' as const,error:'aborted' as const};
+  query.result = Promise.resolve(service).then(provider => {
+    query.service = provider;
+    return queryTranslation(snapshot.text, source, target, controller.signal, fresh, provider);
+  }).catch(error => {
+    if (controller.signal.aborted) return {ok:false as const,source:query.service,error:'aborted' as const};
     throw error;
   });
   query.result = query.result.then(value => { query.value = value; return value; });
@@ -53,7 +58,7 @@ export async function startSelectionQuery(scope: string, requestId: string, snap
       if (!saved.id) return;
       query.retained = true; query.boundId ??= saved.id;
       const result = await query.result;
-      if (saved.id && result.ok && query.valid && await backfillTranslationKnowledge(saved.id, translationIdentity(snapshot,source,target), saved.vaultId, result.text, result.detectedLang, () => query.valid)) changed();
+      if (saved.id && result.ok && query.valid && await backfillTranslationKnowledge(saved.id, translationIdentity(snapshot,source,target), saved.vaultId, result.text, result.detectedLang, () => query.valid, result.source)) changed();
     } catch (error) { console.warn('[pd] translation backfill failed', error); }
     finally {query.saving--; if(query.detached && !query.retained && !query.saving) query.controller.abort(); cleanup(key,query);}
   })();
@@ -66,7 +71,7 @@ export async function saveSelectionQuery(scope: string, requestId: string, owner
   query.saving++;
   try {
     // Never wait for the network to commit an original-only record.
-    const saved = await saveTranslationKnowledge(query.snapshot, query.source, query.target, owner, query.value?.ok ? query.value.text : undefined, query.value?.ok ? query.value.detectedLang : undefined);
+    const saved = await saveTranslationKnowledge(query.snapshot, query.source, query.target, owner, query.value?.ok ? query.value.text : undefined, query.value?.ok ? query.value.detectedLang : undefined, query.service);
     query.retained = true;
     // An old in-flight request can never bind a replacement record after deletion.
     if (query.boundId && query.boundId !== saved.record.id) return saved;
@@ -75,7 +80,7 @@ export async function saveSelectionQuery(scope: string, requestId: string, owner
       try {
         const result = await query.result;
         if (result.ok && query.valid && await backfillTranslationKnowledge(saved.record.id,
-          translationIdentity(query.snapshot, query.source, query.target), owner, result.text, result.detectedLang, () => query.valid)) changed();
+          translationIdentity(query.snapshot, query.source, query.target), owner, result.text, result.detectedLang, () => query.valid, result.source)) changed();
       } catch (error) { console.warn('[pd] translation backfill failed', error); }
       finally {query.saving--;cleanup(key,query);}
     })();

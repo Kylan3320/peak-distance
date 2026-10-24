@@ -385,7 +385,7 @@ export function createLookupPopup(opts: {
         const sense = p.result.entry.senses[0];
         text(`${sense?.partOfSpeech ?? ''} ${sense?.definition ?? ''}`);
         text(p.result.entry.source === 'youdao' ? message('有道') : message('剑桥英汉'), 'def-label');
-      } else if (p.result) { text(p.result.text); text(message(p.result.kind === 'translation' ? '翻译 · Google' : 'AI 释义'), 'def-label'); }
+      } else if (p.result) { text(p.result.text); text(message(p.result.kind === 'translation' ? p.result.source === 'browser-native' ? '浏览器内置翻译' : '翻译 · Google' : 'AI 释义'), 'def-label'); }
       else text(p.lookupError ? message(LOOKUP_ERROR_LABEL[p.lookupError] ?? '暂时无法查询') : message('正在查询…'), 'def-state');
       button(message('展开详情'), () => { p.compact = false; renderPopup(); });
       return;
@@ -414,7 +414,7 @@ export function createLookupPopup(opts: {
       if (entry.lemmaCandidates?.length) text(message('原形候选：{forms}',{forms:entry.lemmaCandidates.join('、')}), 'def-label');
       if (entry.audioUrl && /^https:\/\//.test(entry.audioUrl)) { const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = entry.audioUrl; box.appendChild(audio); }
     } else if (p.result?.kind === 'translation') {
-      text(message('翻译 · Google'), 'def-label'); text(p.result.text);
+      text(message(p.result.source === 'browser-native' ? '浏览器内置翻译' : '翻译 · Google'), 'def-label'); text(p.result.text);
     } else if (p.result?.kind === 'ai-definition') {
       text(message('AI 释义'), 'def-label'); text(p.result.text);
     } else if (p.lookupError) {

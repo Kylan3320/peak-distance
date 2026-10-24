@@ -16,7 +16,7 @@ try {
  const base=`chrome-extension://${new URL(worker.url()).host}`;
  const control=await context.newPage();await control.goto(`${base}/options.html`);
  const send=message=>control.evaluate(message=>chrome.runtime.sendMessage(message),message);
- await control.evaluate(()=>chrome.storage.local.set({displayLanguage:'zh-Hans',panelMode:'floating'}));
+ await control.evaluate(()=>chrome.storage.local.set({displayLanguage:'zh-Hans',panelMode:'floating',regularTranslation:'google-gtx'}));
  await worker.evaluate(()=>{
   globalThis.originalFetch=fetch;
   globalThis.queries=[];

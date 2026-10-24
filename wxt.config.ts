@@ -7,7 +7,7 @@ export default defineConfig({
     default_locale: 'en',
     minimum_chrome_version: '142',
     description: '__MSG_extensionDescription__',
-    permissions: ['storage', 'sidePanel'],
+    permissions: ['storage', 'sidePanel', 'offscreen'],
     host_permissions: ['https://api.deepseek.com/*', 'https://dict.youdao.com/*', 'https://dictionary.cambridge.org/*', 'https://translate.googleapis.com/*'],
     optional_host_permissions: ['https://*/*'],
     action: {

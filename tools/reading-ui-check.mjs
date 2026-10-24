@@ -14,7 +14,7 @@ try {
   const base=`chrome-extension://${new URL(worker.url()).host}`;
   const control=await context.newPage();await control.goto(`${base}/options.html`);
   const send=message=>control.evaluate(message=>chrome.runtime.sendMessage(message),message);
-  await control.evaluate(()=>chrome.storage.local.set({displayLanguage:'zh-Hans'}));
+  await control.evaluate(()=>chrome.storage.local.set({displayLanguage:'zh-Hans',regularTranslation:'google-gtx'}));
   await worker.evaluate(()=>{globalThis.fetch=async url=>{
     if(new URL(url).hostname!=='translate.googleapis.com')throw Error('Unexpected test request');
     return Response.json([[['工作的品质，体现在细节之中。']],null,'en']);

@@ -1,4 +1,5 @@
 import type { DictionarySource } from '@/lib/onlineDictionary';
+import { isTranslationService, type TranslationService } from './translationService';
 import { isDisplayLanguage, type DisplayLanguage } from './i18n';
 import {
   DEFAULT_COMPREHENSION_LANG,
@@ -12,7 +13,7 @@ export interface Settings {
   markingEnabled: boolean;
   primaryDictionary: DictionarySource;
   backupDictionary: DictionarySource;
-  regularTranslation: 'google-gtx';
+  regularTranslation: TranslationService;
   translationMode: 'regular' | 'ai';
   bilingualEnabled: boolean;
   chineseVisible: boolean;
@@ -29,7 +30,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   displayLanguage: 'auto',
   markingEnabled: true, primaryDictionary: 'youdao', backupDictionary: 'cambridge',
-  regularTranslation: 'google-gtx', translationMode: 'regular',
+  regularTranslation: 'browser-native', translationMode: 'regular',
   bilingualEnabled: true, chineseVisible: true, cacheLimit: 200, subtitleSize: 'standard',
   defaultComprehensionLang: DEFAULT_COMPREHENSION_LANG,
   comprehensionOverrides: {},
@@ -65,7 +66,7 @@ export function validSetting(name: string, value: unknown): boolean {
   if (name === 'subtitleSize') return ['small', 'standard', 'large'].includes(String(value));
   if (['markingEnabled', 'bilingualEnabled', 'chineseVisible', 'aiLookupFallback'].includes(name)) return typeof value === 'boolean';
   if (name === 'primaryDictionary' || name === 'backupDictionary') return value === 'youdao' || value === 'cambridge';
-  if (name === 'regularTranslation') return value === 'google-gtx';
+  if (name === 'regularTranslation') return isTranslationService(value);
   if (name === 'translationMode') return value === 'regular' || value === 'ai';
   if (name === 'defaultComprehensionLang') return isLanguageTag(value) && isTargetLanguage(String(value));
   if (name === 'comprehensionOverrides') return validOverrides(value);

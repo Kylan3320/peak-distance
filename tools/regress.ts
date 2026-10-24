@@ -769,6 +769,7 @@ console.log('M11 planSave 语言身份');
 
 console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
 {
+  const googleSettings = {...DEFAULT_SETTINGS, regularTranslation:'google-gtx' as const};
   const originalFetch = globalThis.fetch;
   const aiConfig = { ...defaultAiProfile('deepseek'), provider: 'deepseek' as const, apiKey: 'test-only-key' };
   const seenUrls: string[] = [];
@@ -787,7 +788,7 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
   try {
     // 非英语源：词典完全不适用 → 免费译文，已知源传实际代码，目标 zh-CN
     stubFetch(seenUrls);
-    const ja = await lookupOnline('学ぶ', DEFAULT_SETTINGS, undefined, undefined, {
+    const ja = await lookupOnline('学ぶ', googleSettings, undefined, undefined, {
       lang: { source: 'ja', target: 'zh-Hans' }, sentence: '私は日本語を学ぶ。',
     });
     check('日语走免费译文', ja.ok && ja.result.kind === 'translation');
@@ -795,14 +796,14 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
 
     // 待确认源（und）：交给端点自动检测，不猜英语
     stubFetch(seenUrls);
-    const und = await lookupOnline('pain', DEFAULT_SETTINGS, undefined, undefined, {
+    const und = await lookupOnline('pain', googleSettings, undefined, undefined, {
       lang: { source: 'und', target: 'zh-Hans' }, sentence: 'Le pain est bon.',
     });
     check('待确认源交给自动检测', und.ok && seenUrls.some(u => u.includes('sl=auto')) && !seenUrls.some(u => u.includes('sl=en')));
 
     // 英语源 + 词典明确未命中 + 开关关 → 免费译文（不是失败）
     stubFetch(seenUrls);
-    const missWord = await lookupOnline('flumberration', DEFAULT_SETTINGS, undefined, undefined, {
+    const missWord = await lookupOnline('flumberration', googleSettings, undefined, undefined, {
       lang: { source: 'en', target: 'zh-Hans' }, sentence: 'A flumberration of options.',
     });
     check('词典未命中回退免费译文', missWord.ok && missWord.result.kind === 'translation');
@@ -810,7 +811,7 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
 
     // 悬停意图：开关开 + 已配置也绝不触发 LLM
     stubFetch(seenUrls);
-    const hover = await lookupOnline('flumberration2', DEFAULT_SETTINGS, undefined, undefined, {
+    const hover = await lookupOnline('flumberration2', googleSettings, undefined, undefined, {
       lang: { source: 'en', target: 'zh-Hans' }, intent: 'hover',
       aiFallback: { enabled: true, config: aiConfig },
     });
@@ -819,7 +820,7 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
 
     // 主动查词 + 开关开 + 已配置 + 词典未命中 → AI 释义
     stubFetch(seenUrls);
-    const ai = await lookupOnline('flumberration3', DEFAULT_SETTINGS, undefined, undefined, {
+    const ai = await lookupOnline('flumberration3', googleSettings, undefined, undefined, {
       lang: { source: 'en', target: 'zh-Hans' },
       aiFallback: { enabled: true, config: aiConfig }, sentence: 'A flumberration of options.',
     });
@@ -828,7 +829,7 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
       check('AI 结果区分于词典与译文', ai.result.lang.source === 'en' && ai.result.text.includes('学习'));
     }
     seenUrls.length = 0;
-    const aiAgain = await lookupOnline('flumberration3', DEFAULT_SETTINGS, undefined, undefined, {
+    const aiAgain = await lookupOnline('flumberration3', googleSettings, undefined, undefined, {
       lang: { source: 'en', target: 'zh-Hans' },
       aiFallback: { enabled: true, config: aiConfig }, sentence: 'A flumberration of options.',
     });
@@ -836,7 +837,7 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
 
     // 主动 + 开关开但未配置 → 免费路径 + ai-unconfigured 提示
     stubFetch(seenUrls);
-    const uncfg = await lookupOnline('flumberration4', DEFAULT_SETTINGS, undefined, undefined, {
+    const uncfg = await lookupOnline('flumberration4', googleSettings, undefined, undefined, {
       lang: { source: 'en', target: 'zh-Hans' }, aiFallback: { enabled: true, config: null }, sentence: 's',
     });
     check('未配置 AI 继续免费路径并提示', uncfg.ok && uncfg.result.kind === 'translation' && uncfg.degraded === 'ai-unconfigured');
@@ -850,7 +851,7 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
       return new Response('{}', { status: 429 });
     }) as typeof fetch;
     seenUrls.length = 0;
-    const restricted = await lookupOnline('flumberration5', DEFAULT_SETTINGS, undefined, undefined, {
+    const restricted = await lookupOnline('flumberration5', googleSettings, undefined, undefined, {
       lang: { source: 'en', target: 'zh-Hans' }, aiFallback: { enabled: true, config: aiConfig }, sentence: 's',
     });
     check('词典故障不触发 AI', !seenUrls.some(u => u.includes('/chat/completions')));
@@ -863,7 +864,7 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
       throw new Error(`Unexpected fallback: ${url}`);
     }) as typeof fetch;
     seenUrls.length = 0;
-    const backup = await lookupOnline('fitbackup', DEFAULT_SETTINGS);
+    const backup = await lookupOnline('fitbackup', googleSettings);
     check('首选限流仍查询独立备用词典', backup.ok && backup.result.kind === 'dictionary' && backup.result.entry.source === 'cambridge');
     globalThis.fetch = (async (input: any) => {
       const url = String(input instanceof URL ? input : input?.url ?? input);
@@ -871,7 +872,7 @@ console.log('M11 查询路由：语言对、词典门控与 AI 兜底');
       if (url.includes('cambridge')) return new Response('<html></html>');
       return new Response('{}', { status: 503 });
     }) as typeof fetch;
-    const mixedFailure = await lookupOnline('fitmixedfailure', DEFAULT_SETTINGS);
+    const mixedFailure = await lookupOnline('fitmixedfailure', googleSettings);
     check('备用未命中不掩盖首选服务故障', !mixedFailure.ok && mixedFailure.error === 'restricted');
   } finally {
     globalThis.fetch = originalFetch;

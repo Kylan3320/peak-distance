@@ -21,7 +21,7 @@ try {
   const control = await context.newPage();
   await control.goto(`${base}/options.html`);
   await worker.evaluate(async () => {
-    await chrome.storage.local.set({ displayLanguage: 'zh-Hans', deepseekApiKey: 'disposable-test-key', aiLookupFallback: true });
+    await chrome.storage.local.set({ displayLanguage: 'zh-Hans', regularTranslation: 'google-gtx', deepseekApiKey: 'disposable-test-key', aiLookupFallback: true });
     globalThis.lookupMode = 'ai';
     globalThis.aiCalls = 0;
     globalThis.fetch = async url => {

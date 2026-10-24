@@ -814,7 +814,7 @@ export async function saveAnswerKnowledge(chatId: string, messageId: string, tit
   });
 }
 
-export async function saveTranslationKnowledge(snapshot: import('@/shared/panel').SelectionSnapshot, sourceMode: string, targetLang: string, owner: string | null, translation?: string, detectedLang?: string): Promise<{ record: KnowledgeRecord; existing: boolean }> {
+export async function saveTranslationKnowledge(snapshot: import('@/shared/panel').SelectionSnapshot, sourceMode: string, targetLang: string, owner: string | null, translation?: string, detectedLang?: string, service: import('@/shared/translationService').TranslationService = 'google-gtx'): Promise<{ record: KnowledgeRecord; existing: boolean }> {
   return writeKnowledge(['knowledge', VAULT, VAULT_QUEUE], async tx => {
     await assertKnowledgeOwner(tx, owner);
     const store = tx.objectStore('knowledge');
@@ -823,19 +823,19 @@ export async function saveTranslationKnowledge(snapshot: import('@/shared/panel'
     const existing = all.find(k => k.origin.type === 'translation' && k.origin.identity === identity);
     if (existing) return { record: existing, existing: true };
     const now = Date.now();
-    const record = { ...knowledgeFromTranslation(snapshot, sourceMode, targetLang, translation, detectedLang), id: crypto.randomUUID(), createdAt: now, updatedAt: now };
+    const record = { ...knowledgeFromTranslation(snapshot, sourceMode, targetLang, translation, detectedLang, service), id: crypto.randomUUID(), createdAt: now, updatedAt: now };
     store.add(record); await queueCurrentRecord(tx, 'knowledge', record.id);
     return { record, existing: false };
   });
 }
-export async function backfillTranslationKnowledge(id: string, identity: string, owner: string | null, text: string, detectedLang?: string, valid: () => boolean = () => true): Promise<boolean> {
+export async function backfillTranslationKnowledge(id: string, identity: string, owner: string | null, text: string, detectedLang?: string, valid: () => boolean = () => true, service: import('@/shared/translationService').TranslationService = 'google-gtx'): Promise<boolean> {
   return writeKnowledge(['knowledge', VAULT, VAULT_QUEUE], async tx => {
     const library = await px(tx.objectStore(VAULT).get('lastIdentity')) as VaultIdentity | undefined;
     if ((library?.vaultId ?? null) !== owner) return false;
     const store = tx.objectStore('knowledge');
     const record = await px(store.get(id)) as KnowledgeRecord | undefined;
     if (!record || record.origin.type !== 'translation' || record.origin.identity !== identity || record.origin.translation || record.origin.bodyEdited || record.body !== translationBody(record.origin) || !valid()) return false;
-    record.origin = { ...record.origin, translation: text };
+    record.origin = { ...record.origin, translation: text, service };
     record.body = translationBody(record.origin);
     if (record.origin.sourceMode === 'auto' && detectedLang) record.language = detectedLang;
     record.updatedAt = Date.now(); store.put(record); await queueCurrentRecord(tx, 'knowledge', id);

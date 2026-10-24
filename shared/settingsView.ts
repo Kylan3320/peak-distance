@@ -48,10 +48,11 @@ export function mountSettings(root: HTMLElement) {
       <label class="ai-field"><span data-i18n="模型 ID"></span><input id="ai-model" type="text" spellcheck="false" aria-describedby="ai-model-help"><small id="ai-model-help" class="hint" data-i18n="填写服务商提供的模型 ID。"></small></label>
     </details><div class="ai-footer"><button id="save" class="ui-icon-button" type="button">${uiIcon('save')}</button><div id="state" class="settings-status" role="status"></div></div></fieldset></section>
     <details class="settings-section settings-details"><summary data-i18n="更多设置"></summary>
-    <label class="settings-field"><span data-i18n="常规翻译来源"></span><select id="regularTranslation"><option value="google-gtx" data-i18n="Google 免费翻译"></option></select></label></details>
+    <label class="settings-field"><span data-i18n="常规翻译来源"></span><select id="regularTranslation"><option value="browser-native" data-i18n="浏览器内置翻译"></option><option value="google-gtx" data-i18n="Google 免费翻译"></option></select></label><button id="prepare-native" data-i18n="准备内置翻译"></button></details>
     <p id="version" class="hint settings-version"></p>`;
   localize(root);
   const get = <T extends HTMLElement>(id:string) => root.querySelector<T>(`#${id}`)!;
+  get('prepare-native').onclick = () => void browser.runtime.sendMessage({type:'prepareNativeTranslation', sourceLang:'en', targetLang:get<HTMLSelectElement>('defaultComprehensionLang').value});
   const report = (id:string,key:string,ok:boolean|null) => {const el=get(id);el.setAttribute('data-i18n',key);el.textContent=t(key);el.className=`settings-status${ok===null?'':ok?' ok':' err'}`;el.hidden=id==='state'&&key==='已配置';};
   for(const [id,label] of [['vault-flush','立即同步'],['vault-disconnect','断开'],['clear','清除当前 Key'],['save','保存并使用']] as const) {
     setLocalizedAttribute(get(id), 'title', message(label));

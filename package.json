@@ -2,7 +2,7 @@
   "name": "peak-distance",
   "description": "Chrome 英语学习扩展：网页、X 与 YouTube 的查词、双语字幕、原句复习与 AI 问答",
   "private": true,
-  "version": "0.6.9",
+  "version": "0.69.1",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -11,7 +11,7 @@
     "typecheck": "wxt prepare && tsc --noEmit",
     "regress": "tsx tools/regress.ts && tsx tools/m11-vault-format-check.ts && tsx tools/chat-lifecycle-check.ts",
     "verify-local": "npm run typecheck && npm run build && npm run regress && npm run check-ai && npm run check-i18n && npm run check-reliability",
-    "check-reliability": "node tools/reliability-check.mjs && node tools/vault-sync-check.mjs && node tools/youtube-translation-language-check.mjs && node tools/vocab-ownership-check.mjs",
+    "check-reliability": "node tools/reliability-check.mjs && node tools/vault-sync-check.mjs && node tools/youtube-translation-language-check.mjs && node tools/vocab-ownership-check.mjs && tsx tools/translation-reliability-check.ts && tsx tools/native-translation-check.ts",
     "check-i18n": "tsx tools/check-i18n.ts",
     "check-ui-i18n": "node tools/check-ui-i18n.mjs",
     "check-current-content": "node tools/current-content-ui-check.mjs",

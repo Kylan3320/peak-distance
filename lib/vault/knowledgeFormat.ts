@@ -1,5 +1,6 @@
 import type { KnowledgeRecord } from '@/shared/knowledge';
 import { isLanguageTag } from '@/shared/languages';
+import { isTranslationService } from '@/shared/translationService';
 
 /** Locate the paired envelope before interpreting record separators or YAML in an answer. */
 export function knowledgeBodyEnvelope(text: string): { start: number; bodyStart: number; bodyEnd: number; end: number } {
@@ -62,7 +63,7 @@ function validOrigin(record: KnowledgeRecord): boolean {
   if (o?.type !== 'translation') return ['article', 'x'].includes(record.source.sourceType) && typeof o?.chatId === 'string' && !!o.chatId && typeof o.messageId === 'string' && !!o.messageId;
   const p = o.position;
   return ['article', 'x', 'youtube'].includes(record.source.sourceType) && typeof o.identity === 'string' && !!o.identity && typeof o.text === 'string' && !!o.text.trim()
-    && (o.translation === undefined || typeof o.translation === 'string') && (o.sourceMode === 'auto' || isLanguageTag(o.sourceMode)) && isLanguageTag(o.targetLang) && o.service === 'google-gtx'
+    && (o.translation === undefined || typeof o.translation === 'string') && (o.sourceMode === 'auto' || isLanguageTag(o.sourceMode)) && isLanguageTag(o.targetLang) && isTranslationService(o.service)
     && (o.bodyEdited === undefined || typeof o.bodyEdited === 'boolean')
     && (record.source.sourceType !== 'youtube' || !!p)
     && (!p || typeof p.videoId === 'string' && !!p.videoId && typeof p.trackId === 'string' && !!p.trackId && ['manual', 'asr'].includes(p.trackKind) && isLanguageTag(p.trackLang) && Number.isFinite(p.startMs) && p.startMs >= 0 && Number.isFinite(p.endMs) && p.endMs >= p.startMs);

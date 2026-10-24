@@ -61,6 +61,7 @@ export type BgcRequest =
   | { type: 'saveSelectionKnowledge'; requestId: string; vaultId: string | null }
   | { type: 'viewSelectionKnowledge'; id: string; vaultId: string | null }
   | { type: 'clearQueryCache' }
+  | { type: 'prepareNativeTranslation'; sourceLang?: string; targetLang?: string }
   | { type: 'cancelOnline'; requestId: string }
   | { type: 'subtitleMode'; videoId: string; mode?: 'regular' | 'ai'; autoPause?: boolean }
   | { type: 'saveSentence'; sentence: import('./vocab').SavedSentence }
