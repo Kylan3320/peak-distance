@@ -87,3 +87,5 @@ Peak Distance 是个人自用的桌面 Chrome / Edge 多语言学习扩展，覆
 
 ASR、音频采集、账号 / 后端 / 云同步、本地词库与离线翻译模型、完整 SRS、联网搜索、跨内容自动记忆。
 Anki、X thread、Netflix、Shorts / 直播和多材料问答在实际需要时另行排期。
+
+2026-10-24 接入浏览器自带 Translator／Language Detector API，常规翻译默认使用浏览器内置翻译；已明确选择的 Google 来源保留。首次使用通过可见准备页下载浏览器管理的语言模型，之后面板关闭不影响已收藏任务完成；未收藏任务可取消。设备、语言或模型不可用时明确提示，不暗中转发到 Google 或 AI；Google 保留为手动备选。Chrome／Edge 英中翻译与生命周期实测范围见[翻译学习规格 8.6](specs/translation-learning.md#86-内置翻译接入与默认渠道2026-10-24)。扩展自行分发和维护离线模型仍不在范围内。

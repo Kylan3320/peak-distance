@@ -19,6 +19,7 @@ const results=[],errors=[];
 context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));
 const check=(name,value)=>{results.push({name,ok:!!value});console.log(`${value?'PASS':'FAIL'} ${name}`);assert.ok(value,name);};
 const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
+await worker.evaluate(()=>chrome.storage.local.set({regularTranslation:'google-gtx'}));
 const id=new URL(worker.url()).host;
 const panelUrl=`chrome-extension://${id}/sidepanel.html`;
 const control=await context.newPage();await control.goto(`chrome-extension://${id}/options.html`);

@@ -6,7 +6,8 @@ import { selectionError } from '@/shared/panel';
 import { startSelectionQuery, saveSelectionQuery, cancelSelectionQuery, detachSelectionScope } from '@/lib/translationLearning';
 import { selectionSource, translationIdentity } from '@/shared/knowledge';
 import type { SelectionSnapshot } from '@/shared/panel';
-import { translateRegularText } from '@/lib/regularTranslation';
+import { translateRegularCues } from '@/lib/regularTranslation';
+import { isTranslationService } from '@/shared/translationService';
 import { cached, cacheGet, cachePut, trimCache, clearQueryCache } from '@/lib/onlineCache';
 import { comprehensionLangFor, DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
 import { resolveDisplayLocale, translate } from '@/shared/i18n';
@@ -209,7 +210,7 @@ const onlineRequests = new Map<string, AbortController>();
 function parseResult(v: unknown): LearningResult | undefined {
   if (!v || typeof v !== 'object' || JSON.stringify(v).length > 24000) return undefined;
   const r = v as LearningResult;
-  if (r.kind === 'translation' && r.source === 'google-gtx' && typeof r.text === 'string') return r;
+  if (r.kind === 'translation' && isTranslationService(r.source) && typeof r.text === 'string') return r;
   if (r.kind === 'dictionary' && ['youdao', 'cambridge'].includes(r.entry?.source) && /^https:\/\//.test(r.entry.url) &&
       Array.isArray(r.entry.senses) && r.entry.senses.length && r.entry.senses.every(s => typeof s.definition === 'string')) return r;
   // M11：AI 查词兜底结果（主动查词、词典明确未命中时；与语境解释区分）
@@ -251,7 +252,7 @@ async function handle(
       if (sourceLang === null || targetLang === null) return bad('bad-payload', 'lang');
       const snapshot = parseTranslationSnapshot(m.snapshot ?? {text:m.text, url:sender.tab?.url ?? '', title:sender.tab?.title ?? ''});
       if (!snapshot || snapshot.text !== m.text) return bad('bad-payload', 'snapshot');
-      return startSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId, snapshot, sourceLang && sourceLang !== 'und' ? sourceLang : 'auto', targetLang ?? 'zh-Hans', m.fresh === true, m.replaceRequestId, () => {broadcast({type:'knowledge-changed'});queueVaultWriteAfterSave();});
+      return startSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId, snapshot, sourceLang && sourceLang !== 'und' ? sourceLang : 'auto', targetLang ?? 'zh-Hans', m.fresh === true, m.replaceRequestId, () => {broadcast({type:'knowledge-changed'});queueVaultWriteAfterSave();}, getSettings().then(settings => settings.regularTranslation));
     }
     case 'selectionKnowledgeState': {
       const snapshot = parseTranslationSnapshot(m.snapshot);
@@ -279,6 +280,14 @@ async function handle(
     case 'clearQueryCache': {
       if (!sender.url?.startsWith(browser.runtime.getURL(''))) return bad('forbidden-sender');
       await clearQueryCache(); return {ok:true};
+    }
+    case 'prepareNativeTranslation': {
+      const source = m.sourceLang === 'auto' || !m.sourceLang ? 'en' : parseLangField(m.sourceLang);
+      const target = parseLangField(m.targetLang);
+      if (!source || !target) return bad('bad-payload', 'lang');
+      const url = new URL(browser.runtime.getURL('/native-translator.html'));
+      url.search = new URLSearchParams({source, target}).toString();
+      await browser.tabs.create({url:url.href}); return {ok:true};
     }
     case 'cancelOnline': {
       cancelSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId!);
@@ -568,7 +577,8 @@ async function handle(
             if (hit) translations.push({ id: item.id, text: hit }); else missing.push(item);
           }
           if (missing.length) {
-            const key = JSON.stringify(['translation-batch', scope, langScope, missing.map(i => i.text)]);
+            // Older batches could cache ok:true with no usable input-aligned translations.
+            const key = JSON.stringify(['translation-batch-v2', scope, langScope, missing.map(i => i.text)]);
             const r = await cached(key, signal => translateSentences(config, missing.map(i => i.text), signal, { source: sourceLang ?? 'en', target: targetLang ?? 'zh-Hans' }), controller.signal);
             if (!r.ok && !translations.length) return r;
             if (r.ok) for (const t of r.translations) {
@@ -576,15 +586,10 @@ async function handle(
               if (item && t.text) { translations.push({ id: item.id, text: t.text }); await cachePut(textKey(item.text), t.text); }
             }
           }
-          return { ok: true, translations };
+          return translations.length ? { ok: true, translations } : bad('bad-response');
         }
-        const translations: { id: number; text: string }[] = [];
         const cueLangs = { source: sourceLang ?? 'en', target: targetLang ?? 'zh-Hans' };
-        for (const item of items) {
-          const r = await cached(JSON.stringify(['subtitle-translation', 'google-gtx', langScope, item.text]), signal => translateRegularText(item.text, signal, cueLangs), controller.signal);
-          if (r.ok) translations.push({ id: item.id, text: r.text });
-        }
-        return { ok: true, translations };
+        return await translateRegularCues(items, controller.signal, cueLangs, (await getSettings()).regularTranslation);
       } finally { if (onlineRequests.get(requestKey) === controller) onlineRequests.delete(requestKey); }
     }
     // ---- M11 学习库 -------------------------------------------------------------

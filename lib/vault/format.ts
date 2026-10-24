@@ -200,7 +200,7 @@ function resultSourceLabel(result: LearningResult): string {
     case 'dictionary':
       return `${result.entry.source} 词典`;
     case 'translation':
-      return 'google-gtx 译文';
+      return `${result.source} 译文`;
     case 'ai-definition':
       return `AI 释义（${result.model || result.provider || 'ai'}）`;
   }
@@ -255,7 +255,7 @@ function renderContext(c: VaultVocabContext): string[] {
       const t = collapseWhitespace(r.text);
       if (t) {
         lines.push(`  - 译文：${t}`);
-        lines.push('  - 来源：google-gtx 译文');
+        lines.push(`  - 来源：${resultSourceLabel(r)}`);
       }
     } else {
       const t = collapseWhitespace(r.text);
@@ -312,8 +312,8 @@ function buildResultOrExplanation(
     };
   }
   if (pending.label === '译文') {
-    if (sourceLabel !== 'google-gtx 译文') return null;
-    return { result: { kind: 'translation', source: 'google-gtx', text: pending.text } };
+    if (sourceLabel !== 'google-gtx 译文' && sourceLabel !== 'browser-native 译文') return null;
+    return { result: { kind: 'translation', source: sourceLabel === 'browser-native 译文' ? 'browser-native' : 'google-gtx', text: pending.text } };
   }
   if (pending.label === 'AI 释义') {
     const m = sourceLabel.match(/^AI 释义（(.+)）$/);
@@ -493,7 +493,7 @@ function pickDefinition(contexts: VaultVocabContext[]): { label: string | null; 
         if (t) return { label: resultSourceLabel(r), text: collapseWhitespace(t) };
       } else if (r.kind === 'translation') {
         const t = collapseWhitespace(r.text);
-        if (t) return { label: 'google-gtx 译文', text: t };
+        if (t) return { label: resultSourceLabel(r), text: t };
       } else {
         const t = collapseWhitespace(r.text);
         if (t) return { label: resultSourceLabel(r), text: t };

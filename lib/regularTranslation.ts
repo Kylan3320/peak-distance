@@ -8,17 +8,53 @@
 
 import { isLanguageTag, normalizeLangTag } from '@/shared/languages';
 import { cached } from './onlineCache';
+import type { TranslationService } from '@/shared/translationService';
+import { requestNativeTranslation } from './nativeTranslation';
 
-export function translationCacheKey(text: string, source: string, target: string): string {
-  return JSON.stringify(['translation', 'google-gtx', 'v2', source === 'und' ? 'auto' : source, target, text.trim()]);
+export function translationCacheKey(text: string, source: string, target: string, service: TranslationService = 'google-gtx'): string {
+  return JSON.stringify(['translation', service, 'v2', source === 'und' ? 'auto' : source, target, text.trim()]);
 }
-export function queryTranslation(text: string, source: string, target: string, signal?: AbortSignal, fresh = false) {
-  return cached(translationCacheKey(text, source, target), s => translateRegularText(text, s, {source: source === 'und' ? 'auto' : source, target}), signal, fresh);
+export function queryTranslation(text: string, source: string, target: string, signal?: AbortSignal, fresh = false, service: TranslationService = 'google-gtx') {
+  const langs = {source:source === 'und' ? 'auto' : source, target};
+  return cached(translationCacheKey(text, source, target, service), s => service === 'browser-native' ? requestNativeTranslation(text, langs, s) : translateRegularText(text, s, langs), signal, fresh);
 }
 
 export type RegularTranslationResult =
-  | { ok: true; source: 'google-gtx'; text: string; detectedLang?: string }
-  | { ok: false; source: 'google-gtx'; error: 'empty' | 'restricted' | 'network' | 'http' | 'bad-response' | 'aborted'; detail?: string };
+  | { ok: true; source: TranslationService; text: string; detectedLang?: string }
+  | { ok: false; source: TranslationService; error: 'empty' | 'restricted' | 'network' | 'http' | 'bad-response' | 'aborted' | 'native-unavailable' | 'native-needs-setup'; detail?: string; detectedLang?: string; httpStatus?: number; retryAt?: number };
+
+type TranslationFailure = Extract<RegularTranslationResult, {ok:false}>;
+const ACCESS_STORE = 'google-translation-restriction';
+const DEFAULT_COOLDOWN_MS = 60_000;
+let restriction: TranslationFailure | undefined;
+let accessReady: Promise<void> | undefined;
+let requestTail = Promise.resolve();
+
+async function loadRestriction(): Promise<void> {
+  // The standalone real-source CLI has no browser storage; it still shares the in-process guard.
+  accessReady ??= (async () => {
+    if (typeof browser === 'undefined') return;
+    try { restriction = (await browser.storage.session.get(ACCESS_STORE))[ACCESS_STORE] as TranslationFailure | undefined; }
+    catch (error) { console.warn('[pd] translation restriction read failed', error); }
+  })();
+  await accessReady;
+}
+
+function restrict(response: Response): TranslationFailure {
+  const now = Date.now(), header = response.headers.get('retry-after')?.trim();
+  const seconds = header ? Number(header) : NaN;
+  const date = header ? Date.parse(header) : NaN;
+  const retryAt = Number.isFinite(seconds) && seconds >= 0 ? now + seconds * 1000
+    : Number.isFinite(date) && date > now ? date : now + DEFAULT_COOLDOWN_MS;
+  restriction = {ok:false, source:'google-gtx', error:'restricted', httpStatus:response.status,
+    detail:`http ${response.status}`, retryAt};
+  if (typeof browser !== 'undefined') {
+    // The in-memory guard takes effect immediately; slow persistence must not hold the error response.
+    void browser.storage.session.set({[ACCESS_STORE]:restriction})
+      .catch(error => console.warn('[pd] translation restriction persistence failed', error));
+  }
+  return restriction;
+}
 
 export interface TranslationLangs {
   /** 源语言（内部标签）；'auto' 或缺省交给端点自动检测 */
@@ -54,6 +90,21 @@ export async function translateRegularText(
   const sl = !langs?.source || langs.source === 'auto' ? 'auto' : googleLanguageCode(langs.source);
   const tl = googleLanguageCode(langs?.target ?? 'zh-Hans');
   if (sl !== 'auto' && sl === tl) return { ok: true, source: 'google-gtx', text: input };
+  // All tabs/entry points share one Google request slot. A queued request observes
+  // a preceding 429 before it can reach the network; cancelling a waiter never cancels another request.
+  const previous = requestTail;
+  let release!: () => void;
+  requestTail = new Promise<void>(resolve => { release = resolve; });
+  try {
+    await previous;
+    if (signal?.aborted) return {ok:false, source:'google-gtx', error:'aborted'};
+    await loadRestriction();
+    if (restriction?.retryAt && restriction.retryAt > Date.now()) return {...restriction};
+    return await requestGoogle(input, sl, tl, signal);
+  } finally { release(); }
+}
+
+async function requestGoogle(input: string, sl: string, tl: string, signal?: AbortSignal): Promise<RegularTranslationResult> {
   const url = new URL('https://translate.googleapis.com/translate_a/single');
   url.search = new URLSearchParams({ client: 'gtx', sl, tl, dt: 't', q: input }).toString();
   const timeout = AbortSignal.timeout(12000);
@@ -63,8 +114,10 @@ export async function translateRegularText(
   } catch (error) {
     return { ok: false, source: 'google-gtx', error: signal?.aborted ? 'aborted' : 'network', detail: String(error) };
   }
-  if ([403, 429, 503].includes(response.status)) return { ok: false, source: 'google-gtx', error: 'restricted', detail: `http ${response.status}` };
-  if (!response.ok) return { ok: false, source: 'google-gtx', error: 'http', detail: `http ${response.status}` };
+  const challenge = response.url && /(^|\.)google\.com$/.test(new URL(response.url).hostname)
+    && new URL(response.url).pathname.startsWith('/sorry/');
+  if ([403, 429].includes(response.status) || challenge) return restrict(response);
+  if (!response.ok) return { ok: false, source: 'google-gtx', error: 'http', detail: `http ${response.status}`, httpStatus:response.status };
   try {
     const json = await response.json();
     const translated = parseGoogleTranslation(json);
@@ -76,4 +129,24 @@ export async function translateRegularText(
   } catch (error) {
     return { ok: false, source: 'google-gtx', error: 'bad-response', detail: String(error) };
   }
+}
+
+/** Keep cue IDs and partial results, but never call an empty failed batch successful. */
+export async function translateRegularCues(
+  items: {id:number; text:string}[], signal: AbortSignal, langs: TranslationLangs, service: TranslationService = 'google-gtx',
+) {
+  const translations: {id:number; text:string}[] = [];
+  let failure: TranslationFailure | undefined;
+  for (const item of items) {
+    if (signal.aborted) { failure = {ok:false, source:service, error:'aborted'}; break; }
+    const r = await cached(JSON.stringify(['subtitle-translation', service, `${langs.source}|${langs.target}`, item.text]),
+      s => service === 'browser-native' ? requestNativeTranslation(item.text, langs, s) : translateRegularText(item.text, s, langs), signal);
+    if (r.ok) translations.push({id:item.id, text:r.text});
+    else {
+      failure = r;
+      if (r.error === 'restricted' || r.error === 'network' || r.error === 'aborted' || r.error === 'native-unavailable' || r.error === 'native-needs-setup' || (r.httpStatus ?? 0) >= 500) break;
+    }
+  }
+  if (!translations.length && failure) return failure;
+  return {ok:true as const, translations, ...(failure ? {failure} : {})};
 }

@@ -27,7 +27,7 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       header{display:flex;gap:2px;align-items:center;padding:10px 12px 2px 20px;cursor:move;touch-action:none;flex-shrink:0}header strong{font-size:13px;font-weight:600;flex:1}header button{cursor:pointer}.icon{display:inline-flex;align-items:center;justify-content:center;width:32px;padding:0;background:transparent;border:0;color:var(--pd-muted)}.icon:hover,.quiet:hover{background:var(--pd-selected);color:var(--pd-ink)}#pin[aria-pressed=true]{background:var(--pd-selected);color:var(--pd-blue)}
       main{overflow:auto;overscroll-behavior:contain;padding:0 20px;min-height:0}p{white-space:pre-wrap;overflow-wrap:anywhere}#language-toggle{display:flex;align-items:center;gap:6px;max-width:100%;padding:3px 0;border:0;background:transparent;color:var(--pd-muted);font-size:12px;text-align:start}#language-toggle:hover{color:var(--pd-blue)}#language-toggle span{min-width:0;overflow-wrap:anywhere}#language-toggle svg{width:12px;height:12px}#language-toggle[aria-expanded=true] svg{transform:rotate(180deg)}
       .languages{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin:8px 0 12px}.languages label{min-width:0;font-size:11px;color:var(--pd-muted)}.languages select{width:100%;min-width:0;margin-top:2px;padding:4px 0;border:0;border-radius:4px;color:var(--pd-ink);background:transparent;font-size:13px}.languages select:hover,.languages select:open{background:#2f3a4008}
-      #original{margin:14px 0 0;font-size:14px;line-height:1.65;color:var(--pd-muted)}#result{margin:16px 0 0;font-size:17px;line-height:1.8;color:var(--pd-ink)}#result:empty{display:none}#query-state{margin:12px 0 0;font-size:13px;color:var(--pd-muted)}#query-state:empty{display:none}.query-feedback{display:flex;align-items:center;gap:8px}#retry-inline{flex-shrink:0;border:0;background:transparent;padding:2px 0;color:var(--pd-blue);font-size:13px}
+      #original{margin:12px 0 0;font-size:14px;line-height:1.6;color:var(--pd-muted)}#result{margin:12px 0 0;font-size:14px;line-height:1.6;color:var(--pd-ink)}#result:empty{display:none}#query-state{margin:12px 0 0;font-size:13px;color:var(--pd-muted)}#query-state:empty{display:none}.query-feedback{display:flex;align-items:center;gap:8px}#retry-inline{flex-shrink:0;border:0;background:transparent;padding:2px 0;color:var(--pd-blue);font-size:13px}
       .attribution{display:flex;gap:6px;align-items:center;min-width:0;flex:1;color:var(--pd-muted);font-size:11px}.attribution span{flex-shrink:0}.attribution span::after{content:'·';margin-left:6px}#source{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration:none}#source:hover{text-decoration:underline;color:var(--pd-blue)}
       main{padding-bottom:20px}footer{flex-shrink:0;padding:8px 12px 8px 20px;border-top:1px solid var(--pd-line)}.actions{display:flex;align-items:center;gap:12px}.action-buttons,.save-actions{display:flex;align-items:center;gap:2px}.actions button{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;min-height:34px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pd-muted)}.actions button:hover{background:var(--pd-selected);color:var(--pd-ink)}.actions button:disabled{color:#91979a}#view{color:var(--pd-blue)}#view svg{fill:currentColor;stroke:currentColor}#save[aria-busy=true] svg{opacity:.5}#copy.copied{color:var(--pd-blue)}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}#save-state{display:block;margin:4px 0;font-size:12px;color:var(--pd-muted);overflow-wrap:anywhere}#save-state:empty{display:none}
       #more-panel{position:absolute;z-index:1;top:46px;right:12px;width:min(256px,calc(100% - 24px));max-height:calc(100% - 58px);overflow:auto;overscroll-behavior:contain;padding:6px;background:var(--pd-surface);border:1px solid var(--pd-line);border-radius:8px;box-shadow:0 4px 16px #2f3a401a}#more-panel button{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;text-align:start;padding:7px 10px;font-size:13px}#more-panel button:hover{background:var(--pd-selected)}#destination{display:block;padding:9px 10px 3px;font-size:12px;color:var(--pd-muted);overflow-wrap:anywhere}#more-panel .library-options{border-top:1px solid var(--pd-line);margin-top:4px;padding-top:3px}
@@ -43,7 +43,7 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
     const sourceLang = snapshot.sourceLang && snapshot.languageEvidence !== 'heuristic' && isLanguageTag(snapshot.sourceLang) && snapshot.sourceLang !== 'und' ? normalizeLangTag(snapshot.sourceLang) : 'auto';
     let sourceManual = false;
     let settings: Settings = {...DEFAULT_SETTINGS}, owner: string | null = null, ownerReady = false, libraryChanged = false;
-    let requestId = '', generation = 0, translated = '', detectedLang = '', targetManual = false, initialized = false, saving = false, savedId = '', copying = 0;
+    let requestId = '', generation = 0, translated = '', detectedLang = '', targetManual = false, initialized = false, saving = false, savedId = '', copying = 0, needsNativeSetup = false;
     let positioned = false, dragged = !!lastPosition;
     const state = {host, openedAt: performance.timeOrigin + performance.now(), page: location.href, pinned:false, close: finish, constrain};
     active = state;
@@ -137,18 +137,26 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       const previousId = requestId, id = requestId = `selection-${crypto.randomUUID()}`, version = ++generation;
       if (changed) { saving = false; setText(node('save-state'),''); translated = ''; detectedLang = ''; savedId = ''; copying++; node('result').textContent = ''; copyState('复制译文'); }
       button('copy').disabled = !translated; button('retry').disabled = true; button('retry-inline').hidden = true;
+      needsNativeSetup = false; setText(button('retry-inline'), message('重试'));
       setText(node('query-state'), message(translated ? '正在更新译文…' : '正在翻译…')); direction(); saveControls();
       void refreshSaved(version);
-      const r = await send<{ok:boolean;text?:string;detectedLang?:string;error?:string}>({type:'translateSelection', text:snapshot.text, snapshot, requestId:id, sourceLang:from.value, targetLang:to.value, fresh, ...(previousId ? {replaceRequestId:previousId} : {})});
+      const r = await send<{ok:boolean;text?:string;detectedLang?:string;error?:string;source?:string}>({type:'translateSelection', text:snapshot.text, snapshot, requestId:id, sourceLang:from.value, targetLang:to.value, fresh, ...(previousId ? {replaceRequestId:previousId} : {})});
       if (!current() || version !== generation) return;
       if (location.href !== state.page) { close(false); return; }
       button('retry').disabled = false;
+      setText(root.querySelector('.attribution span')!, r?.source === 'browser-native' ? message('浏览器内置翻译') : 'Google');
       if (r?.ok && r.text) {
         translated = r.text; detectedLang = r.detectedLang ?? ''; node('result').textContent = translated;
         setText(node('query-state'), '');  direction();
       } else if (r?.error === 'extension-context-invalidated') {
         setText(node('query-state'), message('扩展已更新，请刷新当前网页')); button('retry').hidden = true;
-      } else { button('retry-inline').hidden = false; setText(node('query-state'), message(translated ? '更新失败，保留上次译文' : r?.error === 'restricted' ? '翻译服务限制访问，请稍后重试。原文已保留。' : r?.error === 'network' ? '网络连接失败，请检查连接后重试。原文已保留。' : '翻译暂不可用，请重试。原文已保留。')); }
+      } else {
+        needsNativeSetup = r?.error === 'native-needs-setup';
+        if (needsNativeSetup) detectedLang = r.detectedLang ?? '';
+        button('retry-inline').hidden = false;
+        if (needsNativeSetup) setText(button('retry-inline'), message('准备内置翻译'));
+        setText(node('query-state'), message(needsNativeSetup ? '首次使用需要准备语言模型。原文已保留。' : translated ? '更新失败，保留上次译文' : r?.error === 'native-unavailable' ? '浏览器内置翻译暂不可用，请在设置中更换翻译来源。原文已保留。' : r?.error === 'restricted' ? '翻译服务限制访问，请稍后重试。原文已保留。' : r?.error === 'network' ? '网络连接失败，请检查连接后重试。原文已保留。' : '翻译暂不可用，请重试。原文已保留。'));
+      }
       button('copy').disabled = !translated; saveControls(); constrain();
     }
     button('close').onclick = () => close();
@@ -167,7 +175,7 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
     button('more').onclick = () => more(node('more-panel').hidden);
     button('language-toggle').onclick = () => languages(node('languages').hidden);
     button('retry').onclick = () => {more(false,true);void run(true);};
-    button('retry-inline').onclick = () => void run(true);
+    button('retry-inline').onclick = () => needsNativeSetup ? void send({type:'prepareNativeTranslation', sourceLang:from.value === 'auto' ? detectedLang || 'en' : from.value, targetLang:to.value}) : void run(true);
     root.addEventListener('pointerdown', e => {
       const path = e.composedPath();
       if (!path.includes(node('more-panel')) && !path.includes(button('more'))) more(false);

@@ -54,7 +54,7 @@ export interface TranslationOrigin {
   translation?: string;
   sourceMode: string;
   targetLang: string;
-  service: 'google-gtx';
+  service: import('./translationService').TranslationService;
   position?: SelectionSnapshot['position'];
   bodyEdited?: boolean;
 }
@@ -84,11 +84,11 @@ export function translationIdentity(snapshot: SelectionSnapshot, sourceMode: str
 export function translationBody(origin: TranslationOrigin): string {
   return origin.text + (origin.translation ? `\n\n${origin.translation}` : '');
 }
-export function knowledgeFromTranslation(snapshot: SelectionSnapshot, sourceMode: string, targetLang: string, translation?: string, detectedLang?: string): Omit<KnowledgeRecord, 'id' | 'createdAt' | 'updatedAt'> {
+export function knowledgeFromTranslation(snapshot: SelectionSnapshot, sourceMode: string, targetLang: string, translation?: string, detectedLang?: string, service: TranslationOrigin['service'] = 'google-gtx'): Omit<KnowledgeRecord, 'id' | 'createdAt' | 'updatedAt'> {
   const source = selectionSource(snapshot);
   if (!source) throw new Error('invalid translation source');
   const origin: TranslationOrigin = { type: 'translation', identity: translationIdentity(snapshot, sourceMode, targetLang),
-    text: snapshot.text, sourceMode, targetLang, service: 'google-gtx', ...(translation ? { translation } : {}), ...(snapshot.position ? { position: structuredClone(snapshot.position) } : {}) };
+    text: snapshot.text, sourceMode, targetLang, service, ...(translation ? { translation } : {}), ...(snapshot.position ? { position: structuredClone(snapshot.position) } : {}) };
   const language = sourceMode !== 'auto' ? sourceMode : detectedLang;
   return { title: Array.from(snapshot.text.replace(/\s+/g, ' ').trim()).slice(0, 80).join(''), body: translationBody(origin),
     language: language && isLanguageTag(language) ? normalizeLangTag(language) : 'und', source, origin, quotes: [] };

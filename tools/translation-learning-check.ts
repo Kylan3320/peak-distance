@@ -66,9 +66,9 @@ await api.cached(key('fresh'),async()=>({ok:true,text:'New'}),undefined,true);ol
 console.log('PASS coalesced requests cancel consumers independently; bypassed older results cannot replace fresh cache');
 
 urls.length=0;await api.queryTranslation('US policy','en','zh-Hans');urls.length=0;
-const result=await api.lookupOnline('US policy',api.DEFAULT_SETTINGS,undefined,undefined,{lang:{source:'en',target:'zh-Hans'}});assert.equal(result.result.kind,'translation');assert.equal(urls.length,0);
+const result=await api.lookupOnline('US policy',{...api.DEFAULT_SETTINGS,regularTranslation:'google-gtx'},undefined,undefined,{lang:{source:'en',target:'zh-Hans'}});assert.equal(result.result.kind,'translation');assert.equal(urls.length,0);
 fetchImpl=async()=>new Response('',{status:403});
-await api.lookupOnline('US policy',api.DEFAULT_SETTINGS,'youdao',undefined,{lang:{source:'en',target:'zh-Hans'}});assert.equal(urls.length,1);assert.equal(urls[0]!.hostname,'dict.youdao.com');
+await api.lookupOnline('US policy',{...api.DEFAULT_SETTINGS,regularTranslation:'google-gtx'},'youdao',undefined,{lang:{source:'en',target:'zh-Hans'}});assert.equal(urls.length,1);assert.equal(urls[0]!.hostname,'dict.youdao.com');
 console.log('PASS default lookup reuses Google cache before network; explicitly chosen dictionary still runs, without an AI request');
 
 const snapshot={text:'US policy\nCafé!',url:'https://example.com/a#section',title:'A'};

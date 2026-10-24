@@ -13,7 +13,7 @@ import { normTrackKey } from './subtitleTracker';
 
 export type LearningResult =
   | { kind: 'dictionary'; entry: DictionaryEntry; selectedSense?: number }
-  | { kind: 'translation'; source: 'google-gtx'; text: string }
+  | { kind: 'translation'; source: import('./translationService').TranslationService; text: string }
   // M11 AI 查词兜底的结果（主动查词、词典明确未命中时）；与 ai-context 语境解释、
   // 普通译文可区分。lang 记录请求时的语言对快照。
   | {

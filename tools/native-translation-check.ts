@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import {build} from 'esbuild';
+import {knowledgeFromTranslation} from '../shared/knowledge';
+import {parseKnowledge,serializeKnowledge} from '../lib/vault/knowledgeFormat';
+import {parseVocabDocument,serializeVocabRecord} from '../lib/vault/format';
+import {DEFAULT_SETTINGS} from '../shared/settings';
+const bundle=(await build({entryPoints:['lib/nativeTranslator.ts'],bundle:true,write:false,platform:'browser',format:'iife',globalName:'Api'})).outputFiles[0]!.text;
+let creates=0,destroys=0,detectorDestroys=0,active=0,maxActive=0;
+let translate:(text:string,options:{signal:AbortSignal})=>Promise<string>=async text=>'译：'+text;
+let createFailure:DOMException|undefined;
+const options:unknown[]=[];
+const context=vm.createContext({AbortController,AbortSignal,DOMException,Intl,
+ Translator:{availability:async()=> 'available',create:async(config:unknown)=>{creates++;options.push(config);if(createFailure)throw createFailure;active++;maxActive=Math.max(maxActive,active);return {translate:(text:string,o:{signal:AbortSignal})=>translate(text,o),destroy:()=>{destroys++;active--;}};}},
+ LanguageDetector:{create:async()=>({detect:async()=>[{detectedLanguage:'en'}],destroy:()=>{detectorDestroys++;}})},
+});
+vm.runInContext(bundle,context);
+const api=context.Api;
+const first=await api.translateNativeText('Read this.\n\nKeep the source.',{source:'auto',target:'zh-Hans'},new AbortController().signal);
+assert.equal(first.ok,true);assert.equal(first.source,'browser-native');assert.equal(first.text,'译：Read this.\n\n译：Keep the source.');assert.equal(first.detectedLang,'en');assert.equal(detectorDestroys,1);assert.equal(destroys,1);
+assert.equal((options[0] as {targetLanguage:string}).targetLanguage,'zh');
+let entered!:()=>void;
+const started=new Promise<void>(r=>{entered=r;});
+translate=async(_text,{signal})=>{entered();await new Promise((_r,reject)=>{signal.addEventListener('abort',()=>reject(signal.reason),{once:true});});return 'late';};
+const controller=new AbortController(),queued=new AbortController();
+const running=api.translateNativeText('Pending text',{source:'en',target:'zh-Hans'},controller.signal);
+await started;
+const beforeQueued=creates;
+const waiting=api.translateNativeText('Cancelled waiter',{source:'en',target:'zh-Hans'},queued.signal);queued.abort();controller.abort();
+assert.equal((await running).error,'aborted');assert.equal((await waiting).error,'aborted');assert.equal(creates,beforeQueued);assert.equal(active,0);assert.equal(maxActive,1);
+translate=async text=>'译：'+text;
+assert.equal((await api.translateNativeText('Reopened',{source:'en',target:'zh-Hans'},new AbortController().signal)).ok,true);
+createFailure=new DOMException('Download requires activation','NotAllowedError');
+assert.equal((await api.translateNativeText('Not prepared',{source:'en',target:'zh-Hans'},new AbortController().signal)).error,'native-needs-setup');
+createFailure=undefined;
+await api.prepareNativeTranslation({source:'en',target:'zh-Hans'},new AbortController().signal);assert.equal(active,0);
+const record={...knowledgeFromTranslation({text:'Keep the source.',url:'https://example.com/native',title:'Native translation'},'auto','zh-Hans','保留来源。','en','browser-native'),id:'native-knowledge',createdAt:1,updatedAt:1};
+assert.deepEqual(parseKnowledge(serializeKnowledge(record)),record);
+const vocab=parseVocabDocument(serializeVocabRecord({id:'en::source',language:'en',expression:'source',status:'saved',forms:[],createdAt:1,updatedAt:1,contexts:[{sentence:'Keep the source.',url:'https://example.com/native',title:'Native translation',sourceType:'web',video:null,createdAt:1,definition:null,result:{kind:'translation',source:'browser-native',text:'保留来源。'}}]}));
+assert.ok(!('error' in vocab));assert.equal(vocab.managed.contexts[0]?.result?.kind,'translation');
+assert.equal(vocab.managed.contexts[0]?.result?.kind === 'translation' && vocab.managed.contexts[0].result.source,'browser-native');
+assert.equal(DEFAULT_SETTINGS.regularTranslation,'browser-native');
+console.log('PASS native paragraphs, detection, active/queued cancellation, session release, reopen, setup errors and saved-source round trip');

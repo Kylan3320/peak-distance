@@ -226,8 +226,10 @@ export async function translateSentences(
   }
   if (!arr || !arr.length) return { ok: false, error: 'bad-response' };
   const translations = arr
+    .slice(0, lines.length)
     .map((text, i) => ({ id: i, text }))
     .filter((t) => t.text);
+  if (!translations.length) return { ok: false, error: 'bad-response' };
   return { ok: true, translations };
 }
 
