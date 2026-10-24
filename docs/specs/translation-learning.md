@@ -243,4 +243,10 @@ Edge 带换行的样例取得了完整译文，但两行被合并为一段；后
 
 旧 Chrome 探针配置仍出现“服务数量限制”提示；检查其本地测试目录发现翻译运行库目录缺失、登记路径为相对路径，干净配置正常下载运行库后通过。未修改用户配置，也未把浏览器提示直接认定为扩展泄漏；该异常保留为环境边界。这里只证明上述版本和英中用例的实际结果，不代表所有设备、语言、长文质量或长期压力均已验证。
 
-可重复入口：`npx tsx tools/native-translation-check.ts`（会话释放、在途／排队取消、换行、识别、准备失败与来源往返）；`node tools/native-translation-runtime-check.mjs`（两款真实浏览器，支持 `--browser=chrome`／`--browser=edge`）。后者恢复 Playwright 默认关闭的 Translate、OptimizationHints 和组件网络行为，通过官方 DevTools 扩展安装接口安装当前构建；只在探针目录的隔离配置中重装测试扩展，使用浏览器沙盒，未强开实验 AI 特性。受控网页仅提供测试选文，译文来自真实模型。结果留在 `.upstream/native-translation-probe/integration-results.json` 及分浏览器记录。类型、构建、上述定向检查及既有翻译可靠性／缓存检查通过；未运行全量回归，尚未发布。
+可重复入口：`npx tsx tools/native-translation-check.ts`（会话释放、在途／排队取消、换行、识别、准备失败与来源往返）；`node tools/native-translation-runtime-check.mjs`（两款真实浏览器，支持 `--browser=chrome`／`--browser=edge`）。后者恢复 Playwright 默认关闭的 Translate、OptimizationHints 和组件网络行为，通过官方 DevTools 扩展安装接口安装当前构建；只在探针目录的隔离配置中重装测试扩展，使用浏览器沙盒，未强开实验 AI 特性。受控网页仅提供测试选文，译文来自真实模型。结果留在 `.upstream/native-translation-probe/integration-results.json` 及分浏览器记录。类型、构建、上述定向检查及既有翻译可靠性／缓存检查通过；该阶段未运行全量回归，后续发布检查见 8.7。
+
+### 8.7 v0.69.1 发布检查（2026-10-24）
+
+发布标签 `v0.69.1` 指向 `2b6be9b`，安装包从该提交的独立源码归档构建。执行 `npm ci` 后，类型、生产构建、数据回归、学习库格式、聊天生命周期、六家 AI 协议及五语言文案检查通过。Playwright 自带 Chromium 在本机启动报 `spawn UNKNOWN`；使用检查已有的 `BLC_CHROME` 入口指定已安装 Edge 后，可靠性、双浏览器学习库同步、字幕目标语言与词卡跨库保护、翻译限流及内置翻译逻辑检查全部通过。
+
+生产构建另通过五语言 UI 检查（`PEAK_DISTANCE_UI_EXTENSION=.output/chrome-mv3`）、`translation-learning-check.ts` 和 `translation-reliability-runtime-check.mjs`。本次没有重复 8.6 的真实模型下载／离线模拟测试，也不扩大其已验范围。Release 仅上传 `peak-distance-0.69.1-chrome.zip`；发布包上传后的大小及 SHA-256 与本地包一致。

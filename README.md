@@ -16,7 +16,7 @@ Peak Distance 是一款浏览器语言学习扩展。读网页、刷 X 或看 Yo
 
 ## 安装
 
-需要桌面 **Chrome 142 或更新版本**。当前发布版为 [v0.6.9](https://github.com/Kylan3320/peak-distance/releases/tag/v0.6.9)。
+需要桌面 **Chrome 142 或更新版本**。当前发布版为 [v0.69.1](https://github.com/Kylan3320/peak-distance/releases/tag/v0.69.1)。
 
 本 README 描述主线功能，可能领先于上方发布版；安装包以 Releases 为准。
 
