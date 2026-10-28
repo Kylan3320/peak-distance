@@ -123,9 +123,9 @@ try {
   await web.waitForFunction(()=>document.querySelector('#blc-lookup-pill')?.shadowRoot?.querySelector('#lookup')?.textContent==='Nachschlagen');
   await web.locator('#blc-lookup-pill #lookup').click();
   await web.locator('#blc-lookup-popup .act.save').waitFor();
-  assert.equal(await web.locator('#blc-lookup-popup .act.save').innerText(),'Speichern');
+  assert.equal(await web.locator('#blc-lookup-popup .act.save').getAttribute('aria-label'),'Gespeichert');
   await options.locator('#displayLanguage').selectOption('fr');
-  await web.waitForFunction(()=>document.querySelector('#blc-lookup-popup')?.shadowRoot?.querySelector('.act.save')?.textContent==='Enregistrer');
+  await web.waitForFunction(()=>document.querySelector('#blc-lookup-popup')?.shadowRoot?.querySelector('.act.save')?.getAttribute('aria-label')==='Enregistré');
   assert.equal(await web.locator('#blc-lookup-popup .ctx').innerText(),'Learning makes reading easier.');
   assert.equal(await web.locator('html').getAttribute('lang'),'en');
   if(output)await web.screenshot({path:path.join(output,'web-lookup-fr.png')});

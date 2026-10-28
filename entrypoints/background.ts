@@ -600,9 +600,9 @@ async function handle(
       // 页面侧已完成选目录/授权（pickVaultDirectoryInPage 把句柄写入 IDB），
       // 重新授权 = 页面再次选同一目录后重发本消息。
       const r = await adoptVault(closeLibraryWorkspace);
-      if (!r.ok) return bad(r.error);
+      if (!r.ok) return { ...bad(r.error), formatDiagnostic: r.formatDiagnostic };
       broadcastVaultChanges();
-      return { ok: true, vault: (await getVaultIdentity()) ?? null, imported: r.imported, syncError: r.syncError };
+      return { ok: true, vault: (await getVaultIdentity()) ?? null, imported: r.imported, syncError: r.syncError, formatDiagnostic: r.formatDiagnostic };
     }
     case 'vaultDisconnect': {
       await disconnectVault();

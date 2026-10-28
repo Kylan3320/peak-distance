@@ -34,6 +34,98 @@ export function cueEnd(cues: Cue[], index: number): number {
   return cue ? Math.min(cue.start + cue.dur, cues[index + 1]?.start ?? Infinity) : Infinity;
 }
 
+/** 平台译文缓存随显示分组规则更新；原始轨道身份与历史收藏不变。 */
+export const DISPLAY_CUE_VERSION = 2;
+
+export function sameDisplayCues(a: Cue[], b: Cue[]): boolean {
+  return a.length === b.length && a.every((cue, i) => {
+    const other = b[i]!;
+    return cue.start === other.start && cue.dur === other.dur && cue.text === other.text;
+  });
+}
+
+/** 只在完整 cue 之间合并；无法确认句末的尾部按源 cue 输出。 */
+export function groupDisplayCues(cues: Cue[], lang: string): Cue[] {
+  return groupCueUnits(cues, lang).cues;
+}
+
+/** 同一源列表派生两个视图；成员索引在分组时记录，不按时间猜归属。 */
+export function buildSubtitleViews(rawCues: Cue[], kind: 'manual' | 'asr', lang: string): {
+  cues: Cue[]; fragments: Cue[]; fragmentGroups: number[];
+} {
+  const fragments = kind === 'asr' ? normalizeAsrCues(rawCues) : rawCues;
+  return { ...groupCueUnits(fragments, lang), fragments };
+}
+
+function groupCueUnits(cues: Cue[], lang: string): { cues: Cue[]; fragmentGroups: number[] } {
+  const segmenter = new Intl.Segmenter(lang || undefined, { granularity: 'sentence' });
+  const separator = /^(zh|ja)(-|$)/i.test(lang) ? '' : ' ';
+  const out: Cue[] = [];
+  const fragmentGroups: number[] = [];
+  let pending: Cue[] = [];
+  const flushOriginal = () => {
+    for (const cue of pending) { fragmentGroups.push(out.length); out.push(cue); }
+    pending = [];
+  };
+  const join = (items: Cue[]) => items.map(c => c.text).join(separator);
+  for (let i = 0; i < cues.length; i++) {
+    const cue = cues[i]!;
+    if (pending.length && cue.start - (pending.at(-1)!.start + pending.at(-1)!.dur) > 1500) flushOriginal();
+    pending.push(cue);
+    // Segmenter 的输入结束也是边界；必须先看到真实句末标点。
+    if (!/[.!?。！？]["'”’»」』）)\]]*$/.test(cue.text)) continue;
+    const text = join(pending);
+    const next = cues[i + 1];
+    if (/(?:\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr))\.["'”’]*$/i.test(text)) continue;
+    if (/\d\.$/.test(text) && /^\d/.test(next?.text ?? '')) continue;
+    if (/\b[A-Za-z]\.$/.test(text) && /^[A-Za-z]\./.test(next?.text ?? '')) continue;
+    const probe = next ? text + separator + next.text : text;
+    const boundary = [...segmenter.segment(probe)].some(part => part.index + part.segment.trimEnd().length === text.length);
+    if (!boundary) continue;
+    for (const _cue of pending) fragmentGroups.push(out.length);
+    if (pending.length === 1) out.push(cue);
+    else {
+      const start = pending[0]!.start;
+      out.push({ start, dur: pending.reduce((end, c) => Math.max(end, c.start + c.dur), start) - start,
+        lastOff: pending.reduce((end, c) => Math.max(end, c.lastOff), start), text });
+    }
+    pending = [];
+  }
+  flushOriginal();
+  return { cues: out, fragmentGroups };
+}
+
+/** 跨多个短片段的整句译文不能重复贴到每个播放器片段；歧义项交给常规回退。 */
+export function alignFragmentTranslatedCues(fragments: Cue[], translated: Cue[]): Cue[] {
+  const unambiguous = translated.filter(target => {
+    let owners = 0;
+    for (const fragment of fragments) {
+      const overlap = Math.min(fragment.start + fragment.dur, target.start + target.dur) - Math.max(fragment.start, target.start);
+      if (overlap > 0 && overlap >= Math.min(fragment.dur, target.dur) * 0.25 && ++owners > 1) return false;
+    }
+    return owners === 1;
+  });
+  return alignTranslatedCues(fragments, unambiguous);
+}
+
+/** 后台字幕翻译仍用数字 ID；两个视图占不相交的域，相同全文只发一次。 */
+export function buildCueTranslationBatch(groups: Cue[], fragments: Cue[], groupIndices: number[], fragmentIndices: number[]): {
+  items: { id: number; text: string }[];
+  targets: { view: 'groups' | 'fragments'; index: number; id: number }[];
+} {
+  const items: { id: number; text: string }[] = [];
+  const targets: { view: 'groups' | 'fragments'; index: number; id: number }[] = [];
+  const byText = new Map<string, number>();
+  const add = (cue: Cue, index: number, view: 'groups' | 'fragments', proposedId: number) => {
+    const id = byText.get(cue.text) ?? proposedId;
+    if (!byText.has(cue.text)) { byText.set(cue.text, id); items.push({ id, text: cue.text }); }
+    targets.push({ view, index, id });
+  };
+  for (const index of groupIndices) add(groups[index]!, index, 'groups', index);
+  for (const index of fragmentIndices) add(fragments[index]!, index, 'fragments', groups.length + index);
+  return { items, targets };
+}
+
 /**
  * ASR 滚动重复消除与片段合并（保留来源时间）：
  * json3 自动字幕的相邻事件常为“同一句的逐步增长”（后者是前者的前缀延伸

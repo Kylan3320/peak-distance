@@ -65,6 +65,9 @@ main {min-height:0;min-width:0;overflow:auto;padding:20px 16px;flex:1;overscroll
 .selection-actions {position:fixed;z-index:10;display:flex;gap:4px;padding:4px;background:var(--pd-paper);border:1px solid var(--pd-line);border-radius:8px;box-shadow:var(--pd-shadow)}
 .selection-actions .blc-chat-add {display:inline-flex;align-items:center;justify-content:center;min-width:32px;padding-inline:6px}
 .selection-actions .blc-chat-add svg {width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.sentence-bookmark {color:var(--pd-blue)}
+.sentence-bookmark svg {fill:currentColor}
+.sentence-save-error {color:#b3261e;font-size:12px;flex-basis:100%}
 @media(max-width:359px){.brand-row{gap:4px;margin-bottom:12px}.brand-name{font-size:20px;overflow:hidden;text-overflow:ellipsis}.brand-name small{display:none}}
 @media(min-width:560px){body{grid-template-columns:184px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.app-header{padding:24px 12px 0;border-right:1px solid var(--pd-line);border-bottom:0;position:relative;overflow:hidden;display:flex;flex-direction:column}.brand-row{grid-template-columns:minmax(0,1fr);gap:12px;position:relative;z-index:1}.brand-name{font-size:20px;flex:1 1 100%}.brand-name small{font-size:9px;letter-spacing:0}#views{flex-direction:column;background:transparent;padding:0;position:relative;z-index:1}#views button{text-align:left;padding:8px 12px}#views button.active{background:var(--pd-selected);box-shadow:none}.brand-landscape{display:block;flex:1;min-height:100px;margin:24px -12px 0;background:url('/brand/mountain-coast.png') center bottom/auto 100%;opacity:.85}.app-content{background:#fffdfaab}main{padding:24px}#library-tools{padding:24px}.entry-head{flex-wrap:nowrap}}
 @media(prefers-reduced-motion:no-preference){button{transition:background .12s,color .12s}}

@@ -1,12 +1,11 @@
-import { alignTranslatedCues, normalizeAsrCues } from '@/shared/cues';
+import { alignTranslatedCues, alignFragmentTranslatedCues, buildSubtitleViews, sameDisplayCues } from '@/shared/cues';
 // MAIN world、document_start 的字幕嗅探脚本。
 //
 // 移植自 yt-dual-subs 的 inject.js（MIT，Gythiro，commit 5657c8a，2026-09-12，
 // v3.7.0），见 docs/REFERENCES.md。核心链路：
 //   1. 钩住 fetch / XMLHttpRequest，并以 PerformanceObserver（Resource Timing）
 //      兜底，捕获播放器自己发出的 /api/timedtext 请求 URL —— 它携带当前有效
-//      的 pot（proof-of-origin）令牌与签名，2025 年后不带 pot 直接请求
-//      captionTracks 的 baseUrl 会得到空响应；
+//      的可用凭据和签名（如 pot），不将某个参数视作所有视频的必需条件；
 //   2. 复用该 URL（保留 pot 与全部参数）加 fmt=json3，在页面上下文
 //      （同源、带 cookie）重新拉取并解析为 cue 列表；
 //   3. 通过 window.postMessage 把 {videoId, nonce, cues} 发给隔离世界的
@@ -74,8 +73,9 @@ export default defineContentScript({
         });
         if (!res.ok) throw new Error(`timedtext http ${res.status}`);
         const txt = await res.text();
-        if (!txt) throw new Error('timedtext empty body');
-        return JSON.parse(txt);
+        if (!txt.trim()) throw new Error('empty-response');
+        try { return JSON.parse(txt); }
+        catch { throw new Error('parse-failed'); }
       } finally {
         setTimeout(() => {
           const n = (selfUrls.get(url) || 1) - 1;
@@ -160,21 +160,20 @@ export default defineContentScript({
 
     // ---- 产出字幕（新来源/配置取消旧请求，不让旧视频阻塞当前视频） ------------
 
-    let subtitleSource: { src: string; videoId: string; trackId: string; cues: Cue[]; kind: 'manual' | 'asr' } | null = null;
+    let subtitleSource: { src: string; videoId: string; trackId: string; rawCues: Cue[]; cues: Cue[]; fragments: Cue[]; fragmentGroups: number[] } | null = null;
     let translationController: AbortController | null = null;
     let sourceController: AbortController | null = null;
 
     async function produceCues(): Promise<void> {
       // 开始即固定来源与轨道身份：此后所有读取只用固定值（时序 B）。
-      const pinned = tracker.pinForProduce();
-      if (!cfg || !pinned) return;
+      if (!cfg) return;
+      const pinned = tracker.claimProduce(location.href);
+      if (!pinned) return;
       const src = pinned.src;
       // 捕获的源 URL 必须属于当前视频。
-      if (tracker.producedForUrl === src) return;
       sourceController?.abort();
       const controller = new AbortController();
       sourceController = controller;
-      tracker.producedForUrl = src;
       clearNocuesTimer();
 
       const vid = tracker.currentVideoId;
@@ -187,24 +186,30 @@ export default defineContentScript({
         const json = await fetchJson3(buildJson3Url(src, location.href), controller.signal);
         // 拉取期间轨道或视频已变 —— 旧结果整体丢弃，不带新元数据发出。
         if (stale()) return;
-        const cues = parseJson3(json);
-        if (!cues.length) {
-          tracker.producedForUrl = ''; // 轨道稍后可能产出内容，允许重试
+        const rawCues = parseJson3(json);
+        if (!rawCues.length) {
           post('nocues', myNonce, { reason: 'empty-track' });
           return;
         }
-        translationController?.abort();
-        subtitleSource = { src, videoId: vid, trackId: pinned.trackKey, cues, kind };
+        const views = buildSubtitleViews(rawCues, kind, lang);
+        if (!subtitleSource || subtitleSource.trackId !== pinned.trackKey || !sameDisplayCues(subtitleSource.cues, views.cues) || !sameDisplayCues(subtitleSource.fragments, views.fragments)) {
+          translationController?.abort();
+          subtitleSource = { src, videoId: vid, trackId: pinned.trackKey, rawCues, ...views };
+        } else {
+          subtitleSource.src = src;
+          subtitleSource.rawCues = rawCues;
+        }
         post('cues', myNonce, {
-          cues,
+          ...views,
           trackKind: kind,
           trackLang: lang,
           trackId: pinned.trackKey,
         });
       } catch (err) {
         if (stale()) return;
-        tracker.producedForUrl = ''; // 允许下次捕获时重试
-        post('nocues', myNonce, { reason: (err as Error)?.name === 'TimeoutError' ? 'fetch-timeout' : 'fetch-failed' });
+        const error = err as Error;
+        post('nocues', myNonce, { reason: error.name === 'TimeoutError' ? 'fetch-timeout'
+          : error.message === 'empty-response' ? 'empty-response' : error.message === 'parse-failed' ? 'parse-failed' : 'fetch-failed' });
       }
     }
 
@@ -225,30 +230,33 @@ export default defineContentScript({
       const currentSourceUrl = captionUrlFor({ id: trackOfUrl(source.trackId)!.id,
         url: tracker.sourceKey === source.trackId ? tracker.sourceUrl : source.src }, tracker.tokenSourceUrl, location.href)!;
       const targetPrimary = tlangCode(targetTag).split('-')[0]!.toLowerCase();
-      let normalized = source.kind === 'asr' ? normalizeAsrCues(source.cues) : source.cues.map(c => ({ ...c }));
+      let normalized = source.cues.map(c => ({ ...c }));
+      let fragments = source.fragments.map(c => ({ ...c }));
+      const applyTranslated = (translated: Cue[]) => {
+        const grouped = alignTranslatedCues(source.cues, translated);
+        const short = alignFragmentTranslatedCues(source.fragments, translated);
+        normalized = normalized.map((cue, i) => ({ ...cue, zh: cue.zh ?? grouped[i]?.zh }));
+        fragments = fragments.map((cue, i) => ({ ...cue, zh: cue.zh ?? short[i]?.zh }));
+      };
       try {
         const tracks = captionTracksOf(activePlayer());
         const target = tracks.filter(t => t.lang.split('-')[0] === targetPrimary).sort((a, b) => Number(a.kind === 'asr') - Number(b.kind === 'asr'))[0];
         if (target) {
           // 上游捕获 URL 的有效 pot 保留；独立轨道自身签名优先。
           const url = captionUrlFor(target, tracker.tokenSourceUrl, location.href);
-          if (url) try { normalized = alignTranslatedCues(normalized, parseJson3(await fetchJson3(url, controller.signal))); } catch { /* 缺失部分继续平台翻译 */ }
+          if (url) try { applyTranslated(parseJson3(await fetchJson3(url, controller.signal))); } catch { /* 缺失部分继续平台翻译 */ }
         }
-        if (normalized.some(c => !c.zh) && !controller.signal.aborted) {
+        if ((normalized.some(c => !c.zh) || fragments.some(c => !c.zh)) && !controller.signal.aborted) {
           // yt-dual-subs inject.js buildUrl：保留签名及 pot，仅设置 fmt/tlang。
           const url = new URL(currentSourceUrl); url.searchParams.set('tlang', tlangCode(targetTag));
           try {
             const translated = parseJson3(await fetchJson3(url.toString(), controller.signal));
-            const byStart = new Map(translated.map(c => [c.start, c.text]));
-            const paired = source.cues.map(c => ({ ...c, zh: byStart.get(c.start) }));
-            const merged = source.kind === 'asr' ? normalizeAsrCues(paired) : paired;
-            const byCue = new Map(merged.map(c => [c.start, c.zh]));
-            normalized = normalized.map(c => ({ ...c, zh: c.zh ?? byCue.get(c.start) }));
+            applyTranslated(translated);
           } catch { /* 通用翻译在隔离世界接手缺失项 */ }
         }
       } finally {
         if (!controller.signal.aborted && source === subtitleSource && source.videoId === videoIdFromLocation()) {
-          post('translation', nonce, { videoId: source.videoId, trackId, requestId, cues: normalized });
+          post('translation', nonce, { videoId: source.videoId, trackId, requestId, cues: normalized, fragments });
         }
       }
     }
@@ -285,7 +293,7 @@ export default defineContentScript({
       cancelAcquisition();
       cfg = true;
       reqNonce = nonce;
-      tracker.producedForUrl = '';
+      tracker.resetAttempts();
       postTracklist(nonce);
     }
 
@@ -342,7 +350,7 @@ export default defineContentScript({
         seenTimedtext++;
         const result = tracker.noteTimedtext(url as string, location.href, startedAt);
         // 同轨道从无 pot 到有效 pot 是来源修复；不能只存 URL 却继续等旧请求。
-        if (result === 'new' || (result === 'refresh' && subtitleSource?.trackId !== tracker.sourceKey)) acquireCurrentTrack();
+        if (result === 'new' || result === 'refresh') acquireCurrentTrack();
       } catch {
         /* never throw */
       }

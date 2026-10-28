@@ -3,7 +3,8 @@ import { AI_PRESETS, defaultAiProfile, normalizeAiBaseUrl, readAiServices, valid
 import { TARGET_LANGUAGES, langDisplayName, primaryOfLang, type LanguageTag } from './languages';
 import { authorizeVaultInPage, pickVaultDirectoryInPage } from '@/lib/vault/fs';
 import { uiIcon } from './uiControls';
-import type { VaultStatus } from './vault';
+import type { VaultFormatDiagnostic, VaultStatus } from './vault';
+import type { VaultConnectResult, VaultMutationResult } from './messages';
 import { DISPLAY_LANGUAGES, DISPLAY_LANGUAGE_NAMES, localize, onDisplayLanguageChange, getDisplayLanguage, t, message, setText, setLocalizedAttribute, languageLabel, type UiText } from './i18n';
 
 /** 理解语言候选：中文区分简繁，其余用主标签。 */
@@ -210,7 +211,23 @@ export function mountSettings(root: HTMLElement) {
   let vaultBusy = false;
   let vaultFeedback: UiText | null = null;
   let vaultFeedbackError = false;
+  let vaultFormatDiagnostic: VaultFormatDiagnostic | null = null;
   const vaultErrors:Record<string,string>={'not-connected':'请先连接学习文件夹','no-permission':'未获得文件夹读写权限，请重新连接并允许访问','io':'文件读写失败，未完成的内容仍保留在本机，请重试','format':'学习文档格式有误，请检查文档后重试','conflict':'存在同一记录的修改冲突，双方内容已保留'};
+  function rememberVaultDiagnostic(result: {ok:boolean;syncError?:string;formatDiagnostic?:VaultFormatDiagnostic}|null) {
+    if(result?.formatDiagnostic)vaultFormatDiagnostic=result.formatDiagnostic;
+    else if(result?.ok&&!result.syncError){vaultFormatDiagnostic=null;if(vaultFeedbackError){vaultFeedback=null;vaultFeedbackError=false;}}
+  }
+  function vaultDiagnosticNotice():UiText|null {
+    if(!vaultFormatDiagnostic)return null;
+    const reasons:Record<string,string>={
+      'material format':'材料格式无效','chat format':'对话格式无效','missing material':'缺少引用的材料版本',
+      'vocab':'词汇格式无效','sentence':'句子格式无效','sentence source':'句子来源无效',
+      'knowledge':'知识记录格式无效','knowledge metadata':'知识记录格式无效','knowledge body':'知识记录格式无效','duplicate knowledge':'知识记录重复',
+    };
+    const reason=vaultFormatDiagnostic.reason.replace(/^Error: format: /,'');
+    const reasonKey=reasons[reason]??(/^(?:生词本|句子|知识点)\.md$|^missing record separator in /.test(reason)?'集合格式无效':vaultErrors.format!);
+    return message('文档格式有误：{path}（{reason}）',{path:vaultFormatDiagnostic.path,reason:message(reasonKey)});
+  }
   function showVaultNotice(text:string|UiText,error=false) {
     setText(get('vault-state'),text);get('vault-state').classList.toggle('err',error);
   }
@@ -219,7 +236,7 @@ export function mountSettings(root: HTMLElement) {
     try{
       const r=await browser.runtime.sendMessage({type:'vaultStatus'}) as {ok?:boolean;status?:VaultStatus}|null;
       const s=r?.status;
-      if(!s){showVaultNotice(message('状态读取失败'),true);return;}
+      if(!s){showVaultNotice(vaultDiagnosticNotice()??message('状态读取失败'),true);return;}
       const reconnect=s.connected&&s.lastError==='no-permission';
       setText(get('vault-label'),message(reconnect?'需要重新连接':s.connected?'已连接':'未连接。'));
       get('vault-meta').hidden=!s.connected;
@@ -235,8 +252,8 @@ export function mountSettings(root: HTMLElement) {
       setLocalizedAttribute(connect,'title',connectLabel);setLocalizedAttribute(connect,'aria-label',connectLabel);
       get('vault-disconnect').hidden=!s.connected;get('vault-flush').hidden=!s.connected;
       const error=s.lastError?(vaultErrors[s.lastError]?message(vaultErrors[s.lastError]!):s.lastError):null;
-      showVaultNotice(error??vaultFeedback??'',!!error||vaultFeedbackError);
-    }catch{showVaultNotice(message('状态读取失败，请重试'),true);}
+      showVaultNotice(vaultDiagnosticNotice()??error??vaultFeedback??'',!!vaultFormatDiagnostic||!!error||vaultFeedbackError);
+    }catch{showVaultNotice(vaultDiagnosticNotice()??message('状态读取失败，请重试'),true);}
   }
   get('vault-connect').addEventListener('click',async()=>{
     showVaultNotice(message('请选择学习文件夹…'));
@@ -245,7 +262,8 @@ export function mountSettings(root: HTMLElement) {
     if(!picked){showVaultNotice(message('未选择目录（或当前页面不支持），未做更改。'));return;}
     showVaultNotice(message('正在连接…'));
     try{
-      const r=await browser.runtime.sendMessage({type:'vaultConnect'}) as {ok?:boolean;imported?:boolean;error?:string;syncError?:string}|null;
+      const r=await browser.runtime.sendMessage({type:'vaultConnect'}) as VaultConnectResult|null;
+      rememberVaultDiagnostic(r);
       vaultFeedbackError=!r?.ok||!!r.syncError;
       vaultFeedback=r?.ok
         ? r.syncError?message('同步未完成：{error}',{error:vaultErrors[r.syncError]?message(vaultErrors[r.syncError]!):r.syncError}):null
@@ -254,7 +272,7 @@ export function mountSettings(root: HTMLElement) {
     await refreshVault();
   });
   get('vault-disconnect').addEventListener('click',async()=>{
-    try{await browser.runtime.sendMessage({type:'vaultDisconnect'});vaultFeedback=null;vaultFeedbackError=false;}
+    try{await browser.runtime.sendMessage({type:'vaultDisconnect'});vaultFeedback=null;vaultFeedbackError=false;vaultFormatDiagnostic=null;}
     catch{showVaultNotice(message('断开失败，请重试'),true);return;}
     await refreshVault();
   });
@@ -265,7 +283,8 @@ export function mountSettings(root: HTMLElement) {
     showVaultNotice(message('正在同步…'));
     try{
       if(await authorizeVaultInPage()!=='granted')throw new Error('no-permission');
-      const r=await browser.runtime.sendMessage({type:'vaultFlush'}) as {ok?:boolean;committed?:number;updated?:number;deleted?:number;error?:string}|null;
+      const r=await browser.runtime.sendMessage({type:'vaultFlush'}) as (VaultMutationResult&{committed?:number;updated?:number;deleted?:number})|null;
+      rememberVaultDiagnostic(r);
       if(!r?.ok)throw new Error(r?.error??'io');
       vaultFeedbackError=false;
       vaultFeedback=message('同步完成：写入 {written} 项，读回 {read} 项，移除 {deleted} 项',{written:r.committed??0,read:r.updated??0,deleted:r.deleted??0});
@@ -280,7 +299,11 @@ export function mountSettings(root: HTMLElement) {
   async function syncOnActivity():Promise<void> {
     if(activitySync||document.visibilityState==='hidden')return;
     activitySync=true;
-    try{await browser.runtime.sendMessage({type:'vaultSync'});}catch{ /* Manual sync reports actionable errors. */ }
+    try{
+      const r=await browser.runtime.sendMessage({type:'vaultSync'}) as VaultMutationResult|null;
+      rememberVaultDiagnostic(r);
+      await refreshVault();
+    }catch{ /* Manual sync reports actionable errors. */ }
     finally{activitySync=false;}
   }
   window.addEventListener('focus',()=>void syncOnActivity());

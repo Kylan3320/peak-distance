@@ -60,7 +60,12 @@ export interface CuesMessage {
   trackId: string;
   /** 嗅探器至今见过的 timedtext 请求数（诊断用，不受过滤影响） */
   seen: number;
+  /** 侧栏／AP／整句收藏使用的保守分组学习单位。 */
   cues: Cue[];
+  /** 播放器使用的 ASR 去重短片段，与整句共用原始来源。 */
+  fragments: Cue[];
+  /** 每个短片段所属的 cues 索引，MAIN 在分组时记录。 */
+  fragmentGroups: number[];
 }
 
 export interface NoCuesMessage {
@@ -90,6 +95,7 @@ export interface TranslationCuesMessage {
   trackId: string;
   requestId: string;
   cues: Cue[];
+  fragments: Cue[];
 }
 
 export interface TrackSelectedMessage {

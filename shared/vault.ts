@@ -12,6 +12,12 @@ import type { LanguageTag } from './languages';
 export const VAULT_FORMAT_VERSION = 4;
 export type VaultError = 'not-connected' | 'no-permission' | 'io' | 'conflict' | 'format';
 
+/** First known invalid document in one scan; path is relative to the connected vault. */
+export interface VaultFormatDiagnostic {
+  path: string;
+  reason: string;
+}
+
 export function vaultErrorCode(error: unknown): VaultError {
   const message = error instanceof Error ? error.message : String(error);
   if (message.startsWith('conflict:')) return 'conflict';

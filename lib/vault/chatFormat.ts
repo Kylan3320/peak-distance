@@ -97,6 +97,7 @@ function unquote(v: string): string {
 }
 
 export function parseChatDocument(text: string): ParsedChatDocument | { error: 'format' } {
+  text = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
   const fmMatch = text.match(/^---\n([\s\S]*?)\n---\n/);
   if (!fmMatch) return { error: 'format' };
   const fm: Record<string, string> = {};
@@ -204,6 +205,7 @@ export function serializeMaterialSnapshot(chatId: string, snapshot: MaterialSnap
 }
 
 export function parseMaterialDocument(text: string): { chatId: string; version: number; snapshot: MaterialSnapshotRecord } | { error: 'format' } {
+  text = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
   const fmMatch = text.match(/^---\n([\s\S]*?)\n---\n/);
   if (!fmMatch) return { error: 'format' };
   const fm: Record<string, string> = {};

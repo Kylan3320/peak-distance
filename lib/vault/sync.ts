@@ -59,6 +59,7 @@ import type {
   VaultVocabRecord,
   VaultPreferenceRecord,
   VaultPendingWrite,
+  VaultFormatDiagnostic,
 } from '@/shared/vault';
 import { entryViewToVaultRecord, sentenceToVaultRecord, vaultRecordToEntry } from './records';
 import { DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
@@ -292,6 +293,7 @@ export interface SyncResult {
   deleted: number;
   conflicts: number;
   broken: number;
+  formatDiagnostic?: VaultFormatDiagnostic;
 }
 
 type VaultSyncResult = SyncResult & { error?: FlushResult['error'] };
@@ -508,7 +510,7 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
     }
   }
 
-  return { updated, deleted, conflicts, broken: scan.broken.length,
+  return { updated, deleted, conflicts, broken: scan.broken.length, formatDiagnostic: scan.broken[0],
     ...(scan.readFailures ? { error: 'io' as const } : scan.broken.length ? { error: 'format' as const } : {}) };
 }
 
@@ -525,7 +527,8 @@ async function synchronize() {
 
 export const adoptVault = (prepareSwitch?: () => Promise<void>) => runVaultOperation(() => adoptConnectedVault(prepareSwitch));
 async function adoptConnectedVault(prepareSwitch?: () => Promise<void>): Promise<
-  { ok: true; imported: boolean; status: VaultStatus; syncError?: FlushResult['error'] } | { ok: false; error: string }
+  { ok: true; imported: boolean; status: VaultStatus; syncError?: FlushResult['error']; formatDiagnostic?: VaultFormatDiagnostic }
+  | { ok: false; error: string; formatDiagnostic?: VaultFormatDiagnostic }
 > {
   const handle = (await getVaultHandle()) as DirHandle | null;
   if (!handle) return { ok: false, error: 'no-handle' };
@@ -551,9 +554,9 @@ async function adoptConnectedVault(prepareSwitch?: () => Promise<void>): Promise
     imported = true;
   }
   const result = await synchronize();
-  if (result.error && result.error !== 'conflict') return { ok: false, error: result.error };
+  if (result.error && result.error !== 'conflict') return { ok: false, error: result.error, formatDiagnostic: result.formatDiagnostic };
   const status = await getVaultStatus();
-  return { ok: true, imported, status, syncError: result.error };
+  return { ok: true, imported, status, syncError: result.error, formatDiagnostic: result.formatDiagnostic };
 }
 
 export const disconnectVault = () => runVaultOperation(clearVault);

@@ -25,6 +25,7 @@ import {
   VOCAB_STATUS_LABEL,
 } from '@/shared/vocab';
 import { entryKeyOf } from './languages';
+import { readingIcon, readingIconStyles, animateBookmark } from './readingIcons';
 
 export const POPUP_ID = 'blc-lookup-popup';
 
@@ -69,6 +70,7 @@ interface PinnedState {
   onContinueAsk: PopupOpenArgs['onContinueAsk'];
   savedContextId: number | null;
   saving?: boolean;
+  saveError?: boolean;
   definition: string | null;
   result?: LearningResult;
   explanation?: ContextExplanation;
@@ -199,8 +201,7 @@ export function createLookupPopup(opts: {
         .sources a svg {width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
         button.act {box-sizing:border-box;cursor:pointer;padding:7px 8px;border:1px solid transparent;min-height:36px;border-radius:7px;font:13px/1.5 system-ui}
         button:disabled {opacity:.6;cursor:default}
-        button.save { background: var(--pd-blue); color: var(--pd-surface); }
-        button.save:hover { background: #1765cc; }
+        ${readingIconStyles}
         button.ghost { background: transparent; color: var(--pd-ink); border-color:var(--pd-line); }
         button.ghost:hover { background: var(--pd-selected); }
         select {cursor:pointer;max-width:100%;min-height:34px;padding:6px 10px;border:1px solid var(--pd-line);border-radius:6px;font:13px/1.5 system-ui;background:var(--pd-surface)}
@@ -209,7 +210,6 @@ export function createLookupPopup(opts: {
         @media(max-width:359px) {.sources select {width:100%;margin-bottom:4px}}
         .feedback { font-size: 12px; margin-top: 8px; }
         .feedback:empty {display:none}
-        .feedback.ok { color: #137333; }
         .feedback.err { color: #d93025; }
         .err-kind { font-size: 11px; color: var(--pd-muted); margin-top: 2px; }
       `;
@@ -309,22 +309,31 @@ export function createLookupPopup(opts: {
     row.className = 'row';
 
     const save = document.createElement('button');
-    save.className = 'act save';
-    setText(save, message('保存'));
+    save.className = `act reading-icon save${p.savedContextId !== null ? ' is-saved' : ''}`;
+    save.innerHTML = readingIcon('bookmark');
+    const saveLabel = message(p.saving ? '保存中…' : p.savedContextId !== null ? '已收藏' : '保存');
+    setLocalizedAttribute(save, 'title', saveLabel);
+    setLocalizedAttribute(save, 'aria-label', saveLabel);
+    save.setAttribute('aria-busy', String(!!p.saving));
+    save.disabled = !!p.saving || p.savedContextId !== null;
     save.addEventListener('click', () => void doSave());
     row.appendChild(save);
 
     const master = document.createElement('button');
-    master.className = 'act ghost';
-    setText(master, message('已掌握'));
+    master.className = 'act reading-icon';
+    master.innerHTML = readingIcon('check');
+    setLocalizedAttribute(master, 'title', message('已掌握'));
+    setLocalizedAttribute(master, 'aria-label', message('已掌握'));
+    master.disabled = !!p.saving;
     master.addEventListener('click', () => void doSave('known'));
     row.appendChild(master);
 
     if (!p.compact && typeof p.onContinueAsk === 'function') {
       const ask = document.createElement('button');
-      ask.className = 'act ghost';
-      setText(ask, message('继续问'));
-      setLocalizedAttribute(ask, 'title', message('带着这句原文转入侧栏问答'));
+      ask.className = 'act reading-icon';
+      ask.innerHTML = readingIcon('ask');
+      setLocalizedAttribute(ask, 'title', message('继续问'));
+      setLocalizedAttribute(ask, 'aria-label', message('继续问'));
       ask.addEventListener('click', () => {
         if (!pinned) return;
         p.onContinueAsk!({
@@ -352,8 +361,10 @@ export function createLookupPopup(opts: {
     }
 
     const close = document.createElement('button');
-    close.className = 'act ghost';
-    setText(close, message('关闭'));
+    close.className = 'act reading-icon';
+    close.innerHTML = readingIcon('close');
+    setLocalizedAttribute(close, 'title', message('关闭'));
+    setLocalizedAttribute(close, 'aria-label', message('关闭'));
     close.addEventListener('click', () => closePopup());
     row.appendChild(close);
     body.appendChild(row);
@@ -362,7 +373,9 @@ export function createLookupPopup(opts: {
     const fb = document.createElement('div');
     fb.className = 'feedback';
     fb.id = 'blc-feedback';
+    fb.setAttribute('role', 'status');
     body.appendChild(fb);
+    if (p.saveError) setFeedback(false, message('保存失败，请重试'));
     applyDragPos(body);
   }
 
@@ -525,30 +538,35 @@ export function createLookupPopup(opts: {
   }
 
   async function doSave(status?: VocabStatus): Promise<void> {
-    if (!pinned) return;
+    if (!pinned || pinned.saving || (!status && pinned.savedContextId !== null)) return;
     const p = pinned;
+    const wasSaved = p.savedContextId !== null;
     p.saving = true;
-    setFeedback(false, message('保存中…'));
-    const r = await send<SaveResult | BgcError>({
+    p.saveError = false;
+    renderPopup();
+    let r: SaveResult | BgcError | undefined;
+    try { r = await send<SaveResult | BgcError>({
       type: 'save',
       snapshot: p.snapshot,
       status,
       result: p.result,
       explanation: p.explanation,
-    });
+    }); } catch { r = undefined; }
     p.saving = false;
     if (r && r.ok) {
       p.savedContextId = r.contextId;
       p.entryKey = r.key; // 保存返回的词条键（可能是作用域键）
-      await backfill(p);
+      // The save reply already confirms the local database write.
+      void backfill(p);
       if (pinned !== p) return;
       p.status = r.status;
       p.entryExists = true;
-      // 先重建卡片再写反馈：renderPopup 会清空卡片内容
       renderPopup();
-      setFeedback(true, r.appended ? message('已保存 ✓') : message('该上下文已存在，未重复追加'));
+      const button = document.getElementById(POPUP_ID)?.shadowRoot?.querySelector<HTMLButtonElement>('button.save');
+      if (button && !wasSaved) animateBookmark(button);
     } else {
-      setFeedback(false, message('保存失败，请重试'));
+      p.saveError = true;
+      if (pinned === p) renderPopup();
     }
   }
 
@@ -561,7 +579,6 @@ export function createLookupPopup(opts: {
     if (r?.ok) {
       pinned.status = status;
       renderPopup();
-      setFeedback(true, message('状态已更新'));
     } else {
       setFeedback(false, message('状态更新失败'));
     }

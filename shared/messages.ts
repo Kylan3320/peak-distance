@@ -10,7 +10,7 @@ import type { LearningResult, ContextExplanation } from './vocab';
 
 import type { LookupSnapshot, VocabIndexItem, VocabStatus } from './vocab';
 import type { LanguageTag } from './languages';
-import type { VaultIdentity, VaultStatus } from './vault';
+import type { VaultError, VaultFormatDiagnostic, VaultIdentity, VaultStatus } from './vault';
 import type {
   ChatRecordView,
   MaterialPayload,
@@ -195,9 +195,9 @@ export type GetSettingsResult = { ok: true; settings: SettingsView } | BgcError;
 
 export type VaultStatusResult = { ok: true; status: VaultStatus } | BgcError;
 export type VaultConnectResult =
-  | { ok: true; vault: VaultIdentity | null; imported: boolean } // imported = 首次连接合并了本机持久记录
-  | BgcError;
-export type VaultMutationResult = { ok: true } | BgcError;
+  | { ok: true; vault: VaultIdentity | null; imported: boolean; syncError?: VaultError; formatDiagnostic?: VaultFormatDiagnostic } // imported = 首次连接合并了本机持久记录
+  | (BgcError & { formatDiagnostic?: VaultFormatDiagnostic });
+export type VaultMutationResult = ({ ok: true } | BgcError) & { formatDiagnostic?: VaultFormatDiagnostic };
 
 /**
  * background → 扩展页面与各标签页 content script 的广播。
