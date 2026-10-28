@@ -156,6 +156,7 @@ export class SubtitleSourceTracker {
   sourceUrl = '';
   sourceKey = '';
   producedForUrl = '';
+  private attemptedUrls = new Set<string>();
   tokenSourceUrl = ''; // 当前视频最近携带 pot 的 URL，不随一次选轨失败或取消丢失。
   selectedTrack: SubtitleTrack | null = null;
   private playerTrackId: string | null = null;
@@ -207,6 +208,20 @@ export class SubtitleSourceTracker {
 
   clearSource(): void {
     this.sourceUrl = ''; this.sourceKey = ''; this.producedForUrl = '';
+    this.resetAttempts();
+  }
+
+  resetAttempts(): void { this.attemptedUrls.clear(); }
+
+  /** 每轮每个实际请求 URL 只拉取一次，失败仍保留；新凭据和显式重试可继续。 */
+  claimProduce(href: string): PinnedSource | null {
+    const pinned = this.pinForProduce();
+    if (!pinned) return null;
+    const requestUrl = buildJson3Url(pinned.src, href);
+    if (this.attemptedUrls.has(requestUrl)) return null;
+    this.attemptedUrls.add(requestUrl);
+    this.producedForUrl = pinned.src;
+    return pinned;
   }
 
   /** 记录在途 timedtext URL。调用方已排除自身请求（selfUrls）。 */

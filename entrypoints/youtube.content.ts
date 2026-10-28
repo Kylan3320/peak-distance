@@ -36,7 +36,7 @@ import {
   type Cue,
   type InjectMessage,
 } from '@/shared/protocol';
-import { cueIndexAt, cueEnd, fmtClock, normalizeAsrCues } from '@/shared/cues';
+import { cueIndexAt, cueEnd, fmtClock, sameDisplayCues, buildCueTranslationBatch, DISPLAY_CUE_VERSION } from '@/shared/cues';
 import { subtitleFontSize } from '@/shared/youtubeWorkspace';
 import { createLookupPopup } from '@/shared/lookupPopup';
 import {
@@ -78,8 +78,10 @@ export default defineContentScript({
     let currentVideoId = videoIdFromLocation();
     let nonce = 0;
     let navSeq = 0;
-    // 展示用字幕（ASR 已滚动合并；人工轨道原样）
+    // 侧栏、整句收藏及 AP 使用学习单位；播放器使用同源短片段。
     let cues: Cue[] = [];
+    let fragments: Cue[] = [];
+    let fragmentGroups: number[] = [];
     let lastTrack = '';
     let lastTrackLang = '';
     let lastTrackId = '';
@@ -102,6 +104,7 @@ export default defineContentScript({
 
     // 翻译会话（videoId|trackId 域内复用）
     const translations = new Map<number, string>();
+    const fragmentTranslations = new Map<number, string>();
     let translateSession = '';
     let translating = false;
     let settings: Settings = { ...DEFAULT_SETTINGS };
@@ -132,18 +135,21 @@ export default defineContentScript({
     let apIndex = -1;
     let apHeld = false;
     let apDisplayIndex = -1;
+    let apDisplayFragmentIndex = -1;
     let apLastStopped = -1;
     let sentences: SavedSentence[] = [];
     const translationSources = new Map<number, string>();
     let translationEpoch = 0;
     let requestId: string | null = null;
-    let platformRequest: { id: string; cacheKey: string; targetLang: string } | null = null;
+    let platformRequest: { id: string; cacheKey: string; fragmentCacheKey: string; targetLang: string } | null = null;
     let platformState: 'idle' | 'waiting' | 'done' = 'idle';
     let platformTimer: ReturnType<typeof setTimeout> | null = null;
     const failedCues = new Set<number>();
+    const failedFragmentCues = new Set<number>();
 
     // 当前句
     let currentIdx = -1;
+    let currentFragmentIdx = -1;
     let renderQueued = false;
 
     // 词状态（字幕内低强调标记）
@@ -337,7 +343,7 @@ export default defineContentScript({
         acquisitionTimer = setTimeout(() => {
           acquisitionTimer = null;
           if (cues.length && !pendingTrack) return;
-          failAcquisition('acquisition-timeout');
+          failAcquisition(nocuesReason && nocuesReason !== 'no-timedtext-seen' ? nocuesReason : 'acquisition-timeout');
         }, 30000);
       }
     }
@@ -347,11 +353,22 @@ export default defineContentScript({
       acquisitionTimer = null;
     }
 
+    function cancelSourceAcquisition(): void {
+      clearAcquisitionTimer();
+      postToInject({ type: 'source-cancel', nonce });
+      nonce++;
+    }
+
     function failAcquisition(reason: string): void {
       clearAcquisitionTimer();
       postToInject({ type: 'source-cancel', nonce });
+      nonce++; // 已排入消息队列的旧代次回复也不能恢复本轮。
       nocuesReason = reason;
-      notice = pendingTrack ? '字幕切换失败，请重新选择原文语言' : reason.includes('timeout') ? '字幕获取超时' : reason === 'no-timedtext-seen' ? '未捕获到字幕，请确认此视频已开启字幕' : '字幕获取失败';
+      notice = reason.includes('timeout') ? '字幕获取超时'
+        : reason === 'empty-response' || reason === 'empty-track' ? '字幕响应为空，请重试'
+        : reason === 'fetch-failed' ? '字幕网络请求失败，请重试'
+        : reason === 'parse-failed' ? '字幕解析失败，请重试'
+        : pendingTrack ? '字幕切换失败，请重新选择原文语言' : '字幕获取失败';
       pendingTrack = null;
       log('subtitle-error', { reason });
       renderBar();
@@ -498,6 +515,7 @@ export default defineContentScript({
           const target = tracklist.find(t => t.id === (e.target as HTMLSelectElement).value);
           if (!target) return;
           pendingTrack = target;
+          closeSelectionActions?.();
           notice = ''; nocuesReason = '';
           stopTranslation();
           clearAcquisitionTimer();
@@ -585,20 +603,20 @@ export default defineContentScript({
     function bindWordEvents(host: HTMLElement): void {
       let lastPhraseAt = 0;
       const wordOf = (e: Event) => (e.composedPath()[0] as Element)?.closest?.('.w') as HTMLElement | null;
-      const indexOf = (word: HTMLElement) => Number(word.closest('[data-cue]')?.getAttribute('data-cue') ?? currentIdx);
+      const indexOf = (word: HTMLElement) => Number(word.closest('[data-fragment]')?.getAttribute('data-fragment') ?? currentFragmentIdx);
       host.addEventListener('pointerover', e => {
         const word = wordOf(e);
         if (!word || word === suppressWord || (popup.isOpen() && !popup.isCompact())) return;
         clearTimeout(leaveTimer); clearTimeout(hoverTimer);
         if (word === activeWord && popup.isOpen()) return;
-        hoverTimer = setTimeout(() => { if (!window.getSelection()?.toString()) openLookup(word.textContent!, indexOf(word), word, true); }, 180);
+        hoverTimer = setTimeout(() => { if (!window.getSelection()?.toString()) openPlayerLookup(word.textContent!, indexOf(word), word, true); }, 180);
       });
       host.addEventListener('pointerout', e => {
         const word = wordOf(e); if (!word || word.contains(e.relatedTarget as Node)) return;
         if (suppressWord === word) suppressWord = null;
         clearTimeout(hoverTimer); scheduleCardClose();
       });
-      host.addEventListener('focusin', e => { const word = wordOf(e); if (word) openLookup(word.textContent!, indexOf(word), word, true); });
+      host.addEventListener('focusin', e => { const word = wordOf(e); if (word) openPlayerLookup(word.textContent!, indexOf(word), word, true); });
       host.addEventListener('mouseup', e => {
         const real = e.composedPath()[0] as Element;
         if (!real?.closest('.en')) return;
@@ -615,7 +633,7 @@ export default defineContentScript({
         e.preventDefault(); e.stopPropagation(); clearTimeout(hoverTimer); clearTimeout(leaveTimer);
         if (activeWord === word && popup.isOpen()) {
           if (popup.isCompact()) popup.expand(); else { suppressWord = word; popup.close(); }
-        } else openLookup(word.textContent!, indexOf(word), word);
+        } else openPlayerLookup(word.textContent!, indexOf(word), word);
       };
       host.addEventListener('click', clickWord);
       host.addEventListener('keydown', e => { if (e.key === 'Enter') clickWord(e); });
@@ -627,7 +645,9 @@ export default defineContentScript({
       hasWord: boolean;
       expression: string | null;
       cueIndex: number;
+      fragmentIndex: number;
       rect: DOMRect | null;
+      range: Range;
     }
 
     /** 播放器字幕栏选区：收窄到原文行（不含译文/控件文字），本地分类 + 有效表达。 */
@@ -640,21 +660,22 @@ export default defineContentScript({
       const clamped = clampRangeToElement(selected.range, en);
       const raw = clamped.toString().trim();
       if (!raw) return null;
-      const cueIndex = Number(en.dataset.cue ?? currentIdx);
-      const cue = cues[cueIndex];
-      if (!cue || !currentVideoId || !lastTrackId) return null;
+      const fragmentIndex = Number(en.dataset.fragment ?? currentFragmentIdx);
+      const cueIndex = fragmentGroups[fragmentIndex];
+      const cue = fragments[fragmentIndex];
+      if (!cue || cueIndex === undefined || !currentVideoId || !lastTrackId) return null;
       const lang = baseLang(lastTrackLang) || 'en';
       // 分类与有效表达的统一计算（shared/selection.ts 的 classifyRangeIn）
       const cls = classifyRangeIn(en, clamped, lang);
       if (!cls) return null;
       let rect: DOMRect | null = null;
       try { rect = selected.range.getBoundingClientRect(); } catch { /* ignore */ }
-      return { raw, kind: cls.kind, hasWord: cls.hasWord, expression: cls.expression, cueIndex, rect };
+      return { raw, kind: cls.kind, hasWord: cls.hasWord, expression: cls.expression, cueIndex, fragmentIndex, rect, range: clamped.cloneRange() };
     }
 
     function subtitleCandidate(info: SubtitleSelectionInfo): SelectionCandidate | null {
       const source = buildVideoSource();
-      const cue = cues[info.cueIndex];
+      const cue = fragments[info.fragmentIndex];
       if (!source?.video || !cue) return null;
       return {
         at: Date.now(),
@@ -681,8 +702,17 @@ export default defineContentScript({
       if (!r.panelOpened) playerToast(message('已附加到当前对话：点扩展图标打开侧栏继续'));
     }
 
+    let closeSelectionActions: (() => void) | null = null;
+    let dismissedSelection: SubtitleSelectionInfo | null = null;
+    const sameSubtitleSelection = (a: SubtitleSelectionInfo | null, b: SubtitleSelectionInfo | null): boolean =>
+      !!a && !!b && a.raw === b.raw && a.fragmentIndex === b.fragmentIndex &&
+      a.range.startContainer === b.range.startContainer && a.range.startOffset === b.range.startOffset &&
+      a.range.endContainer === b.range.endContainer && a.range.endOffset === b.range.endOffset;
+
     function showSelectionActions(info: SubtitleSelectionInfo) {
-      document.getElementById('pd-phrase-actions')?.remove();
+      if (sameSubtitleSelection(dismissedSelection, info)) return;
+      closeSelectionActions?.();
+      dismissedSelection = null;
       const host=document.createElement('div');host.id='pd-phrase-actions';
       host.style.cssText='position:fixed;z-index:2147483646';
       host.style.left=Math.max(12,Math.min(info.rect?.left??24,innerWidth-196))+'px';
@@ -694,18 +724,36 @@ export default defineContentScript({
       root.querySelector<HTMLElement>('#lookup')!.hidden = info.kind === 'sentence' || !info.hasWord;
       root.querySelector<HTMLElement>('#translate')!.hidden = info.kind === 'word';
       const rect = info.rect ?? undefined;
-      root.querySelector('#lookup')!.addEventListener('click',()=>{host.remove();openLookup(info.expression ?? info.raw, info.cueIndex);});
-      const selectedCue = cues[info.cueIndex];
+      root.querySelector('#lookup')!.addEventListener('click',()=>{closeSelectionActions?.();openPlayerLookup(info.expression ?? info.raw, info.fragmentIndex);});
+      const selectedCue = fragments[info.fragmentIndex];
       const translationSnapshot = {text:info.raw,url:videoContextUrl(currentVideoId,selectedCue?.start??0),title:document.title,source:buildVideoSource()??undefined,sourceLang:lastTrackLang||undefined,languageEvidence:'track' as const,
         position:{videoId:currentVideoId,trackId:lastTrackId,trackKind:lastTrack==='asr'?'asr' as const:'manual' as const,trackLang:lastTrackLang||'und',startMs:selectedCue?.start??0,endMs:(selectedCue?.start??0)+(selectedCue?.dur??0)}};
-      root.querySelector('#translate')!.addEventListener('click',()=>{host.remove();popup.close();translationPopup.open(translationSnapshot,rect);});
-      root.querySelector('#chat')!.addEventListener('click',()=>{host.remove();popup.close();void attachSubtitleSelection(info);});
+      root.querySelector('#translate')!.addEventListener('click',()=>{closeSelectionActions?.();popup.close();translationPopup.open(translationSnapshot,rect);});
+      root.querySelector('#chat')!.addEventListener('click',()=>{closeSelectionActions?.();popup.close();void attachSubtitleSelection(info);});
       host.addEventListener('mousedown',e=>e.preventDefault());
       // 选区形成即固定候选（面板进入/字幕重绘不清空）
       const candidate = subtitleCandidate(info);
       if (candidate) void send({ type: 'selectionCandidateSet', candidate });
-      const remove=(e:Event)=>{if(!e.composedPath().includes(host)){host.remove();document.removeEventListener('pointerdown',remove,true);}};
-      document.addEventListener('pointerdown',remove,true);
+      const outside = (e: Event) => { if (!e.composedPath().includes(host)) closeSelectionActions?.(); };
+      const escape = (e: KeyboardEvent) => { if (e.key === 'Escape') closeSelectionActions?.(); };
+      const checkSelection = () => {
+        if (!info.range.startContainer.isConnected || !info.range.endContainer.isConnected ||
+          !sameSubtitleSelection(info, subtitleSelectionInBar())) closeSelectionActions?.();
+      };
+      const observer = new MutationObserver(checkSelection);
+      const subtitleRoot = document.getElementById(SUBS_ID)?.shadowRoot;
+      if (subtitleRoot) observer.observe(subtitleRoot, { childList: true, subtree: true });
+      document.addEventListener('pointerdown', outside, true);
+      document.addEventListener('keydown', escape, true);
+      document.addEventListener('selectionchange', checkSelection);
+      closeSelectionActions = () => {
+        dismissedSelection = info;
+        host.remove(); observer.disconnect();
+        document.removeEventListener('pointerdown', outside, true);
+        document.removeEventListener('keydown', escape, true);
+        document.removeEventListener('selectionchange', checkSelection);
+        closeSelectionActions = null;
+      };
     }
 
     function scheduleCardClose(): void {
@@ -714,6 +762,7 @@ export default defineContentScript({
     }
 
     function removeSubsHost(): void {
+      closeSelectionActions?.();
       document.getElementById(SUBS_ID)?.remove();
     }
 
@@ -738,10 +787,12 @@ export default defineContentScript({
       if (!got) return;
       const { body } = got;
       const oldEn = body.querySelector<HTMLDivElement>('.en');
-      body.textContent = '';
-
-      const bar = document.createElement('div');
+      const cue = currentFragmentIdx >= 0 ? fragments[currentFragmentIdx] : null;
+      const keepEn = !!cue && oldEn?.dataset.fragment === String(currentFragmentIdx) && oldEn.textContent === cue.text;
+      const bar = body.querySelector<HTMLDivElement>('.bar') ?? document.createElement('div');
       bar.className = 'bar';
+      for (const child of [...bar.childNodes]) if (!keepEn || child !== oldEn) child.remove();
+      if (bar.parentElement !== body) body.appendChild(bar);
 
       if (!cues.length) {
         const n = document.createElement('div');
@@ -760,7 +811,6 @@ export default defineContentScript({
           });
           bar.appendChild(retry);
         }
-        body.appendChild(bar);
         return;
       }
 
@@ -768,21 +818,21 @@ export default defineContentScript({
         const n = document.createElement('div');
         n.className = 'notice';
         setText(n,message(notice));
-        bar.appendChild(n);
+        bar.prepend(n);
       }
 
-      const cue = currentIdx >= 0 ? cues[currentIdx] : null;
       if (cue) {
-        const en = oldEn?.dataset.cue === String(currentIdx) && oldEn.textContent === cue.text ? oldEn : document.createElement('div');
-        en.className = 'en'; en.dataset.cue = String(currentIdx);
+        const en = keepEn ? oldEn! : document.createElement('div');
+        en.className = 'en'; en.dataset.fragment = String(currentFragmentIdx);
+        en.dataset.cue = String(fragmentGroups[currentFragmentIdx]);
         if (!en.textContent) appendWords(en, cue.text);
         en.querySelectorAll<HTMLElement>('.w').forEach(w => {
           w.classList.remove('saved', 'learning', 'known');
           const status = wordStatus(w.textContent!); if (status) w.classList.add(status);
         });
-        bar.appendChild(en);
+        if (en.parentElement !== bar) bar.appendChild(en);
         if (zhVisible) {
-          const zh = translations.get(currentIdx);
+          const zh = fragmentTranslations.get(currentFragmentIdx);
           if (zh) {
             const z = document.createElement('div');
             z.className = 'zh';
@@ -791,11 +841,12 @@ export default defineContentScript({
           } else if (settingsFailed) {
             const error = document.createElement('div'); error.className = 'notice'; setText(error, message('无法连接扩展，请刷新页面')); bar.appendChild(error);
             const reload = document.createElement('button'); setText(reload, message('刷新页面')); reload.addEventListener('click', () => location.reload()); bar.appendChild(reload);
-          } else if (failedCues.has(currentIdx)) {
+          } else if (failedFragmentCues.has(currentFragmentIdx)) {
             const error = document.createElement('div'); error.className = 'notice'; setText(error, message('翻译暂不可用')); bar.appendChild(error);
             const ai = document.createElement('button'); setText(ai, message('用 AI 翻译')); ai.addEventListener('click', () => void setTranslationMode('ai')); bar.appendChild(ai);
             const retry = document.createElement('button'); setText(retry, message('重试')); retry.addEventListener('click', () => {
               for (let i = Math.max(0, currentIdx - 1); i <= Math.min(cues.length - 1, currentIdx + 4); i++) failedCues.delete(i);
+              for (let i = Math.max(0, currentFragmentIdx - 1); i <= Math.min(fragments.length - 1, currentFragmentIdx + 4); i++) failedFragmentCues.delete(i);
               scheduleTranslate(); renderBar();
             }); bar.appendChild(retry);
           } else {
@@ -805,7 +856,6 @@ export default defineContentScript({
           }
         }
       }
-      body.appendChild(bar);
     }
 
     /** 原文行按轨道语言分词为可点击 span（M11：Segmenter 统一边界），已存词条按状态低强调标出。 */
@@ -829,10 +879,12 @@ export default defineContentScript({
       notePendingSettingWrite('bilingualEnabled', on);
       void send({ type: 'setSetting', name: 'bilingualEnabled', value: on });
       if (!on) {
+        cancelSourceAcquisition();
         stopTranslation();
         restoreNativeCaptions();
         removeSubsHost();
       } else {
+        sendConfig();
         hideNativeCaptions();
         ensureCaptionsOn(20);
       }
@@ -873,16 +925,26 @@ export default defineContentScript({
       const saved=await send<{ok:boolean;sentences:SavedSentence[]}>({type:'listSentences'});
       if(saved?.ok)sentences=saved.sentences;
     }
-    async function toggleSentence(index: number): Promise<void> {
-      const cue = cues[index]; if (!cue) return;
+    const sentenceWrites = new Set<string>();
+    async function toggleSentence(index: number): Promise<{ ok: boolean; error?: string }> {
+      const cue = cues[index]; if (!cue) return { ok: false };
       const video = videoRef(index), id = sentenceId(video, cue.text);
+      if (sentenceWrites.has(id)) return { ok: false };
+      sentenceWrites.add(id);
       const existing = sentences.find(s => sentenceId(s.video, s.text) === id);
-      const r = await send<{ ok:boolean }>(existing ? { type:'deleteSentence', id: existing.id } : {
-        type:'saveSentence', sentence:{ id, video, text:cue.text, zh:translations.get(index), translationSource:translationSources.get(index),
-          ...(lastTrackLang ? { language: lastTrackLang } : {}),
-          endMs:cue.start + cue.dur, title:document.title, createdAt:Date.now() },
-      });
-      if (!r?.ok) playerToast(message('收藏失败，请重试'));
+      try {
+        const r = await send<{ ok:boolean }>(existing ? { type:'deleteSentence', id: existing.id } : {
+          type:'saveSentence', sentence:{ id, video, text:cue.text, zh:translations.get(index), translationSource:translationSources.get(index),
+            ...(lastTrackLang ? { language: lastTrackLang } : {}),
+            endMs:cue.start + cue.dur, title:document.title, createdAt:Date.now() },
+        });
+        if (!r?.ok) return { ok: false, error: tr('收藏失败，请重试') };
+        // 等待广播前也反映实际写入，下一次 toggle 不再读到旧状态。
+        if (existing) sentences = sentences.filter(s => s.id !== existing.id);
+        else await refreshSaved();
+        return { ok: true };
+      } catch { return { ok: false, error: tr('收藏失败，请重试') }; }
+      finally { sentenceWrites.delete(id); }
     }
     function seekCue(index: number, play = false): void {
       const v = getVideo(), cue = cues[index]; if (!v || !cue) return;
@@ -983,8 +1045,11 @@ export default defineContentScript({
       }
       const expression = ctx.snapshot.expression.trim();
       if (!expression) return;
-      const idx = ctx.snapshot.video ? cues.findIndex(c => c.start === ctx.snapshot.video!.startMs) : currentIdx;
-      const cue = cues[idx];
+      const startMs = ctx.snapshot.video?.startMs;
+      const fragmentIndex = fragments.findIndex(c => c.start === startMs && c.text === ctx.snapshot.sentence);
+      const idx = fragmentIndex >= 0 ? fragmentGroups[fragmentIndex]!
+        : cues.findIndex(c => c.start === startMs && c.text === ctx.snapshot.sentence);
+      const cue = fragmentIndex >= 0 ? fragments[fragmentIndex] : cues[idx];
       const candidate: SelectionCandidate = {
         at: Date.now(),
         pageUrl: location.href,
@@ -1060,9 +1125,16 @@ export default defineContentScript({
       return parts.join(' / ').slice(0, 300);
     }
 
-    function openLookup(expression: string, index = currentIdx, anchor?: HTMLElement, compact = false): void {
+    function openPlayerLookup(expression: string, fragmentIndex: number, anchor?: HTMLElement, compact = false): void {
+      const groupIndex = fragmentGroups[fragmentIndex];
+      const fragment = fragments[fragmentIndex];
+      if (groupIndex === undefined || !fragment) return;
+      openLookup(expression, groupIndex, anchor, compact, fragment);
+    }
+
+    function openLookup(expression: string, index = currentIdx, anchor?: HTMLElement, compact = false, visibleFragment?: Cue): void {
       externalLookupToken='';
-      const cue = cues[index];
+      const cue = visibleFragment ?? cues[index];
       if (!cue || !currentVideoId || !lastTrackId) return;
       const video = getVideo();
       // 查词时暂停正在播放的视频；只记一次，恢复见 closeResume
@@ -1117,15 +1189,18 @@ export default defineContentScript({
         bindPlayListener();
         const t = v.currentTime * 1000;
         let idx = cueIndexAt(cues, t);
+        let fragmentIdx = cueIndexAt(fragments, t);
         if (autoPause && !pendingTrack && !v.paused && !v.seeking) {
           if (apIndex >= 0 && t >= cueEnd(cues, apIndex)) {
             apDisplayIndex = apIndex; apLastStopped = apIndex; apIndex = -1;
+            apDisplayFragmentIndex = fragmentGroups.lastIndexOf(apDisplayIndex);
             apHeld = true; pausedByUsVideo = null; v.pause();
-          } else if (idx >= 0 && idx !== apLastStopped) apIndex = idx;
+          } else if (apIndex < 0 && idx >= 0 && idx !== apLastStopped) apIndex = idx;
         }
-        if (apHeld) idx = apDisplayIndex;
-        if (idx !== currentIdx) {
+        if (apHeld) { idx = apDisplayIndex; fragmentIdx = apDisplayFragmentIndex; }
+        if (idx !== currentIdx || fragmentIdx !== currentFragmentIdx) {
           currentIdx = idx;
+          currentFragmentIdx = fragmentIdx;
           queueRender();
           renderBadge();
         }
@@ -1146,6 +1221,11 @@ export default defineContentScript({
       platformTimer = null;
     }
 
+    function clearTranslationResults(): void {
+      translations.clear(); translationSources.clear(); fragmentTranslations.clear();
+      failedCues.clear(); failedFragmentCues.clear();
+    }
+
     async function updateVideoSession(patch: { mode?: 'regular' | 'ai'; autoPause?: boolean } = {}): Promise<void> {
       if (modeBusy || !currentVideoId) return;
       modeBusy = true;
@@ -1157,7 +1237,7 @@ export default defineContentScript({
       modeBusy = false;
       if (!r?.ok) { settingsFailed = true; modeReady = false; renderBar(); return; }
       if (translationMode !== r.mode) {
-        stopTranslation(); translations.clear(); translationSources.clear(); failedCues.clear(); platformState = 'idle';
+        stopTranslation(); clearTranslationResults(); platformState = 'idle';
       }
       translationMode = r.mode; autoPause = r.autoPause; modeReady = true; settingsFailed = false;
       if (!autoPause) apIndex = -1;
@@ -1178,14 +1258,16 @@ export default defineContentScript({
       settings = next; settingsReady = true;
       const targetChanged = previousTarget !== targetLangOf();
       if (targetChanged) {
-        stopTranslation(); translations.clear(); translationSources.clear(); failedCues.clear(); platformState = 'idle';
+        stopTranslation(); clearTranslationResults(); platformState = 'idle';
       }
       setDisplayLanguage(settings.displayLanguage,browser.i18n.getUILanguage());
+      const wasBilingual = bilingualOn;
       if (!pendingWriteBlocks('bilingualEnabled', settings.bilingualEnabled)) bilingualOn = settings.bilingualEnabled;
       if (!pendingWriteBlocks('chineseVisible', settings.chineseVisible)) zhVisible = settings.chineseVisible;
       if (!modeReady) await updateVideoSession();
       if (!bilingualOn || !zhVisible) stopTranslation();
-      if (bilingualOn) { hideNativeCaptions(); ensureCaptionsOn(20); } else restoreNativeCaptions();
+      if (bilingualOn) { if (!wasBilingual) sendConfig(); hideNativeCaptions(); ensureCaptionsOn(20); }
+      else { if (wasBilingual) cancelSourceAcquisition(); restoreNativeCaptions(); }
       renderBar();
       if (targetChanged) { queueRender(); scheduleTranslate(); }
     }
@@ -1195,8 +1277,8 @@ export default defineContentScript({
       return comprehensionLangFor(settings, lastTrackLang || undefined);
     }
 
-    function captionCacheKey(targetLang: string): string {
-      return JSON.stringify([currentVideoId, lastTrackId, targetLang]);
+    function captionCacheKey(targetLang: string, view: 'groups' | 'fragments'): string {
+      return JSON.stringify([DISPLAY_CUE_VERSION, view, currentVideoId, lastTrackId, targetLang]);
     }
 
     function requestPlatform(): void {
@@ -1204,13 +1286,19 @@ export default defineContentScript({
       queueRender();
       const epoch = translationEpoch;
       const targetLang = targetLangOf();
-      const key = captionCacheKey(targetLang);
-      void send<{ ok: boolean; cues?: Cue[] }>({ type: 'captionCache', key }).then(r => {
+      const key = captionCacheKey(targetLang, 'groups');
+      const fragmentKey = captionCacheKey(targetLang, 'fragments');
+      void Promise.all([
+        send<{ ok: boolean; cues?: Cue[] }>({ type: 'captionCache', key }),
+        send<{ ok: boolean; cues?: Cue[] }>({ type: 'captionCache', key: fragmentKey }),
+      ]).then(([grouped, short]) => {
         if (epoch !== translationEpoch) return;
-        if (r?.cues?.length) {
-          applyPlatformCues(r.cues, targetLang); platformState = 'done'; scheduleTranslate(); return;
+        if (grouped?.cues?.length) applyPlatformCues(grouped.cues, targetLang, 'groups');
+        if (short?.cues?.length) applyPlatformCues(short.cues, targetLang, 'fragments');
+        if (grouped?.cues?.length && short?.cues?.length) {
+          platformState = 'done'; scheduleTranslate(); return;
         }
-        platformRequest = { id: crypto.randomUUID(), cacheKey: key, targetLang };
+        platformRequest = { id: crypto.randomUUID(), cacheKey: key, fragmentCacheKey: fragmentKey, targetLang };
         postToInject({ type: 'translation-request', requestId: platformRequest.id, videoId: currentVideoId, trackId: lastTrackId, targetLang });
         platformTimer = setTimeout(() => {
           if (epoch !== translationEpoch) return;
@@ -1219,10 +1307,15 @@ export default defineContentScript({
       });
     }
 
-    function applyPlatformCues(translated: Cue[], targetLang: string): void {
-      const byTime = new Map(translated.filter(c => c.zh).map(c => [`${c.start}|${c.text}`, c.zh!]));
+    function applyPlatformCues(translated: Cue[], targetLang: string, view: 'groups' | 'fragments'): void {
+      const byTime = new Map(translated.filter(c => c.zh).map(c => [`${c.start}|${c.dur}|${c.text}`, c.zh!]));
       const sourceLabel = `YouTube · ${langDisplayName(targetLang)} · ${tr('平台翻译')}`;
-      cues.forEach((cue, id) => { const zh = byTime.get(`${cue.start}|${cue.text}`); if (zh) { translations.set(id, zh); translationSources.set(id, sourceLabel); } });
+      const source = view === 'groups' ? cues : fragments;
+      const target = view === 'groups' ? translations : fragmentTranslations;
+      source.forEach((cue, id) => {
+        const zh = byTime.get(`${cue.start}|${cue.dur}|${cue.text}`);
+        if (zh) { target.set(id, zh); if (view === 'groups') translationSources.set(id, sourceLabel); }
+      });
       queueRender();
     }
 
@@ -1235,11 +1328,22 @@ export default defineContentScript({
         if (platformState === 'idle') requestPlatform();
         return;
       }
-      const win: number[] = [];
+      const groupWindow: number[] = [];
       for (let i = Math.max(0, currentIdx - 1); i <= Math.min(cues.length - 1, currentIdx + 4); i++) {
-        if (!translations.has(i) && !failedCues.has(i)) win.push(i);
+        if (!translations.has(i) && !failedCues.has(i)) groupWindow.push(i);
       }
-      if (!win.length) return;
+      const fragmentWindow: number[] = [];
+      if (currentFragmentIdx >= 0) {
+        for (let i = Math.max(0, currentFragmentIdx - 1); i <= Math.min(fragments.length - 1, currentFragmentIdx + 4); i++) {
+          if (!fragmentTranslations.has(i) && !failedFragmentCues.has(i)) fragmentWindow.push(i);
+        }
+      }
+      const batch = buildCueTranslationBatch(cues, fragments, groupWindow, fragmentWindow);
+      // 沿用后台每批最多八项的合同；未进入本批的窗口项由下次调度接续。
+      const items = batch.items.slice(0, 8);
+      if (!items.length) return;
+      const ids = new Set(items.map(item => item.id));
+      const targets = batch.targets.filter(target => ids.has(target.id));
       translating = true;
       queueRender();
       const epoch = translationEpoch;
@@ -1247,13 +1351,19 @@ export default defineContentScript({
       void send<{ ok: boolean; translations?: { id: number; text: string }[] }>({
         type: 'translateCues', mode: translationMode, requestId, videoId: currentVideoId, trackId: lastTrackId,
         sourceLang: lastTrackLang || undefined, targetLang: targetLangOf(),
-        items: win.map(id => ({ id, text: cues[id]!.text })),
+        items,
       }).then(r => {
         if (epoch !== translationEpoch) return;
         requestId = null; translating = false;
-        for (const id of win) failedCues.add(id);
-        if (r?.ok) for (const t of r.translations ?? []) {
-          if (win.includes(t.id) && t.text) { translations.set(t.id, t.text); translationSources.set(t.id, translationMode === 'ai' ? tr('AI 翻译') : tr('Google 常规翻译')); failedCues.delete(t.id); }
+        const results = new Map(r?.ok ? (r.translations ?? []).filter(result => ids.has(result.id) && result.text).map(result => [result.id, result.text]) : []);
+        for (const target of targets) {
+          const translated = results.get(target.id);
+          const output = target.view === 'groups' ? translations : fragmentTranslations;
+          const failed = target.view === 'groups' ? failedCues : failedFragmentCues;
+          if (translated) {
+            output.set(target.index, translated); failed.delete(target.index);
+            if (target.view === 'groups') translationSources.set(target.index, translationMode === 'ai' ? tr('AI 翻译') : tr('Google 常规翻译'));
+          } else failed.add(target.index);
         }
         queueRender();
       });
@@ -1267,14 +1377,15 @@ export default defineContentScript({
     }
     document.addEventListener('visibilitychange', () => {
       restartTickTimer();
-      if (!document.hidden) tick();
+      if (document.hidden) closeSelectionActions?.();
+      else tick();
     });
     restartTickTimer();
 
     // ---- 全屏：把字幕栏与弹窗宿主放进全屏元素（不靠堆 z-index） -------------------
 
     document.addEventListener('fullscreenchange', () => {
-      pausedByUsVideo = null; popup.close(true); renderBar();
+      closeSelectionActions?.(); pausedByUsVideo = null; popup.close(true); renderBar();
     });
     window.addEventListener('resize', queueRender);
 
@@ -1286,7 +1397,7 @@ export default defineContentScript({
         if (!m || typeof m.type !== 'string') return undefined;
         if (m.type === 'ai-service-changed') {
           if (translationMode === 'ai') {
-            stopTranslation(); translations.clear(); translationSources.clear(); failedCues.clear();
+            stopTranslation(); clearTranslationResults();
             scheduleTranslate(); queueRender();
           }
           return undefined;
@@ -1303,7 +1414,7 @@ export default defineContentScript({
             if(v?.paused&&byUs===currentVideoId&&!apHeld)void v.play();
           }
           else if(a.action==='seek')seekCue(a.index,!!a.play);
-          else if(a.action==='save')void toggleSentence(a.index);
+          else if(a.action==='save') { void toggleSentence(a.index).then(sendResponse); return true; }
           else if(a.action==='lookup' && typeof a.word==='string' && a.word.length<=200)openLookup(a.word,a.index);
           sendResponse({ok:true});return true;
         }
@@ -1425,7 +1536,7 @@ export default defineContentScript({
       stopTranslation();
       // 换视频：旧选区候选立即失效（读取侧另有身份校验兜底）
       void send({ type: 'selectionCandidateSet', candidate: null });
-      platformState = 'idle'; failedCues.clear();
+      platformState = 'idle';
       translationMode = settings.translationMode;
       currentVideoId = to;
       modeReady = false; modeBusy = false; autoPause = false; apIndex = -1; apHeld = false; apLastStopped = -1;
@@ -1433,6 +1544,7 @@ export default defineContentScript({
       void updateVideoSession();
       navSeq++;
       cues = [];
+      fragments = []; fragmentGroups = [];
       lastTrack = '';
       lastTrackLang = '';
       lastTrackId = '';
@@ -1441,15 +1553,16 @@ export default defineContentScript({
       notice = '';
       nocuesReason = '';
       nocuesRetries = 0;
-      translations.clear(); translationSources.clear();
+      clearTranslationResults();
       translateSession = '';
       currentIdx = -1;
+      currentFragmentIdx = -1; apDisplayFragmentIndex = -1;
       pausedByUsVideo = null;
       // 换视频：旧弹窗直接移除（不触发恢复播放回调）
       popup.close(true);
       removeSubsHost();
       log('clear', { from, to, navSeq });
-      sendConfig();
+      if (bilingualOn) sendConfig();
       if (to) {
         if (bilingualOn) {
           hideNativeCaptions();
@@ -1496,9 +1609,10 @@ export default defineContentScript({
 
         if (d.type === 'track-selected') {
           if (d.track && (pendingTrack || cues.length)) {
+            closeSelectionActions?.();
             pendingTrack = d.track;
             stopTranslation();
-            clearAcquisitionTimer(); armAcquisitionTimer();
+            armAcquisitionTimer();
             renderBar();
           }
           return;
@@ -1509,8 +1623,11 @@ export default defineContentScript({
           if (platformTimer) clearTimeout(platformTimer);
           platformRequest = null; platformState = 'done';
           const translated = Array.isArray(d.cues) ? d.cues : [];
-          applyPlatformCues(translated, request.targetLang);
+          const short = Array.isArray(d.fragments) ? d.fragments : [];
+          applyPlatformCues(translated, request.targetLang, 'groups');
+          applyPlatformCues(short, request.targetLang, 'fragments');
           if (translated.some(c => c.zh)) void send({ type: 'captionCache', key: request.cacheKey, cues: translated });
+          if (short.some(c => c.zh)) void send({ type: 'captionCache', key: request.fragmentCacheKey, cues: short });
           scheduleTranslate();
           return;
         }
@@ -1522,20 +1639,26 @@ export default defineContentScript({
           return;
         }
 
-        if (d.type === 'cues' && Array.isArray(d.cues)) {
+        if (d.type === 'cues' && Array.isArray(d.cues) && Array.isArray(d.fragments) && Array.isArray(d.fragmentGroups)) {
           const kind = d.trackKind === 'asr' ? 'asr' : 'manual';
           // 保留轨道完整语言标签（含变体，如 pt-BR）；匹配用 primary。
           const lang = String(d.trackLang || '').toLowerCase();
           const newTrackId = String(d.trackId || '');
-          // 同轨道重复产出（如 nocues 重试后的 config）不丢已取得的译文
-          if (lastTrackId !== newTrackId) {
+          const displayed = d.cues as Cue[];
+          const short = d.fragments as Cue[];
+          if (!displayed.length) { nocuesReason = 'empty-track'; return; }
+          // 同内容重复捕获不失效译文；时间、时长或原文改变则旧索引不再适用。
+          const contentChanged = lastTrackId !== newTrackId || !sameDisplayCues(cues, displayed) || !sameDisplayCues(fragments, short);
+          if (contentChanged) {
+            closeSelectionActions?.();
             pausedByUsVideo = null; popup.close(true); apIndex = -1; apHeld = false; apLastStopped = -1;
-            stopTranslation(); platformState = 'idle'; failedCues.clear();
-            translations.clear();
+            stopTranslation(); platformState = 'idle'; clearTranslationResults();
             translateSession = '';
+            currentIdx = -1;
+            currentFragmentIdx = -1; apDisplayFragmentIndex = -1;
           }
-          cues = kind === 'asr' ? normalizeAsrCues(d.cues as Cue[]) : d.cues as Cue[];
-          if (!cues.length) { failAcquisition('empty-track'); return; }
+          cues = displayed;
+          fragments = short; fragmentGroups = d.fragmentGroups;
           clearAcquisitionTimer();
           pendingTrack = null;
           if (bilingualOn) hideNativeCaptions();
@@ -1544,24 +1667,21 @@ export default defineContentScript({
           lastTrackId = newTrackId;
           nocuesReason = '';
           nocuesRetries = 0;
-          currentIdx = -1;
           if (typeof d.seen === 'number') sawTimedtext = d.seen;
           // M11：非英文原文字幕是合法轨道，按实际语言继续（不强切英语）
           notice = '';
           log('cues', {
             videoId: d.videoId,
             track: `${lastTrackLang}(${lastTrack})`,
-            raw: (d.cues as Cue[]).length, // 合并前（供与 M0 基线核对）
-            count: cues.length, // 合并后展示条数
+            count: cues.length,
             first: cues.length ? formatCue(cues[0]!) : '',
           });
           renderBar();
           return;
         }
         if (d.type === 'nocues') {
-          if (pendingTrack) { failAcquisition(d.reason || 'track-selection-failed'); return; }
           // 已有当前视频字幕：保留现状。
-          if (cues.length) {
+          if (cues.length && !pendingTrack) {
             if (typeof d.seen === 'number') sawTimedtext = d.seen;
             log('nocues-ignored-have-cues', { reason: d.reason });
             return;
@@ -1569,19 +1689,16 @@ export default defineContentScript({
           nocuesReason = d.reason || 'unknown';
           if (typeof d.seen === 'number') sawTimedtext = d.seen;
           log('nocues', { videoId: d.videoId, reason: nocuesReason, seen: sawTimedtext });
-          // 只有尚未观察到播放器请求时自动唤醒一次；网络失败交给明确重试。
+          // 保留整轮期限，单次失败继续等待新的来源；仅沿用一次自动唤醒。
           if (nocuesReason === 'no-timedtext-seen' && nocuesRetries++ < 1) {
             const retryNonce = nonce;
             const retryVideo = currentVideoId;
             sendNudge(); // 播放器 API 强制选轨
             setTimeout(() => {
               if (nonce !== retryNonce || currentVideoId !== retryVideo || cues.length || notice) return;
-              sendConfig();
               ensureCaptionsOn(20);
             }, 800);
             log('nocues-retry', { attempt: nocuesRetries });
-          } else {
-            failAcquisition(nocuesReason);
           }
         }
       } catch {
@@ -1627,6 +1744,6 @@ export default defineContentScript({
     void refreshSurfaceStatus();
     void refreshSaved();
     void refreshSettings();
-    window.addEventListener('pagehide', stopTranslation);
+    window.addEventListener('pagehide', () => { closeSelectionActions?.(); stopTranslation(); cancelSourceAcquisition(); });
   },
 });

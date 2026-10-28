@@ -121,6 +121,7 @@ interface ReviewSession extends LearningScope { vaultId?:string|null;category: L
 interface PanelSnapshot {vaultId?:string|null;view?:string;previousView?:string;search?:string;reviewQueue?:ReviewItem[];reviewIdx?:number;revealed?:boolean;definitionRevealed?:boolean;reviewSession?:ReviewSession;knowledgeQueue?:KnowledgeRecord[];article?:ArticleLearningSnapshot;returnedVideo?:ReturnedVideo|null;scroll?:Record<string,number>;video?:{tab?:string;follow?:boolean;top?:number};chat?:ChatViewSnapshot}
 const settingsView=mountSettings(document.getElementById('settings-body')!);
 const selectionPopup=createTranslationPopup(send);
+let closePanelSelectionActions = () => {document.getElementById('panel-selection-actions')?.remove();};
 const lookupPopup=createLookupPopup({send});
 let hoveredWord:HTMLElement|null=null;
 let wordTimer:ReturnType<typeof setTimeout>|undefined;
@@ -143,7 +144,7 @@ async function persistPanel() {
 function switchView(view: string): void {
   if (view === currentView) {if(view==='knowledge')void refreshKnowledge();return;}
   feedback('');
-  lookupPopup.close();closeLangMenu();document.getElementById('panel-selection-actions')?.remove();
+  lookupPopup.close();closeLangMenu();closePanelSelectionActions();
   const prev = currentView;
   subsPollGeneration++;
   if (prev === 'subs' && view !== 'review') {articleLearning.follow();returnedVideo=null;}
@@ -201,7 +202,7 @@ document.getElementById('panel-mode')!.addEventListener('click',async()=>{
   const r=await send<{ok:boolean;error?:string}>({type:'panelSwitch',mode:floating?'fixed':'floating',nativeOpened:await nativeOpen});
   if(!r?.ok)feedback(message(r?.error??'切换失败，请重试'));
 });
-document.getElementById('panel-close')!.addEventListener('click',async()=>{lookupPopup.close();await persistPanel();setChatActive(false);activePanel=false;ready=false;const r=await send<{ok:boolean}>({type:'panelClose'});if(!r?.ok){activePanel=true;ready=true;setChatActive(true);feedback(message('关闭失败，请重试'));}});
+document.getElementById('panel-close')!.addEventListener('click',async()=>{lookupPopup.close();closePanelSelectionActions();await persistPanel();setChatActive(false);activePanel=false;ready=false;const r=await send<{ok:boolean}>({type:'panelClose'});if(!r?.ok){activePanel=true;ready=true;setChatActive(true);feedback(message('关闭失败，请重试'));}});
 document.addEventListener('pointerdown',()=>void send({type:'panelOutsideClick',at:performance.timeOrigin+performance.now()}),true);
 document.addEventListener('click',()=>setTimeout(()=>void persistPanel(),0));
 // 滚动以帧率触发，尾沿节流到 ≥400ms 一次持久化；点击路径保持立即
@@ -225,12 +226,15 @@ async function refreshSentences(): Promise<void> {
     const meta = el('div', 'meta');
     const link = el('a', 'source', `${saved.title} · ${fmtClock(saved.video.startMs)}`);
     link.href = videoContextUrl(saved.video.videoId, saved.video.startMs); link.target = '_blank'; link.rel = 'noopener'; meta.append(link);
-    const remove = el('button', 'delete', message('取消收藏'));
+    const remove = iconButton('bookmark', message('取消收藏'));
+    remove.classList.add('sentence-bookmark');
+    const error=el('span','sentence-save-error');error.hidden=true;error.setAttribute('role','status');
     remove.addEventListener('click', async () => {
+      if(remove.disabled)return;remove.disabled=true;remove.setAttribute('aria-busy','true');error.hidden=true;
       const result = await send<{ ok:boolean }>({ type:'deleteSentence', id:saved.id });
-      if (!result?.ok) setText(remove, message('删除失败，重试'));
+      if (!result?.ok) {setText(error, message('删除失败，重试'));error.hidden=false;remove.disabled=false;remove.setAttribute('aria-busy','false');}
     });
-    meta.append(remove); card.append(meta); body.append(card);
+    meta.append(remove,error); card.append(meta); body.append(card);
   }
 }
 
@@ -596,9 +600,9 @@ let subsLibraryDirty=true;
 let subsLibraryAt=0;
 const SUBS_LIBRARY_INTERVAL_MS=5000;
 let subsSignatureCached='';
-const subsSignature=(s:SubViewState)=>`${s.videoId}:${s.trackId}:${s.cues.length}:${s.currentIndex}:${s.cues.reduce((n,c)=>n+(c.zh?1:0),0)}:${s.notice}:${s.chineseVisible!==false}`;
+const subsSignature=(s:SubViewState)=>JSON.stringify([s.videoId,s.trackId,s.cues,s.currentIndex,s.notice,s.chineseVisible!==false]);
 function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['cues'];statuses:WorkspaceState['statuses'];sentences:WorkspaceState['sentences'];entries:WorkspaceState['entries']}):WorkspaceState{
-  const cues=library?.cues??(cachedVideo&&cachedVideo.videoId===state.videoId&&cachedVideo.videoRef.trackId===state.trackId&&cachedVideo.cues.length===state.cues.length
+  const cues=library?.cues??(cachedVideo&&cachedVideo.videoId===state.videoId&&cachedVideo.videoRef.trackId===state.trackId&&cachedVideo.cues.length===state.cues.length&&cachedVideo.cues.every((c,i)=>{const next=state.cues[i]!;return c.start===next.startMs&&c.dur===next.endMs-next.startMs&&c.text===next.text;})
     ?cachedVideo.cues
     :state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0})));
   return {videoId:state.videoId,videoRef:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang,startMs:0},
@@ -613,6 +617,26 @@ const videoWorkspace=createYoutubeWorkspace({
   bindWords:host=>{
     const events=host.shadowRoot!;
     let selectedAt=0;
+    let bubbleRange:Range|null=null,dismissedRange:Range|null=null;
+    const sameRange=(a:Range|null,b:Range|null)=>!!a&&!!b&&a.startContainer===b.startContainer&&a.startOffset===b.startOffset&&a.endContainer===b.endContainer&&a.endOffset===b.endOffset;
+    const closeSelection=(dismiss=true)=>{if(dismiss) dismissedRange=(bubbleRange??shadowSelection(events)?.range)?.cloneRange()??null;bubbleRange=null;document.getElementById('panel-selection-actions')?.remove();};
+    closePanelSelectionActions=()=>closeSelection();
+    const validSelection=()=>currentView==='subs'&&!document.getElementById('video-workspace')!.hidden?shadowSelection(events):null;
+    const checkSelection=()=>{
+      const current=validSelection();
+      if(!current){closeSelection(false);dismissedRange=null;return;}
+      if(dismissedRange&&!sameRange(dismissedRange,current.range))dismissedRange=null;
+      if(bubbleRange&&(!bubbleRange.startContainer.isConnected||!bubbleRange.endContainer.isConnected||!sameRange(bubbleRange,current.range)))closeSelection(false);
+    };
+    const outsideSelection=(e:Event)=>{if(e.composedPath().some(n=>n instanceof Element&&n.id==='panel-selection-actions'))return;closeSelection();};
+    const escapeSelection=(e:KeyboardEvent)=>{if(e.key==='Escape')closeSelection();};
+    const clearSelection=()=>closeSelection();
+    document.addEventListener('selectionchange',checkSelection);
+    document.addEventListener('pointerdown',outsideSelection,true);
+    document.addEventListener('keydown',escapeSelection);
+    document.addEventListener('pd-popup-outside',clearSelection);
+    host.addEventListener('pd-subtitle-selection-clear',clearSelection);
+    const selectionObserver=new MutationObserver(checkSelection);selectionObserver.observe(events,{childList:true,subtree:true});
     // 字幕列表选区：单词/短语/句段/跨字幕项统一分类；原文行以外（译文、控件）不取
     const rowIndexOf=(node:Node|null|undefined):number|null=>{
       const element=node instanceof Element?node:node?.parentElement??null;
@@ -675,15 +699,16 @@ const videoWorkspace=createYoutubeWorkspace({
         lang:state.trackLang||undefined,source,
         cue:{index:info.firstIndex,text:cue.text,startMs:cue.startMs,endMs:cue.endMs}};
     }
-    document.addEventListener('mouseup',e=>{
+    const showSelection=(e:MouseEvent)=>{
       if(currentView!=='subs'||e.composedPath().some(n=>n instanceof Element&&n.matches('#panel-selection-actions,#blc-lookup-popup,#pd-translation')))return;
       const selection=shadowSelection(events);
-      if(!selection||!subsState)return;
+      if(!selection||!subsState||sameRange(dismissedRange,selection.range)){checkSelection();return;}
       const info=listSelectionInfo(selection);
       if(!info)return;
       selectedAt=Date.now();e.stopPropagation();
-      document.getElementById('panel-selection-actions')?.remove();
+      closeSelection(false);bubbleRange=selection.range.cloneRange();
       const buttons=el('div','selection-actions');buttons.id='panel-selection-actions';
+      buttons.addEventListener('pointerdown',event=>event.preventDefault());
       const rect=info.rect;buttons.style.left=Math.max(8,Math.min(rect.left,innerWidth-220))+'px';buttons.style.top=Math.min(rect.bottom+4,innerHeight-44)+'px';
       const selectedVideo=subsState.videoId,selectedCue=subsState.cues[info.firstIndex];
       const candidate=listSelectionCandidate(info);
@@ -692,17 +717,18 @@ const videoWorkspace=createYoutubeWorkspace({
       const snapshot:SelectionSnapshot={text:info.raw,title:subsState.title,url:videoContextUrl(selectedVideo,selectedCue?.startMs??0),source:candidate?.source,sourceLang:subsState.trackLang||undefined,languageEvidence:'track',position:{videoId:selectedVideo,trackId:subsState.trackId,trackKind:subsState.trackKind==='asr'?'asr':'manual',trackLang:subsState.trackLang||'und',startMs:selectedCue?.startMs??0,endMs:subsState.cues[info.firstIndex+info.count-1]?.endMs??selectedCue?.endMs??0}};
       // 分类表：word=查词+对话；phrase=查词+翻译+对话；sentence/cross-cue=翻译+对话
       if(info.kind!=='word'){
-        const translate=el('button',undefined,message('翻译'));translate.onmousedown=e=>e.preventDefault();translate.onclick=()=>{buttons.remove();selectionPopup.open(snapshot,rect);};buttons.append(translate);
+        const translate=el('button',undefined,message('翻译'));translate.onclick=()=>{closeSelection();selectionPopup.open(snapshot,rect);};buttons.append(translate);
       }
       if((info.kind==='word'||info.kind==='phrase')&&info.hasWord&&info.raw.length<=200){
-        const lookup=el('button',undefined,message('查词'));lookup.onmousedown=e=>e.preventDefault();lookup.onclick=()=>{buttons.remove();if(subsState?.videoId===selectedVideo)void videoAction('lookup',info.firstIndex,info.expression??info.raw);};buttons.append(lookup);
+        const lookup=el('button',undefined,message('查词'));lookup.onclick=()=>{closeSelection();if(subsState?.videoId===selectedVideo)void videoAction('lookup',info.firstIndex,info.expression??info.raw);};buttons.append(lookup);
       }
       const chat=el('button','blc-chat-add');setLocalizedAttribute(chat, 'title', message('添加到对话'));setLocalizedAttribute(chat, 'aria-label', message('添加到对话'));chat.innerHTML=CHAT_ADD_ICON;
       chat.onmousedown=e=>e.preventDefault();
-      chat.onclick=()=>{buttons.remove();if(candidate)void attachSelectionCandidate(candidate,{tabId:subsTabId??undefined});};
+      chat.onclick=()=>{closeSelection();if(candidate)void attachSelectionCandidate(candidate,{tabId:subsTabId??undefined});};
       buttons.append(chat);
-      const close=el('button',undefined,'×');setLocalizedAttribute(close, 'aria-label', message('关闭选区操作'));close.onclick=()=>buttons.remove();buttons.append(close);document.body.append(buttons);
-    });
+      const close=iconButton('close',message('关闭选区操作'));close.onclick=()=>closeSelection();buttons.append(close);document.body.append(buttons);
+    };
+    document.addEventListener('mouseup',showSelection);
     const wordOf=(e:Event)=>(e.composedPath()[0] as Element)?.closest?.('.w') as HTMLElement|null;
     const openWord=(word:HTMLElement,compact:boolean)=>openPanelWord(word.textContent??'',Number(word.closest('[data-cue]')?.getAttribute('data-cue')),word,compact);
     events.addEventListener('pointerover',e=>{const word=wordOf(e);if((e as PointerEvent).buttons||!word||word===hoveredWord||(lookupPopup.isOpen()&&!lookupPopup.isCompact()))return;clearTimeout(wordTimer);clearTimeout(closeTimer);wordTimer=setTimeout(()=>{if(!getSelection()?.toString()){hoveredWord=word;openWord(word,true);}},180);});
@@ -711,10 +737,11 @@ const videoWorkspace=createYoutubeWorkspace({
     events.addEventListener('click',e=>{if(Date.now()-selectedAt<500||getSelection()?.toString())return;const w=wordOf(e);if(!w)return;clearTimeout(wordTimer);clearTimeout(closeTimer);if(w===hoveredWord&&lookupPopup.isOpen()){if(lookupPopup.isCompact())lookupPopup.expand();else lookupPopup.close();}else{hoveredWord=w;openWord(w,false);}});
     events.addEventListener('focusin',e=>{const w=wordOf(e);if(w&&w!==hoveredWord){hoveredWord=w;openWord(w,true);}});
     events.addEventListener('keydown',e=>{const key=e as KeyboardEvent,w=wordOf(e);if(w&&(key.key==='Enter'||key.key===' ')){key.preventDefault();hoveredWord=w;openWord(w,false);}});
+    return ()=>{closeSelection();selectionObserver.disconnect();document.removeEventListener('selectionchange',checkSelection);document.removeEventListener('pointerdown',outsideSelection,true);document.removeEventListener('keydown',escapeSelection);document.removeEventListener('pd-popup-outside',clearSelection);document.removeEventListener('mouseup',showSelection);host.removeEventListener('pd-subtitle-selection-clear',clearSelection);};
   },
   words:(parent,text)=>{const lang=((cachedVideo?.trackLang||subsState?.trackLang)||'en').split('-')[0]!;let last=0;for(const s of segmentWords(text,lang)){if(s.start>last)parent.append(document.createTextNode(text.slice(last,s.start)));const w=el('span','w',s.text);w.tabIndex=0;w.setAttribute('role','button');w.style.userSelect='text';parent.append(w);last=s.end;}if(last<text.length)parent.append(document.createTextNode(text.slice(last)));},
   seek:(i,play)=>void videoAction('seek',i,undefined,play),lookup:(word,i,anchor)=>openPanelWord(word,i,anchor,false),
-  save:i=>void videoAction('save',i),remove:id=>void send({type:'deleteSentence',id}),
+  save:i=>videoAction('save',i),remove:async id=>{const result=await send<{ok:boolean}>({type:'deleteSentence',id});if(result?.ok){subsLibraryDirty=true;await pollSubs();}return {ok:!!result?.ok};},
   ask:i=>{if(subsState?.cues[i])void subtitleAskAi(subsState,subsState.cues[i]!);},open:view=>{
     if(view==='review' && subsState?.videoId && subsTabId!==null)beginReview({ category:'vocab', sourceKey:`yt:${subsState.videoId}`, language:normalizeLangTag(subsState.trackLang||'und'), returnTo:'video', video:{state:{...subsState,cues:[]},tabId:subsTabId,workspace:videoWorkspace.snapshot()}, source:{sourceType:'youtube',sourceKey:`yt:${subsState.videoId}`,title:subsState.title,url:videoContextUrl(subsState.videoId,0)} });
     else switchView(view);
@@ -738,10 +765,11 @@ function openPanelWord(word:string,index:number,anchor:HTMLElement,compact:boole
   const card=lookupPopup.host()?.shadowRoot?.querySelector('.card');card?.addEventListener('pointerenter',()=>clearTimeout(closeTimer));card?.addEventListener('pointerleave',()=>{closeTimer=setTimeout(()=>{if(lookupPopup.isCompact()){lookupPopup.close();hoveredWord=null;}},220);});
 }
 async function videoAction(action:string,index:number,word?:string,play?:boolean) {
-  if(subsTabId===null||!subsState?.videoId)return;
+  if(subsTabId===null||!subsState?.videoId)return {ok:false};
   const r=await tabSend<{ok:boolean}>(subsTabId,{type:'pd-video-action',action,index,word,play,videoId:subsState.videoId});
-  if(!r?.ok)feedback(message('视频操作失败，请回到原视频重试'));
-  else await pollSubs();
+  if(!r?.ok){if(action!=='save')feedback(message('视频操作失败，请回到原视频重试'));}
+  else {if(action==='save')subsLibraryDirty=true;await pollSubs();}
+  return {ok:!!r?.ok};
 }
 async function refreshSubsLibrary(state:SubViewState):Promise<void> {
   subsLibraryAt=Date.now();subsLibraryDirty=false;
@@ -759,7 +787,7 @@ async function pollSubs():Promise<void> {
   if(currentView!=='subs'||!activePanel)return;
   const generation=++subsPollGeneration;
   const pinned=articleLearning.snapshot();
-  if(pinned.pinned){document.getElementById('video-workspace')!.hidden=true;document.getElementById('web-selection')!.hidden=false;await articleLearning.update(pinned.source,null);return;}
+  if(pinned.pinned){closePanelSelectionActions();document.getElementById('video-workspace')!.hidden=true;document.getElementById('web-selection')!.hidden=false;await articleLearning.update(pinned.source,null);return;}
   const videoReturn=returnedVideo;
   if(videoReturn){
     const live=await tabSend<SubViewState>(videoReturn.tabId,{type:'blc-sub-get'});
@@ -778,9 +806,8 @@ async function pollSubs():Promise<void> {
   const st=await tabSend<SubViewState>(id,{type:'blc-sub-get'});
   if(currentView!=='subs'||generation!==subsPollGeneration)return;
   const switched=subsTabId!==id||subsState?.videoId!==st?.videoId;
-  if(switched){lookupPopup.close();selectionPopup.close();document.getElementById('panel-selection-actions')?.remove();}
-  // 换轨道不清浮层，但词表按轨道语言分桶，也算身份变化要重建
-  if(switched||(subsState?.trackId??'')!==(st?.trackId??''))subsLibraryDirty=true;
+  if(switched){lookupPopup.close();selectionPopup.close();}
+  if(switched||(subsState?.trackId??'')!==(st?.trackId??'')){closePanelSelectionActions();subsLibraryDirty=true;}
   subsTabId=id;subsState=st?.type==='blc-sub-state'?st:null;
   document.getElementById('video-workspace')!.hidden=!subsState?.videoId;
   const web=document.getElementById('web-selection')!;web.hidden=!!subsState?.videoId;
@@ -1114,7 +1141,7 @@ initChatView({ getActiveView: () => currentView, switchView });
 async function checkLearningLibrary() {
   const r=await send<{ok:boolean;records:KnowledgeRecord[];vaultId:string|null}>({type:'listKnowledge'});
   if(!r?.ok||r.vaultId===libraryId)return;
-  libraryId=r.vaultId;reviewOperation++;subsPollGeneration++;reviewQueue=[];knowledgeQueue=[];reviewIdx=0;revealed=false;definitionRevealed=false;reviewSession={category:'vocab',returnTo:'list'};
+  libraryId=r.vaultId;videoWorkspace.clearSavedFeedback();reviewOperation++;subsPollGeneration++;reviewQueue=[];knowledgeQueue=[];reviewIdx=0;revealed=false;definitionRevealed=false;reviewSession={category:'vocab',returnTo:'list'};
   articleLearning.reset();returnedVideo=null;subsLibraryDirty=true;cachedVideo=null;
   if(currentView==='review')switchView('list');else if(currentView==='subs')void pollSubs();else if(currentView==='knowledge')void refreshKnowledge();
   void persistPanel();
@@ -1145,7 +1172,7 @@ async function boot(){
  // 启动时不由可见性事件打断恢复；就绪后按实际可见性同步聊天状态。
  ready=activePanel;setChatActive(activePanel&&document.visibilityState!=='hidden');document.body.inert=!activePanel;
  workspaceInitialized=true;
- browser.runtime.onMessage.addListener((m:unknown)=>{const v=m as {type?:string;windowId?:number;tabId?:number;mode?:string;view?:unknown;origin?:string;at?:number};if(v.type==='pd-popup-outside'&&v.windowId===panelWindow&&v.origin==='page'){document.dispatchEvent(new CustomEvent('pd-popup-outside',{detail:{at:v.at}}));return;}if(v.type==='pd-panel-closed'&&v.windowId===panelWindow){void restoreChat();return;}if(v.type==='pd-panel-view'&&v.windowId===panelWindow){activePanel=v.mode===(floating?'floating':'fixed')&&(!floating||v.tabId===panelTabId);setChatActive(false);restoreVersion++;ready=false;document.body.inert=true;if(activePanel)void restorePanel(v.view).catch(error=>workspaceFailed('restore',error));}});
+ browser.runtime.onMessage.addListener((m:unknown)=>{const v=m as {type?:string;windowId?:number;tabId?:number;mode?:string;view?:unknown;origin?:string;at?:number};if(v.type==='pd-popup-outside'&&v.windowId===panelWindow&&v.origin==='page'){document.dispatchEvent(new CustomEvent('pd-popup-outside',{detail:{at:v.at}}));return;}if(v.type==='pd-panel-closed'&&v.windowId===panelWindow){closePanelSelectionActions();void restoreChat();return;}if(v.type==='pd-panel-view'&&v.windowId===panelWindow){activePanel=v.mode===(floating?'floating':'fixed')&&(!floating||v.tabId===panelTabId);closePanelSelectionActions();setChatActive(false);restoreVersion++;ready=false;document.body.inert=true;if(activePanel)void restorePanel(v.view).catch(error=>workspaceFailed('restore',error));}});
  if(floating)void send({type:'panelReady'});
  browser.runtime.onMessage.addListener((m:unknown)=>{const v=m as {type?:string;tabId?:number;fullscreen?:boolean};if(v.type==='pd-panel-fullscreen'&&v.tabId===panelTabId)inVideoFullscreen=!!v.fullscreen;});
 }
@@ -1176,5 +1203,5 @@ async function restorePanel(view?:unknown) {
   if(!s && isPanelView(view))switchView(view);
   workspaceFailureStage='';setChatActive(activePanel&&document.visibilityState!=='hidden');ready=true;document.body.inert=false;
 }
-document.addEventListener('visibilitychange',()=>{if(!ready)return;if(document.visibilityState==='hidden'){void saveDraft(true);void persistPanel();setChatActive(false);}else setChatActive(activePanel);});
+document.addEventListener('visibilitychange',()=>{if(!ready)return;if(document.visibilityState==='hidden'){closePanelSelectionActions();void saveDraft(true);void persistPanel();setChatActive(false);}else setChatActive(activePanel);});
 void boot().catch(error=>workspaceFailed('boot',error));

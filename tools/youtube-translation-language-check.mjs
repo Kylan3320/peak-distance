@@ -38,7 +38,8 @@ try {
           postMessage({ source: 'blc-inject', type: 'cues', nonce: m.nonce, videoId: 'abcdefghijk',
             trackId: 'https://www.youtube.com/api/timedtext?v=abcdefghijk&lang=en',
             trackLang: 'en', trackKind: 'manual', seen: 1,
-            cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.' }] }, '*');
+            cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.' }],
+            fragments: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.' }], fragmentGroups: [0] }, '*');
         }
         if (m.type === 'translation-request') window.translationRequests.push(m);
       });
@@ -52,7 +53,8 @@ try {
   const changeSettings = patch => worker.evaluate(patch => chrome.storage.local.set(patch), patch);
   const requests = () => video.evaluate(() => window.translationRequests);
   const captionCache = () => worker.evaluate(async () => Object.entries((await chrome.storage.session.get('online-cache-v1'))['online-cache-v1'] ?? {})
-    .filter(([key]) => key.startsWith('captions:')).map(([key, entry]) => ({ target: JSON.parse(key.slice(9))[2], cues: entry.value })));
+    .filter(([key]) => key.startsWith('captions:') && JSON.parse(key.slice(9))[1] === 'groups')
+    .map(([key, entry]) => ({ target: JSON.parse(key.slice(9))[4], cues: entry.value })));
   async function waitForState(predicate, label) {
     const deadline = Date.now() + 10000;
     let state;
@@ -68,7 +70,8 @@ try {
       const request = window.translationRequests[index];
       postMessage({ source: 'blc-inject', type: 'translation', nonce: window.currentNonce,
         videoId: request.videoId, trackId: request.trackId, requestId: request.requestId,
-        cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', zh: translation }] }, '*');
+        cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', zh: translation }],
+        fragments: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', zh: translation }] }, '*');
       await new Promise(resolve => setTimeout(resolve, 0));
     }, { index, translation });
   }

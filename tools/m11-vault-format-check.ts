@@ -8,6 +8,7 @@
 //   4. 坏输入：缺 frontmatter / 未闭合 / status 非法 / language 非法 → error 或字段 null，不抛异常
 //   5. 句子 / 偏好往返
 //   6. 转义：值含冒号（id/expression/definition/note）往返无损
+//   7. 会话 / 材料：LF、CRLF、CR 与 BOM 等价；真实损坏仍失败
 // 运行：npx tsx tools/m11-vault-format-check.ts
 
 import {
@@ -22,6 +23,8 @@ import {
   type ParsedVocabDocument,
   type VocabRecordWithNote,
 } from '../lib/vault/format';
+import { parseChatDocument, parseMaterialDocument, serializeChatRecord, serializeMaterialSnapshot } from '../lib/vault/chatFormat';
+import type { MaterialSnapshotRecord } from '../shared/chat';
 import type {
   VaultPreferenceRecord,
   VaultSentenceRecord,
@@ -439,6 +442,36 @@ const fullRecord = record({
   };
   const sp = parseSentenceDocument(serializeSentenceRecord(s));
   check('6 句子 id（含引号冒号）往返无损', !isFormatError(sp) && sp.id === sid, JSON.stringify(sp));
+}
+
+// ---- 7. 会话 / 材料换行与损坏 ----------------------------------------------------
+
+{
+  const source = { sourceType: 'article' as const, sourceKey: 'web:test', title: 'Test', url: 'https://example.com' };
+  const snapshot: MaterialSnapshotRecord = {
+    source, version: 1, label: '选中句段', createdAt: 1,
+    blocks: [{ id: 'p1', text: 'First line.\nSecond line.' }, { id: 'p2', text: 'Another paragraph.' }],
+  };
+  const material = serializeMaterialSnapshot('chat-test', snapshot);
+  const chat = serializeChatRecord({
+    id: 'chat-test', title: 'Test', source, sourceKey: source.sourceKey,
+    activeSnapshotVersion: 1, snapshots: [snapshot], updatedAt: 2,
+    messages: [{ id: 'message-test', role: 'user', turnId: 'turn-test', text: 'First question.\nNext line.', at: 2,
+      snapshotVersion: 1, quote: { blockIds: ['p1'] } }],
+  });
+  const parsedMaterial = parseMaterialDocument(material);
+  const parsedChat = parseChatDocument(chat);
+  check('7 材料 LF 正文和来源保留', !isFormatError(parsedMaterial) && eq(parsedMaterial.snapshot.blocks, snapshot.blocks) && eq(parsedMaterial.snapshot.source, source) && parsedMaterial.snapshot.version === 1 && parsedMaterial.snapshot.label === snapshot.label && parsedMaterial.snapshot.createdAt === 1);
+  check('7 对话 LF 正文和引用保留', !isFormatError(parsedChat) && parsedChat.messages[0]?.text === 'First question.\nNext line.' && eq(parsedChat.messages[0]?.quote, { blockIds: ['p1'] }));
+  for (const newline of ['\r\n', '\r']) {
+    const label = newline === '\r\n' ? 'CRLF' : 'CR';
+    check(`7 材料 ${label} 与 LF 等价`, eq(parseMaterialDocument(material.replace(/\n/g, newline)), parsedMaterial));
+    check(`7 对话 ${label} 与 LF 等价`, eq(parseChatDocument(chat.replace(/\n/g, newline)), parsedChat));
+  }
+  check('7 材料 BOM + CRLF 等价', eq(parseMaterialDocument('\uFEFF' + material.replace(/\n/g, '\r\n')), parsedMaterial));
+  check('7 对话 BOM + CRLF 等价', eq(parseChatDocument('\uFEFF' + chat.replace(/\n/g, '\r\n')), parsedChat));
+  check('7 材料损坏仍报错', isFormatError(parseMaterialDocument(material.replace('version: 1', 'version: invalid').replace(/\n/g, '\r\n'))));
+  check('7 对话损坏仍报错', isFormatError(parseChatDocument(chat.replace('- 引用：{"blockIds":["p1"]}', '- 引用：{"blockIds":null}').replace(/\n/g, '\r\n'))));
 }
 
 // ---- 汇总 -----------------------------------------------------------------------

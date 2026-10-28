@@ -72,6 +72,11 @@ import {
   cueIndexAt,
   fmtClock,
   normalizeAsrCues,
+  groupDisplayCues,
+  sameDisplayCues,
+  buildSubtitleViews,
+  alignFragmentTranslatedCues,
+  buildCueTranslationBatch,
 } from '../shared/cues';
 import { parseDefinitionReply, parseChatCompletion } from '../lib/aiClient';
 import { buildReviewQueue, refreshQueue } from '../shared/review';
@@ -264,6 +269,70 @@ console.log('M2 字幕：ASR 滚动重复消除与合并');
 }
 
 console.log('M2 字幕：currentTime 定位与翻译窗口');
+{
+  const make = (texts: string[], starts = texts.map((_, i) => i * 1000)) =>
+    texts.map((text, i) => ({ start: starts[i]!, dur: 1000, text, lastOff: starts[i]! + 900 }));
+  const grouped = groupDisplayCues(make(['This is', 'one complete sentence.', 'Unfinished', 'tail']), 'en');
+  check('整句只合并完整相邻 cue，未完尾部保留原项', grouped.length === 3 && grouped[0]?.text === 'This is one complete sentence.' && grouped[1]?.text === 'Unfinished');
+  check('合并保留首起点和最大结束时间', grouped[0]?.start === 0 && grouped[0].dur === 2000);
+  const longFirst = make(['One sentence', 'ends here.']); longFirst[0]!.dur = 4000;
+  check('重叠成员取最大终点，AP 等待完整显示项', cueEnd(groupDisplayCues(longFirst, 'en'), 0) === 4000);
+  const overlappingNext = groupDisplayCues([...longFirst, { start:2500, dur:1500, lastOff:2500, text:'Next sentence.' }], 'en');
+  check('保存源跨度与实际显示边界分离，重叠时 AP 在下一项出现前暂停', overlappingNext[0]!.dur === 4000 && cueIndexAt(overlappingNext,2500) === 1 && cueEnd(overlappingNext,0) === 2500);
+  check('无标点不猜句', groupDisplayCues(make(['one', 'two', 'three']), 'en').length === 3);
+  check('超过 1500ms 空隙不合并待定片段', groupDisplayCues(make(['A long', 'gap ends.'], [0, 2600]), 'en').length === 2);
+  check('固定称谓后点号不是句末', groupDisplayCues(make(['I saw Dr.', 'Smith today.']), 'en')[0]?.text === 'I saw Dr. Smith today.');
+  check('小数跨 cue 的点号不作为句末', groupDisplayCues(make(['It costs 3.', '14 dollars.']), 'en').length === 1);
+  check('首字母缩写内部点号不作为句末', groupDisplayCues(make(['The U.', 'S. team won.']), 'en').length === 1);
+  check('中文和日文合并不插空格', groupDisplayCues(make(['你好', '世界。']), 'zh-Hans')[0]?.text === '你好世界。' && groupDisplayCues(make(['これは', '日本語。']), 'ja')[0]?.text === 'これは日本語。');
+  check('单 cue 多句不拆', groupDisplayCues(make(['One. Two!']), 'en').length === 1);
+  check('同显示内容保留索引，时长变化使内容失效', sameDisplayCues(grouped, grouped.map(c => ({ ...c }))) && !sameDisplayCues(grouped, grouped.map((c, i) => i ? c : { ...c, dur: c.dur + 1 })));
+}
+{
+  const raw = [
+    { start: 0, dur: 800, text: 'This', lastOff: 0 },
+    { start: 200, dur: 800, text: 'This is', lastOff: 200 },
+    { start: 1000, dur: 1000, text: 'one sentence.', lastOff: 1000 },
+    { start: 2000, dur: 1000, text: 'The next sentence.', lastOff: 2000 },
+  ];
+  const views = buildSubtitleViews(raw, 'asr', 'en');
+  check('播放器保留 ASR 去重短片段，侧栏保留完整学习句', views.fragments.length === 3 && views.fragments[0]?.text === 'This is' && views.cues.length === 2 && views.cues[0]?.text === 'This is one sentence.');
+  check('分组时记录精确成员索引，不改变短片段时间', JSON.stringify(views.fragmentGroups) === '[0,0,1]' && views.fragments[1]?.start === 1000 && views.fragments[1].dur === 1000);
+  check('句内片段切换时学习单位保持，AP 取该单位最后片段', cueIndexAt(views.cues, 1200) === 0 && cueIndexAt(views.fragments, 1200) === 1 && views.fragmentGroups.lastIndexOf(0) === 1 && cueEnd(views.cues, 0) === 2000);
+  const translated = [
+    { start: 0, dur: 1000, text: '这是', lastOff: 0 },
+    { start: 1000, dur: 1000, text: '一个句子。', lastOff: 1000 },
+    { start: 2000, dur: 1000, text: '下一句。', lastOff: 2000 },
+  ];
+  const groupZh = alignTranslatedCues(views.cues, translated);
+  const fragmentZh = alignFragmentTranslatedCues(views.fragments, translated);
+  check('同次平台译文分别对齐整句和短片段', groupZh[0]?.zh === '这是 一个句子。' && fragmentZh[0]?.zh === '这是' && fragmentZh[1]?.zh === '一个句子。');
+  const ambiguous = [{ start: 0, dur: 2000, text: '这是一个句子。', lastOff: 0 }];
+  check('跨短片段的整句译文不重复显示在播放器，保留回退机会', alignTranslatedCues(views.cues, ambiguous)[0]?.zh === '这是一个句子。' && alignFragmentTranslatedCues(views.fragments, ambiguous).every(c => !c.zh));
+  const batch = buildCueTranslationBatch(views.cues, views.fragments, [0, 1], [0, 1, 2]);
+  const groupLast = batch.targets.find(target => target.view === 'groups' && target.index === 1)!;
+  const fragmentLast = batch.targets.find(target => target.view === 'fragments' && target.index === 2)!;
+  check('回退翻译双视图 ID 无歧义且同全文只请求一次', batch.items.length === 4 && groupLast.id === fragmentLast.id && batch.targets.find(target => target.view === 'fragments' && target.index === 0)?.id === views.cues.length);
+  const untouched = buildSubtitleViews(raw.slice(0, 1).concat([{ start: 3000, dur: 1000, text: 'unfinished', lastOff: 3000 }]), 'manual', 'en');
+  check('未合并原项也记录逐项归属', JSON.stringify(untouched.fragmentGroups) === '[0,1]');
+}
+{
+  const tracker = new SubtitleSourceTracker('V');
+  const emptyCandidate = TT('V', 'en', 'signature=empty');
+  tracker.noteTimedtext(emptyCandidate, WATCH('V'));
+  check('首次候选允许请求', !!tracker.claimProduce(WATCH('V')));
+  tracker.noteTimedtext(emptyCandidate, WATCH('V'));
+  check('空响应后重复捕获不重复请求', tracker.claimProduce(WATCH('V')) === null);
+  tracker.noteTimedtext(TT('V', 'en', 'signature=valid'), WATCH('V'));
+  check('同一轮新 URL 可在空响应后继续获取', !!tracker.claimProduce(WATCH('V')));
+  tracker.resetAttempts();
+  check('显式重试重新允许当前 URL', !!tracker.claimProduce(WATCH('V')));
+  const pinned = tracker.pinForProduce()!;
+  tracker.clearSource();
+  check('取消后旧响应失效', tracker.staleAfterFetch(pinned.trackKey));
+  tracker.noteTimedtext(emptyCandidate.replace('&pot=T', ''), WATCH('V'));
+  check('捕获的原生请求不强制要求 pot', !!tracker.claimProduce(WATCH('V')));
+}
 {
   const cues = [
     { start: 0, dur: 1000, text: 'a', lastOff: 1000 },
@@ -733,7 +802,7 @@ const m7Cues = [
 ];
 const m7Words = cueWords(m7Cues);
 check('词次按实际出现计数，字幕位置去重', m7Words[0]?.count === 2 && m7Words[0]?.positions.length === 1 && m7Words[1]?.count === 2);
-check('AP 使用显示结束边界，重叠在下一句开始结束', cueEnd(m7Cues, 0) === 2000 && cueEnd(m7Cues, 1) === 3000);
+check('AP 保留未合并项的原显示边界，重叠在下一项开始结束', cueEnd(m7Cues, 0) === 2000 && cueEnd(m7Cues, 1) === 3000);
 
 // M11 语言身份与词条稳定键（纯逻辑）。
 console.log('M11 语言身份与词条键');

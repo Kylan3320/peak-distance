@@ -1,5 +1,18 @@
 /** Product copy only. Source keys stay stable across wording changes and saved material labels. */
 export const UI_MESSAGES: Record<string, readonly [string, string, string, string, string]> = {
+  '字幕响应为空，请重试': ['字幕响应为空，请重试', '字幕回應為空，請重試', 'The subtitle response was empty. Try again.', 'Die Untertitelantwort war leer. Versuche es erneut.', 'La réponse des sous-titres était vide. Réessayez.'],
+  '字幕网络请求失败，请重试': ['字幕网络请求失败，请重试', '字幕網路請求失敗，請重試', 'The subtitle request failed. Try again.', 'Die Untertitelanfrage ist fehlgeschlagen. Versuche es erneut.', 'La requête de sous-titres a échoué. Réessayez.'],
+  '字幕解析失败，请重试': ['字幕解析失败，请重试', '字幕解析失敗，請重試', 'The subtitles could not be read. Try again.', 'Die Untertitel konnten nicht gelesen werden. Versuche es erneut.', 'Impossible de lire les sous-titres. Réessayez.'],
+  '文档格式有误：{path}（{reason}）': ['文档格式有误：{path}（{reason}）', '文件格式有誤：{path}（{reason}）', 'Invalid document format: {path} ({reason})', 'Ungültiges Dokumentformat: {path} ({reason})', 'Format de document invalide : {path} ({reason})'],
+  '材料格式无效': ['材料格式无效', '材料格式無效', 'Invalid material format', 'Ungültiges Materialformat', 'Format de contenu source invalide'],
+  '对话格式无效': ['对话格式无效', '對話格式無效', 'Invalid conversation format', 'Ungültiges Gesprächsformat', 'Format de conversation invalide'],
+  '缺少引用的材料版本': ['缺少引用的材料版本', '缺少引用的材料版本', 'A referenced material version is missing', 'Eine referenzierte Materialversion fehlt', 'Une version du contenu source référencé est manquante'],
+  '词汇格式无效': ['词汇格式无效', '詞彙格式無效', 'Invalid vocabulary format', 'Ungültiges Vokabelformat', 'Format de vocabulaire invalide'],
+  '句子格式无效': ['句子格式无效', '句子格式無效', 'Invalid sentence format', 'Ungültiges Satzformat', 'Format de phrase invalide'],
+  '句子来源无效': ['句子来源无效', '句子來源無效', 'Invalid sentence source', 'Ungültige Satzquelle', 'Source de phrase invalide'],
+  '知识记录格式无效': ['知识记录格式无效', '知識記錄格式無效', 'Invalid knowledge record format', 'Ungültiges Wissenseintragsformat', 'Format de fiche de connaissances invalide'],
+  '知识记录重复': ['知识记录重复', '知識記錄重複', 'Duplicate knowledge record', 'Doppelter Wissenseintrag', 'Fiche de connaissances en double'],
+  '集合格式无效': ['集合格式无效', '集合格式無效', 'Invalid collection format', 'Ungültiges Sammlungsformat', 'Format de collection invalide'],
   "准备内置翻译": ["准备内置翻译", "準備內建翻譯", "Prepare browser translation", "Browserübersetzung vorbereiten", "Préparer la traduction"],
   "首次使用需要下载语言模型。准备完成后可关闭此页，回到原文重试。": ["首次使用需要下载语言模型。准备完成后可关闭此页，回到原文重试。", "首次使用需要下載語言模型。準備完成後可關閉此頁，回到原文重試。", "Language models must be downloaded before first use. Once ready, close this page and retry the original text.", "Vor der ersten Nutzung müssen Sprachmodelle heruntergeladen werden. Schließe danach diese Seite und versuche die Übersetzung erneut.", "Des modèles de langue doivent être téléchargés avant la première utilisation. Fermez ensuite cette page et relancez la traduction du texte original."],
   "正在准备内置翻译，首次使用可能需要较长时间…": ["正在准备内置翻译，首次使用可能需要较长时间…", "正在準備內建翻譯，首次使用可能需要較長時間…", "Preparing browser translation. First-time setup may take a while…", "Browserübersetzung wird vorbereitet. Die erste Einrichtung kann etwas dauern…", "Préparation de la traduction. La première configuration peut prendre du temps…"],
