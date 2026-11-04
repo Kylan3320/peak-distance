@@ -17,9 +17,3 @@ export const brandControls = `
 export const CHAT_ADD_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"/><path d="M12 9v6M9 12h6"/></svg>';
 
-/** 添加到对话按钮的公共样式（Shadow DOM 内，跟随单色线性规范；命中区 ≥32px）。 */
-export const CHAT_ADD_BUTTON_STYLE = `
-  .blc-chat-add { display:inline-flex; align-items:center; justify-content:center; min-width:32px; min-height:32px; }
-  .blc-chat-add svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
-`;
-

@@ -14,39 +14,37 @@ const COMPREHENSION_OPTIONS: LanguageTag[] = [
 
 export function mountSettings(root: HTMLElement) {
   root.innerHTML = `<section class="settings-section"><h2 data-i18n="语言"></h2>
-    <label class="settings-field"><span class="settings-copy"><span data-i18n="显示语言"></span><small class="hint" data-i18n="菜单和AI问答使用的语言。"></small></span><select id="displayLanguage"></select></label>
-    <label class="settings-field"><span class="settings-copy"><span data-i18n="默认理解语言"></span><small class="hint" data-i18n="解释和译文使用的语言。"></small></span><select id="defaultComprehensionLang"></select></label>
+    <label class="settings-field"><span data-i18n="显示语言"></span><select id="displayLanguage"></select></label>
+    <label class="settings-field"><span data-i18n="默认理解语言"></span><select id="defaultComprehensionLang"></select></label>
     <details class="settings-details"><summary data-i18n="单独设置"></summary>
       <div id="lang-overrides" class="settings-status"></div>
       <div class="language-rule"><label class="ai-field"><span data-i18n="原文语言"></span><select id="override-source"></select></label><label class="ai-field"><span data-i18n="默认理解语言"></span><select id="override-target"></select></label><button id="override-add" data-i18n="添加覆盖" disabled></button></div>
     </details><div id="lang-state" class="settings-status" role="status"></div></section>
     <section class="settings-section"><h2 data-i18n="查词设置"></h2>
-    <label class="settings-field"><span class="settings-copy"><span data-i18n="词汇标记"></span><small class="hint" data-i18n="标出词语的学习状态。"></small></span><input id="markingEnabled" type="checkbox"></label>
+    <label class="settings-field"><span data-i18n="词汇标记"></span><input id="markingEnabled" type="checkbox"></label>
     <label class="settings-field"><span data-i18n="首选词典"></span><select id="primaryDictionary"><option value="youdao" data-i18n="有道"></option><option value="cambridge" data-i18n="剑桥英汉"></option></select></label>
     <label class="settings-field"><span data-i18n="备用词典"></span><select id="backupDictionary"><option value="cambridge" data-i18n="剑桥英汉"></option><option value="youdao" data-i18n="有道"></option></select></label>
-    <label class="settings-field"><span class="settings-copy"><span data-i18n="无词典结果时自动使用 AI 查词"></span><small class="hint" data-i18n="词典不支持或无结果时，用 AI 解释。"></small><small class="hint" data-i18n="AI 费用由服务商收取。"></small></span><input id="aiLookupFallback" type="checkbox"></label>
+    <label class="settings-field"><span data-i18n="无词典结果时自动使用 AI 查词"></span><input id="aiLookupFallback" type="checkbox"></label>
     <details class="settings-details"><summary data-i18n="查询缓存"></summary>
     <label class="settings-field"><span data-i18n="查询缓存上限"></span><span class="settings-number"><input id="cacheLimit" type="number" min="20" max="500" step="1"><small class="hint">20–500</small></span></label>
-    <p class="hint" data-i18n="普通词典与文本译文保留 30 天，受条数与 2 MB 总容量限制。"></p>
     <button id="clear-query-cache" data-i18n="清除查询缓存"></button><p id="cache-state" class="settings-status" role="status"></p>
     </details></section>
     <section class="settings-section"><h2 data-i18n="字幕设置"></h2>
-    <label class="settings-field"><span class="settings-copy"><span data-i18n="默认翻译方式"></span><small class="hint" data-i18n="首次打开视频时使用。"></small></span><select id="translationMode"><option value="regular" data-i18n="常规翻译"></option><option value="ai" data-i18n="AI 翻译（LLM）"></option></select></label>
+    <label class="settings-field"><span data-i18n="默认翻译方式"></span><select id="translationMode"><option value="regular" data-i18n="常规翻译"></option><option value="ai" data-i18n="AI 翻译（LLM）"></option></select></label>
     <label class="settings-field"><span data-i18n="开启双语字幕"></span><input id="bilingualEnabled" type="checkbox"></label>
     <label class="settings-field"><span data-i18n="显示译文字幕"></span><input id="chineseVisible" type="checkbox"></label>
     <label class="settings-field"><span data-i18n="字幕字号"></span><select id="subtitleSize"><option value="small" data-i18n="小"></option><option value="standard" data-i18n="标准"></option><option value="large" data-i18n="大"></option></select></label></section>
     <section class="settings-section vault-section"><h2 data-i18n="学习库"></h2>
-    <p class="hint vault-description" data-i18n="用同一文件夹共享学习记录。"></p>
     <div class="vault-overview"><div class="vault-summary"><span id="vault-label"></span><div id="vault-meta" class="hint" hidden><span id="vault-pending"></span><span id="vault-time"></span></div></div><div class="vault-tools"><button id="vault-connect" class="primary"><span id="vault-connect-label" data-i18n="连接学习文件夹"></span><span id="vault-folder-icon" hidden>${uiIcon('folder')}</span></button><button id="vault-flush" class="ui-icon-button" hidden>${uiIcon('sync')}</button><button id="vault-disconnect" class="ui-icon-button" hidden>${uiIcon('disconnect')}</button></div></div>
     <div id="vault-state" class="settings-status" role="status"></div>
-    <details class="settings-details"><summary data-i18n="文件说明"></summary><p class="hint" data-i18n="分别连接同一文件夹，即可共享记录。"></p><p class="hint" data-i18n="词语、句子和对话保存为笔记文件。"></p><p class="hint" data-i18n="断开连接不会删除文件。"></p></details></section>
-    <section class="settings-section ai-section"><h2 data-i18n="AI 服务"></h2><p class="hint ai-description" data-i18n="服务配置只存在当前浏览器。"></p>
+    </section>
+    <section class="settings-section ai-section"><h2 data-i18n="AI 服务"></h2>
     <fieldset id="ai-fields"><div class="ai-form-row"><label for="ai-provider" data-i18n="服务商"></label><div class="ai-control"><select id="ai-provider" aria-describedby="ai-current"></select><p id="ai-current" class="hint" hidden></p></div></div>
-    <div class="ai-form-row"><label for="key" data-i18n="API Key"></label><div class="ai-control"><div class="ai-key-control"><input id="key" class="settings-key" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help"><button id="clear" class="ui-icon-button ui-danger" type="button" hidden>${uiIcon('trash')}</button></div><p id="key-help" class="hint" data-i18n="从服务商复制 API Key。"></p></div></div>
+    <div class="ai-form-row"><label for="key" data-i18n="API Key"></label><div class="ai-control"><div class="ai-key-control"><input id="key" class="settings-key" type="password" autocomplete="off" spellcheck="false"><button id="clear" class="ui-icon-button ui-danger" type="button" hidden>${uiIcon('trash')}</button></div></div></div>
     <details id="ai-advanced" class="settings-details"><summary data-i18n="高级设置"></summary>
       <label class="ai-field"><span data-i18n="接口格式"></span><select id="ai-protocol"><option value="openai" data-i18n="OpenAI 兼容"></option><option value="anthropic">Anthropic Messages</option><option value="gemini">Gemini</option></select></label>
       <label class="ai-field"><span data-i18n="API 地址（Base URL）"></span><input id="ai-url" type="url" placeholder="https://api.example.com/v1" spellcheck="false"></label>
-      <label class="ai-field"><span data-i18n="模型 ID"></span><input id="ai-model" type="text" spellcheck="false" aria-describedby="ai-model-help"><small id="ai-model-help" class="hint" data-i18n="填写服务商提供的模型 ID。"></small></label>
+      <label class="ai-field"><span data-i18n="模型 ID"></span><input id="ai-model" type="text" spellcheck="false"></label>
     </details><div class="ai-footer"><button id="save" class="ui-icon-button" type="button">${uiIcon('save')}</button><div id="state" class="settings-status" role="status"></div></div></fieldset></section>
     <details class="settings-section settings-details"><summary data-i18n="更多设置"></summary>
     <label class="settings-field"><span data-i18n="常规翻译来源"></span><select id="regularTranslation"><option value="browser-native" data-i18n="浏览器内置翻译"></option><option value="google-gtx" data-i18n="Google 免费翻译"></option></select></label><button id="prepare-native" data-i18n="准备内置翻译"></button></details>
@@ -76,10 +74,9 @@ export function mountSettings(root: HTMLElement) {
   const providerLabel = (value: AiProvider) => ['glm','kimi','custom'].includes(value) ? t(AI_PRESETS[value].label) : AI_PRESETS[value].label;
   for (const value of Object.keys(AI_PRESETS) as AiProvider[]) provider.add(new Option(providerLabel(value), value));
   const drafts = new Map<AiProvider, {profile:AiProfile;keyInput:string}>();
-  function keyHint() {
+  function updateKeyControls() {
     const saved=services.profiles[selected];let reusable=false;
     try{reusable=!!saved?.apiKey&&saved.protocol===get<HTMLSelectElement>('ai-protocol').value&&normalizeAiBaseUrl(saved.baseUrl)===normalizeAiBaseUrl(get<HTMLInputElement>('ai-url').value);}catch{/* incomplete URL */}
-    get('key-help').hidden=reusable;
     get('clear').hidden=!saved?.apiKey;
     get<HTMLInputElement>('key').placeholder=t(reusable?'已保存；留空保留当前 Key':saved?.apiKey?'地址或接口已变更，请填写对应 Key':'输入所选服务的 API Key');
   }
@@ -110,13 +107,13 @@ export function mountSettings(root: HTMLElement) {
     provider.value=selected;get<HTMLSelectElement>('ai-protocol').value=p.protocol;
     get<HTMLInputElement>('ai-url').value=p.baseUrl;get<HTMLInputElement>('ai-model').value=p.model;
     get<HTMLInputElement>('key').value=pending?.keyInput??'';
-    keyHint();
+    updateKeyControls();
     get<HTMLDetailsElement>('ai-advanced').open=selected==='custom';
     showActiveAi();showAiState();
   }
   provider.addEventListener('change',()=>{drafts.set(selected,{profile:draft(),keyInput:get<HTMLInputElement>('key').value});selected=provider.value as AiProvider;showProvider();});
-  for(const id of ['key','ai-url','ai-model'])get(id).addEventListener('input',()=>{keyHint();showAiState();});
-  get('ai-protocol').addEventListener('change',()=>{keyHint();showAiState();});
+  for(const id of ['key','ai-url','ai-model'])get(id).addEventListener('input',()=>{updateKeyControls();showAiState();});
+  get('ai-protocol').addEventListener('change',()=>{updateKeyControls();showAiState();});
   async function load() {
     try {
       const stored=await browser.storage.local.get([...Object.keys(DEFAULT_SETTINGS),'deepseekApiKey','aiServices']);
@@ -135,11 +132,8 @@ export function mountSettings(root: HTMLElement) {
     if(name==='comprehensionOverrides')continue;
     const control=get<HTMLInputElement|HTMLSelectElement>(name);
     const field=control.closest('.settings-field')!;
-    const caption=field.querySelector('.settings-copy > span[data-i18n],:scope > span[data-i18n]');
+    const caption=field.querySelector(':scope > span[data-i18n]');
     if(caption)setLocalizedAttribute(control,'aria-label',message(caption.getAttribute('data-i18n')!));
-    const hints=[...field.querySelectorAll<HTMLElement>('.settings-copy small')];
-    for(const [index,hint] of hints.entries())hint.id=`${name}-hint-${index}`;
-    if(hints.length)control.setAttribute('aria-describedby',hints.map(hint=>hint.id).join(' '));
     const status=document.createElement('small');status.className='settings-field-state';status.setAttribute('role','status');field.append(status);
     let noticeTimer:ReturnType<typeof setTimeout>;
     const saved=(key:string,ok:boolean)=>{
@@ -340,7 +334,7 @@ export function mountSettings(root: HTMLElement) {
     }
     for(const option of provider.options) option.textContent=providerLabel(option.value as AiProvider);
     showActiveAi();
-    keyHint();renderOverrides(currentOverrides);
+    updateKeyControls();renderOverrides(currentOverrides);
   });
   void load();return {refresh:load};
 }

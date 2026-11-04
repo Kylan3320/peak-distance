@@ -2,7 +2,9 @@ import { t as tr, localize, onDisplayLanguageChange, setDisplayLanguage , messag
 import { initFloatingPanel } from '@/shared/floatingPanel';
 import { createTranslationPopup } from '@/shared/translationPopup';
 import { shadowSelection, classifyRangeIn, clampRangeToElement } from '@/shared/selection';
-import { brandTokens, brandControls, sharedControls, CHAT_ADD_ICON, CHAT_ADD_BUTTON_STYLE } from '@/shared/brand';
+import { brandTokens, brandControls, sharedControls, CHAT_ADD_ICON } from '@/shared/brand';
+import selectionActionStyles from '@/shared/selectionActions.css?inline';
+import { uiIcon } from '@/shared/uiControls';
 import { detectTextLanguage } from '@/shared/tokenize';
 import { sendRuntime } from '@/shared/runtime';
 import { createSelectionPill } from '@/shared/selectionPill';
@@ -715,14 +717,16 @@ export default defineContentScript({
       dismissedSelection = null;
       const host=document.createElement('div');host.id='pd-phrase-actions';
       host.style.cssText='position:fixed;z-index:2147483646';
-      host.style.left=Math.max(12,Math.min(info.rect?.left??24,innerWidth-196))+'px';
-      host.style.top=Math.min((info.rect?.bottom??64)+6,innerHeight-60)+'px';
       const root=host.attachShadow({mode:'open'});
-      root.innerHTML=`<style>${brandTokens}:host{font:14px system-ui}div{display:flex;gap:4px;padding:4px;border-radius:8px;background:var(--pd-paper)}${brandControls}${CHAT_ADD_BUTTON_STYLE}</style><div><button id="lookup" hidden data-i18n="查词">${tr("查词")}</button><button id="translate" hidden data-i18n="翻译">${tr("翻译")}</button><button id="chat" class="blc-chat-add" data-i18n-title="添加到对话" title="${tr("添加到对话")}" data-i18n-aria-label="添加到对话" aria-label="${tr("添加到对话")}">${CHAT_ADD_ICON}</button></div>`;
+      root.innerHTML=`<style>${brandTokens}:host{display:block;text-shadow:none;letter-spacing:normal;text-transform:none;font-weight:400}${selectionActionStyles}</style><div class="selection-actions"><button id="lookup" type="button" hidden data-i18n-title="查词" data-i18n-aria-label="查词">${uiIcon('lookup')}</button><button id="translate" type="button" hidden data-i18n-title="翻译" data-i18n-aria-label="翻译">${uiIcon('translate')}</button><button id="chat" type="button" class="blc-chat-add" data-i18n-title="添加到对话" data-i18n-aria-label="添加到对话">${CHAT_ADD_ICON}</button></div>`;
+      localize(root);
       (document.fullscreenElement??document.documentElement).append(host);
       // 分类表：word=查词+对话；phrase=查词+翻译+对话；sentence=翻译+对话
       root.querySelector<HTMLElement>('#lookup')!.hidden = info.kind === 'sentence' || !info.hasWord;
       root.querySelector<HTMLElement>('#translate')!.hidden = info.kind === 'word';
+      const box=host.getBoundingClientRect(),below=(info.rect?.bottom??64)+6;
+      host.style.left=Math.max(8,Math.min(info.rect?.left??24,innerWidth-box.width-8))+'px';
+      host.style.top=Math.max(8,below+box.height<=innerHeight-8?below:(info.rect?.top??innerHeight)-box.height-6)+'px';
       const rect = info.rect ?? undefined;
       root.querySelector('#lookup')!.addEventListener('click',()=>{closeSelectionActions?.();openPlayerLookup(info.expression ?? info.raw, info.fragmentIndex);});
       const selectedCue = fragments[info.fragmentIndex];

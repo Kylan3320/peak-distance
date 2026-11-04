@@ -5,7 +5,9 @@ import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocal
 // 翻译与附加用原始选区（不改写）；选区形成即固定候选（文本、来源、位置与
 // 局部上下文）。来源、轻提示与「继续问」由调用方注入，跳过条件可扩展
 // （YouTube 用它排除字幕栏等自身 UI 内的选区）。
-import { brandTokens, brandControls, CHAT_ADD_ICON, CHAT_ADD_BUTTON_STYLE } from './brand';
+import { brandTokens, CHAT_ADD_ICON } from './brand';
+import selectionActionStyles from './selectionActions.css?inline';
+import { iconButton } from './uiControls';
 import { detectTextLanguage } from './tokenize';
 import { classifyRangeIn, inlineRunContainer } from './selection';
 import { materialFromCandidate, type SelectionCandidate, type SourceDescriptor } from './chat';
@@ -134,17 +136,16 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       const root = host.attachShadow({ mode: 'open' });
       const style = document.createElement('style');
       style.textContent = `
-        ${brandTokens}:host { font:14px/1.5 system-ui,"Microsoft YaHei",sans-serif; display:flex; gap:4px; padding:4px; background:var(--pd-paper); border:1px solid var(--pd-line);border-radius:8px;box-shadow:var(--pd-shadow) }
-        ${brandControls}${CHAT_ADD_BUTTON_STYLE}
-        button { min-height:32px;border:0;background:transparent; } button:hover {background:var(--pd-selected)} [hidden] { display:none!important; }
+        ${brandTokens}:host {display:block;text-shadow:none;letter-spacing:normal;text-transform:none;font-weight:400}
+        ${selectionActionStyles}
       `;
       root.appendChild(style);
-      const btn = document.createElement('button');
-      setText(btn, message('查词'));
+      const bar = document.createElement('div'); bar.className = 'selection-actions'; root.append(bar);
+      const btn = iconButton('lookup', message('查词'));
       btn.id = 'lookup';
-      root.appendChild(btn);
-      const translate = document.createElement('button');
-      translate.id = 'translate'; setText(translate, message('翻译')); root.append(translate);
+      bar.appendChild(btn);
+      const translate = iconButton('translate', message('翻译'));
+      translate.id = 'translate'; bar.append(translate);
       translate.addEventListener('click', () => {
         const info = evaluate() ?? currentInfo;
         if (!info) return;
@@ -160,7 +161,7 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       setLocalizedAttribute(chat, 'title', message('添加到对话'));
       setLocalizedAttribute(chat, 'aria-label', message('添加到对话'));
       chat.innerHTML = CHAT_ADD_ICON;
-      root.append(chat);
+      bar.append(chat);
       localize(root);
       chat.addEventListener('click', () => {
         const info = evaluate() ?? currentInfo;
@@ -185,12 +186,12 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     const r = info.rect;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    let x = r && r.width >= 0 ? r.left + r.width / 2 : vw / 2;
-    let y = r ? r.bottom + 6 : vh / 2;
-    x = Math.min(Math.max(x, 8), vw - 60);
-    y = Math.min(Math.max(y, 8), vh - 36);
     host.style.position = 'fixed';
-    host.style.left = `${Math.round(x - 24)}px`;
+    const { width, height } = host.getBoundingClientRect();
+    const x = Math.max(8, Math.min(r ? r.left : vw / 2, vw - width - 8));
+    const below = r ? r.bottom + 6 : vh / 2;
+    const y = Math.max(8, below + height <= vh - 8 ? below : (r?.top ?? vh) - height - 6);
+    host.style.left = `${Math.round(x)}px`;
     host.style.top = `${Math.round(y)}px`;
     host.style.zIndex = '2147483646';
     pushCandidate(info);
