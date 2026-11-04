@@ -96,7 +96,7 @@ export function mountSettings(root: HTMLElement) {
   function showAiState() {
     const saved=services.profiles[selected]??defaultAiProfile(selected),current=draft();
     const changed=(['protocol','baseUrl','model','apiKey'] as const).some(key=>current[key]!==saved[key]);
-    get('save').classList.toggle('primary',changed||selected!==services.active||!saved.apiKey);
+    get('save').classList.toggle('is-pending',changed||selected!==services.active||!saved.apiKey);
     if(changed)report('state','尚未保存',null);
     else if(selected!==services.active)report('state','保存后切换至此服务',null);
     else report('state',saved.apiKey?'已配置':'未配置',saved.apiKey?true:null);

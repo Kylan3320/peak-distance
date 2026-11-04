@@ -117,7 +117,7 @@ main {min-height:0;min-width:0;overflow:auto;padding:20px 16px;flex:1;overscroll
 #chat-latest {width:auto;flex:none;border-radius:16px;font-size:12px;margin-bottom:8px;padding:4px 12px;align-self:center}
 #chat-input-row {flex:none;background:var(--pd-surface);border:1px solid var(--pd-line);border-radius:16px;padding:12px 16px 8px;position:relative}
 #chat-input-row:focus-within {border-color:var(--pd-mist)}
-#chat-input-row:has(#chat-input:focus-visible) {outline:2px solid var(--pd-blue);outline-offset:2px}
+#chat-input-row:has(#chat-input:focus-visible) {border-color:var(--pd-blue)}
 #chat-input {display:block;width:100%;min-height:40px;max-height:min(240px,30dvh);border:0;background:transparent;border-radius:6px;resize:none;padding:8px 0;font:15px/1.7 system-ui,'Segoe UI','Microsoft YaHei',sans-serif;caret-color:var(--pd-blue)}
 #view-chat #chat-resize {position:absolute;inset:-6px 12px auto;width:calc(100% - 24px);height:12px;min-height:0;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none;z-index:1}
 #chat-resize::after {content:'';position:absolute;top:5px;left:calc(50% - 20px);width:40px;height:3px;border-radius:3px;background:var(--pd-muted);opacity:.4}
