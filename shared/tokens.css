@@ -1,1 +1,2 @@
 :root,:host { color-scheme:light; --pd-ink:#2f3a40;--pd-muted:#59636b;--pd-paper:#f7f4ec;--pd-surface:#fffdfa;--pd-blue:#1a5fc4;--pd-mist:#6b8db7;--pd-selected:#e4eef6;--pd-line:#ddd9cf;--pd-gold:#d4a950;--pd-shadow:0 12px 40px #2f3a4029; }
+:root,:host { --pd-font-ui:system-ui,'Segoe UI','Microsoft YaHei',sans-serif;--pd-font-heading:Georgia,'Noto Serif SC',SimSun,serif;--pd-text-title:20px;--pd-text-body:14px;--pd-text-nav:13px;--pd-text-meta:12px;--pd-icon-size:18px;--pd-icon-stroke:1.6;--pd-control-size:34px; }

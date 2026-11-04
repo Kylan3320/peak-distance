@@ -1,4 +1,5 @@
 @import '../../shared/theme.css';
+@import '../../shared/selectionActions.css';
 html,body {height:100%;overflow:hidden}
 body {display:grid;grid-template-rows:auto minmax(0,1fr)}
 .app-header {padding:18px 16px 0;border-bottom:1px solid var(--pd-line);min-width:0}
@@ -6,18 +7,19 @@ body {display:grid;grid-template-rows:auto minmax(0,1fr)}
 .brand-tools {display:flex;align-items:center;gap:4px}
 .brand-mark {position:relative;width:48px;height:30px;overflow:hidden;flex:none}
 .brand-mark img {position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
-.brand-name {font:24px/1.1 Georgia,serif;flex:1;min-width:0;white-space:nowrap}
-.brand-name small {display:block;font:10px/1.6 SimSun,serif;color:var(--pd-muted);letter-spacing:1px;margin-top:6px}
+.brand-name {font:22px/1.2 Georgia,serif;flex:1;min-width:0;white-space:nowrap}
+.brand-name small {display:block;font:11px/1.6 var(--pd-font-ui);color:var(--pd-muted);margin-top:6px}
+.brand-tools .ui-icon-button svg {width:16px;height:16px}
 #views {display:flex;gap:4px;padding:4px;background:#ebe9e2;border-radius:8px;margin-bottom:14px}
-#views button {flex:1;border:0;background:transparent;white-space:nowrap;padding:6px}
-#views button.active {background:var(--pd-surface);color:var(--pd-blue);box-shadow:0 2px 4px #2f3a400d}
+#views button {flex:1;border:0;background:transparent;color:var(--pd-muted);font-size:var(--pd-text-nav);font-weight:500;white-space:nowrap;padding:6px}
+#views button.active {background:var(--pd-surface);color:var(--pd-blue);font-weight:600;box-shadow:0 2px 4px #2f3a400d}
 .brand-landscape {display:none}
 .app-content {min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:#fffdfa99}
 #panel-feedback {padding:8px 16px;background:#fff0ce;color:#674d16;font-size:12px;flex:none}
 #library-tools {padding:20px 16px 12px;flex:none;border-bottom:1px solid var(--pd-line)}
 .section-title {display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:16px}
-.section-title h1 {margin:0;font-size:20px}
-.library-tabs {display:flex;gap:24px;margin-bottom:12px}.library-tabs button {position:relative;border:0;border-radius:0;padding:4px 0 8px;background:transparent;color:var(--pd-muted);font-size:13px}.library-tabs button:hover {color:var(--pd-ink)}.library-tabs .active {color:var(--pd-blue)}.library-tabs .active::after {content:"";position:absolute;bottom:0;inset-inline:0;height:2px;background:currentColor;border-radius:2px}
+.section-title h1 {margin:0;font-size:var(--pd-text-title)}
+.library-tabs {display:flex;gap:24px;margin-bottom:12px}.library-tabs button {position:relative;border:0;border-radius:0;padding:4px 0 8px;background:transparent;color:var(--pd-muted);font-size:var(--pd-text-nav);font-weight:500}.library-tabs button:hover {color:var(--pd-ink)}.library-tabs .active {color:var(--pd-blue)}.library-tabs .active::after {content:"";position:absolute;bottom:0;inset-inline:0;height:2px;background:currentColor;border-radius:2px}
 /* 搜索 + 语言筛选组合栏（图标菜单 + 可清除 chip，规格：design/lang-filter-mockup.html 方案 B） */
 .search-combo {position:relative;display:flex;align-items:stretch;height:38px;background:var(--pd-surface);border:1px solid var(--pd-line);border-radius:8px}
 .search-combo:focus-within {border-color:var(--pd-mist)}
@@ -61,28 +63,26 @@ main {min-height:0;min-width:0;overflow:auto;padding:20px 16px;flex:1;overscroll
 #view-settings {padding:24px 20px}
 #settings-back {display:grid;place-items:center;width:32px;height:32px;flex:none;padding:6px;border:0;background:transparent;color:var(--pd-muted)}
 #settings-back:hover {background:var(--pd-selected);color:var(--pd-blue)}
-#settings-back svg {width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.selection-actions {position:fixed;z-index:10;display:flex;gap:4px;padding:4px;background:var(--pd-paper);border:1px solid var(--pd-line);border-radius:8px;box-shadow:var(--pd-shadow)}
-.selection-actions .blc-chat-add {display:inline-flex;align-items:center;justify-content:center;min-width:32px;padding-inline:6px}
-.selection-actions .blc-chat-add svg {width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+#settings-back svg {width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
+.selection-actions {position:fixed;z-index:10}
 .sentence-bookmark {color:var(--pd-blue)}
 .sentence-bookmark svg {fill:currentColor}
 .sentence-save-error {color:#b3261e;font-size:12px;flex-basis:100%}
 @media(max-width:359px){.brand-row{gap:4px;margin-bottom:12px}.brand-name{font-size:20px;overflow:hidden;text-overflow:ellipsis}.brand-name small{display:none}}
-@media(min-width:560px){body{grid-template-columns:184px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.app-header{padding:24px 12px 0;border-right:1px solid var(--pd-line);border-bottom:0;position:relative;overflow:hidden;display:flex;flex-direction:column}.brand-row{grid-template-columns:minmax(0,1fr);gap:12px;position:relative;z-index:1}.brand-name{font-size:20px;flex:1 1 100%}.brand-name small{font-size:9px;letter-spacing:0}#views{flex-direction:column;background:transparent;padding:0;position:relative;z-index:1}#views button{text-align:left;padding:8px 12px}#views button.active{background:var(--pd-selected);box-shadow:none}.brand-landscape{display:block;flex:1;min-height:100px;margin:24px -12px 0;background:url('/brand/mountain-coast.png') center bottom/auto 100%;opacity:.85}.app-content{background:#fffdfaab}main{padding:24px}#library-tools{padding:24px}.entry-head{flex-wrap:nowrap}}
+@media(min-width:560px){body{grid-template-columns:184px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.app-header{padding:24px 12px 0;border-right:1px solid var(--pd-line);border-bottom:0;position:relative;overflow:hidden;display:flex;flex-direction:column}.brand-row{grid-template-columns:minmax(0,1fr);gap:12px;position:relative;z-index:1}.brand-name{flex:1 1 100%}#views{flex-direction:column;background:transparent;padding:0;margin-top:8px;position:relative;z-index:1}#views button{text-align:left;padding:9px 12px}#views button.active{background:var(--pd-selected);box-shadow:none}.brand-landscape{display:block;flex:1;min-height:100px;margin:24px -12px 0;background:url('/brand/mountain-coast.png') center bottom/auto 100%;opacity:.85}.app-content{background:#fffdfaab}main{padding:24px}#library-tools{padding:24px}.entry-head{flex-wrap:nowrap}}
 @media(prefers-reduced-motion:no-preference){button{transition:background .12s,color .12s}}
 /* 问答：限宽阅读区与纸面输入框 */
 #view-chat {display:flex;flex-direction:column;min-height:0;overflow:hidden;padding:20px 24px 16px;gap:0;background:transparent;font-size:15px;line-height:1.75;container-type:inline-size}
 #view-chat > * {width:100%;max-width:720px;margin-inline:auto;min-width:0}
 #view-chat ::selection {background:var(--pd-selected);color:var(--pd-ink)}
-#view-chat svg {width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+#view-chat svg {width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round;flex:none}
 #view-chat button,#view-chat summary {font-size:13px;min-height:34px}
 #view-chat button:disabled {cursor:default}
 #view-chat .chat-tool {padding:5px 10px;background:transparent;border:1px solid transparent;color:var(--pd-muted);border-radius:7px}
 #view-chat .chat-tool:hover,#view-chat .chat-tool[aria-pressed=true],#view-chat .chat-tool[aria-expanded=true] {background:#eae6dd;color:var(--pd-ink)}
 #chat-head {flex:none;max-height:32%;overflow:auto;padding-bottom:12px;border-bottom:1px solid var(--pd-line);scrollbar-width:thin}
 #chat-head .chat-meta {display:flex;align-items:center;gap:4px}
-#chat-head .chat-title {flex:1;min-width:0;font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#chat-head .chat-title {flex:1;min-width:0;font:600 var(--pd-text-title)/1.4 var(--pd-font-heading);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #chat-head .chat-scope {font-size:12px;color:var(--pd-muted);margin-top:4px}
 #chat-head .chat-danger {color:#a3352c}
 .quote-row {display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px;overflow-wrap:anywhere;margin-top:8px;padding:8px 12px;background:#eeeae0;border-radius:8px}
@@ -200,7 +200,7 @@ main {min-height:0;min-width:0;overflow:auto;padding:20px 16px;flex:1;overscroll
   body:has(#view-chat:not([hidden])) #views button {padding:4px 6px}
   #view-chat {padding:12px}
   #chat-head {padding-bottom:8px}
-  #chat-head .chat-title {font-size:14px}
+  #chat-head .chat-title {font-size:18px}
   #chat-head .chat-tool {padding:4px 8px;font-size:12px}
   #chat-input-row {padding:8px 10px}
   #chat-list {padding-inline:2px}

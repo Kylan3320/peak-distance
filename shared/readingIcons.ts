@@ -17,7 +17,7 @@ export const readingIcon = (name: ReadingIcon) => name in paths
 export const readingIconStyles = `
   button.reading-icon {display:inline-flex;align-items:center;justify-content:center;flex:none;width:34px;height:34px;min-height:34px;padding:0;border-color:transparent;background:transparent;color:var(--pd-ink)}
   button.reading-icon:hover {background:var(--pd-selected)}
-  .reading-icon svg {width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .reading-icon svg {width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
   button.reading-icon.is-saved {color:var(--pd-blue)}
   button.reading-icon.is-saved:disabled:not([aria-busy=true]) {opacity:1;cursor:default}
   .reading-icon.is-saved svg {fill:currentColor}

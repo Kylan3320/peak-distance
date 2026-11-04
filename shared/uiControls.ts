@@ -18,6 +18,7 @@ const paths = {
   check:'<path d="m5 12 4 4L19 6"/>',
   close:'<path d="m6 6 12 12M6 18 18 6"/>',
   review:'<path d="M12 7v14M3 3h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5v15h-5a4 4 0 0 0-4 3 4 4 0 0 0-4-3H3z"/><path d="m15 10 2 2 3-4"/>',
+  lookup:'<path d="M12 6a5 5 0 0 0-4-2H3v15h5a5 5 0 0 1 4 2 5 5 0 0 1 4-2h5V4h-5a5 5 0 0 0-4 2Zm0 0v15M6 8h3M6 12h3M15 8h3M15 12h3"/>',
   translate:'<path d="m5 8 6 6m-7 0 6-6 2-3H2m5-3v3m8 13 3-8 3 8m-5-3h4"/>',
   external:'<path d="M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
 } as const;

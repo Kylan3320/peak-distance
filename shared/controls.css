@@ -10,10 +10,10 @@ select option {min-height:34px;padding:6px 10px;border-radius:5px;gap:8px;overfl
 select option:hover {background:var(--pd-paper)}
 select option:checked {background:var(--pd-selected);color:var(--pd-blue)}
 select option::checkmark {order:1;margin-left:auto}
-.ui-icon-button {display:inline-flex;align-items:center;justify-content:center;flex:none;width:34px;height:34px;min-height:34px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pd-muted)}
+.ui-icon-button {display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--pd-control-size);height:var(--pd-control-size);min-height:var(--pd-control-size);padding:0;border:0;border-radius:6px;background:transparent;color:var(--pd-muted)}
 .ui-icon-button:hover {background:var(--pd-selected);color:var(--pd-ink)}
 .ui-icon-button[aria-pressed=true] {color:var(--pd-blue);background:var(--pd-selected)}
-.ui-icon-button svg {width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.ui-icon-button svg {width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
 .ui-action-wrap {display:inline-flex;flex:none}
 .ui-action-menu[popover] {position:fixed;position-area:block-end span-inline-start;position-try-fallbacks:flip-block,flip-inline;inset:auto;margin:6px 0;padding:6px;min-width:160px;max-width:calc(100vw - 24px);max-height:60dvh;overflow:auto;border:1px solid var(--pd-line);border-radius:8px;background:var(--pd-surface);color:var(--pd-ink);box-shadow:0 4px 16px #2f3a401a;font:13px/1.5 system-ui,sans-serif}
 .ui-action-menu > button {display:flex;align-items:center;gap:8px;width:100%;min-height:34px;border:0;background:transparent;text-align:start;padding:6px 10px}

@@ -118,9 +118,9 @@ try {
   await web.waitForSelector('html[data-blc-web="1"]');
   await web.evaluate(()=>{const node=document.createTreeWalker(document.querySelector('#selection'),NodeFilter.SHOW_TEXT).nextNode(),range=document.createRange();range.setStart(node,0);range.setEnd(node,8);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));});
   await web.locator('#blc-lookup-pill #lookup').waitFor();
-  assert.equal(await web.locator('#blc-lookup-pill #lookup').innerText(),'Look up');
+  assert.equal(await web.locator('#blc-lookup-pill #lookup').getAttribute('aria-label'),'Look up');
   await options.locator('#displayLanguage').selectOption('de');
-  await web.waitForFunction(()=>document.querySelector('#blc-lookup-pill')?.shadowRoot?.querySelector('#lookup')?.textContent==='Nachschlagen');
+  await web.waitForFunction(()=>document.querySelector('#blc-lookup-pill')?.shadowRoot?.querySelector('#lookup')?.getAttribute('aria-label')==='Nachschlagen');
   await web.locator('#blc-lookup-pill #lookup').click();
   await web.locator('#blc-lookup-popup .act.save').waitFor();
   assert.equal(await web.locator('#blc-lookup-popup .act.save').getAttribute('aria-label'),'Gespeichert');

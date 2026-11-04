@@ -2,7 +2,7 @@
 @import './controls.css';
 
 * {box-sizing:border-box} [hidden] {display:none!important}
-body {margin:0;font:14px/1.6 system-ui,'Segoe UI','Microsoft YaHei',sans-serif;color:var(--pd-ink);background:var(--pd-paper) url('/brand/paper-tile.png') repeat;background-size:620px}
+body {margin:0;font:var(--pd-text-body)/1.6 var(--pd-font-ui);color:var(--pd-ink);background:var(--pd-paper) url('/brand/paper-tile.png') repeat;background-size:620px}
 button,input,select,textarea {font:inherit;color:inherit}
 button {cursor:pointer;border:1px solid var(--pd-line);border-radius:6px;background:var(--pd-surface);padding:6px 10px;min-height:32px}
 button:hover {background:var(--pd-selected)} button:disabled {opacity:.6;cursor:default}
@@ -10,25 +10,24 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 input,textarea,select {background:var(--pd-surface);border:1px solid var(--pd-line);border-radius:6px;padding:6px 8px;max-width:100%}
 input[type=checkbox] {accent-color:var(--pd-blue);width:17px;height:17px;flex:none}
 a {color:var(--pd-blue);overflow-wrap:anywhere}
-h1,h2 {font-family:Georgia,'Noto Serif SC',SimSun,serif;font-weight:600}
-h1 {font-size:22px;margin:0 0 16px} h2 {font-size:18px;margin:0 0 12px}
+h1,h2 {font-family:var(--pd-font-heading);font-weight:600}
+h1 {font-size:var(--pd-text-title);line-height:1.4;margin:0 0 16px} h2 {font-size:18px;margin:0 0 12px}
 .primary {background:var(--pd-blue);border-color:var(--pd-blue);color:white} .primary:hover {background:#154fa6}
 .hint {color:var(--pd-muted);font-size:13px}
 .settings-page {max-width:768px;margin:32px auto;padding:0 24px}
 #settings-body {max-width:720px;margin-inline:auto}
-.settings-section {padding:0;margin:0 0 28px}
-.settings-section h2 {font-size:16px;margin-bottom:12px}
-.settings-field {display:grid;grid-template-columns:minmax(0,1fr) minmax(144px,220px);align-items:center;column-gap:20px;row-gap:4px;margin:16px 0}
-.settings-copy {min-width:0}
-.settings-copy .hint {display:block;font-size:12px;line-height:1.5;margin-top:4px}
+.settings-section {padding:0;margin:0 0 32px}
+.settings-section h2 {font:600 15px/1.5 var(--pd-font-ui);margin:0 0 8px}
+.settings-field {display:grid;grid-template-columns:minmax(0,1fr) minmax(144px,200px);align-items:center;column-gap:24px;row-gap:4px;min-height:40px;margin:4px 0;font-size:var(--pd-text-body)}
+.settings-field > span {min-width:0}
 .settings-field select {width:100%;min-width:0} .settings-field input {justify-self:end} .settings-field input[type=number] {width:86px}
-.settings-field select,.ai-field select {border:0;background:transparent;padding:4px 0;font-size:13px}
+.settings-field select,.ai-field select {border:0;background:transparent;padding:4px 0;font-size:var(--pd-text-body)}
 .settings-field select:hover,.ai-field select:hover {background:#2f3a4008}
 .settings-field:has(input[type=checkbox]) {grid-template-columns:minmax(0,1fr) auto}
 .settings-field-state {grid-column:2;justify-self:end;font-size:12px;line-height:1.4;color:var(--pd-muted)}
 .settings-field-state.err {color:#b3261e}.settings-field-state.ok {color:#24643a}
 .settings-field-state:empty {display:none}
-@media(max-width:480px){.settings-field:not(:has(input[type=checkbox])) {grid-template-columns:minmax(0,1fr);gap:6px}.settings-field:not(:has(input[type=checkbox])) .settings-field-state {grid-column:1}.settings-page {margin-block:24px;padding-inline:16px}}
+@media(max-width:480px){.settings-field:not(:has(input[type=checkbox])) {grid-template-columns:minmax(0,1fr);gap:2px;margin-block:12px}.settings-field:not(:has(input[type=checkbox])) .settings-field-state {grid-column:1}.settings-page {margin-block:24px;padding-inline:16px}}
 .settings-details summary {cursor:pointer;padding:6px 0;color:var(--pd-muted);font-size:13px;list-style:none}
 .settings-details summary::-webkit-details-marker {display:none}
 .settings-details summary::before {content:'';display:inline-block;width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;rotate:-45deg;margin:0 9px 2px 2px}
@@ -49,25 +48,21 @@ h1 {font-size:22px;margin:0 0 16px} h2 {font-size:18px;margin:0 0 12px}
 .ai-field .hint {font-size:12px;margin:0}
 
 /* Keep related settings on one content axis, with a shared action column. */
-.vault-section h2 {margin-bottom:4px}
-.vault-description {font-size:12px;line-height:1.6;margin:0}
-.vault-overview {display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-top:12px}
+.vault-overview {display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-top:4px}
 .vault-summary {flex:1 1 160px;min-width:0}
 #vault-label {display:flex;align-items:center;min-height:34px;font-size:13px;font-weight:500;overflow-wrap:anywhere}
 #vault-meta {display:flex;flex-wrap:wrap;gap:2px 16px;margin-top:2px;font-size:12px;font-variant-numeric:tabular-nums}
 .vault-tools {display:flex;align-items:center;gap:4px;flex:none;margin-inline-start:auto}
 .vault-tools button:not(.ui-icon-button) {font-size:13px}
 #vault-folder-icon {display:flex}
-.vault-tools svg {width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.vault-tools svg {width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
 #vault-state {overflow-wrap:anywhere;margin-bottom:4px}
-.ai-description {font-size:12px;line-height:1.6;margin:0 0 16px}
-.ai-section h2 {margin-bottom:4px}
 .ai-form-row {display:flex;flex-direction:column;gap:4px;margin:0 0 16px}
-.ai-form-row > label {font-size:13px}
+.ai-form-row > label {font-size:var(--pd-text-body)}
 .ai-control {min-width:0}
-#ai-provider {width:100%;border:0;background:transparent;padding:6px 0;font-size:13px}
+#ai-provider {width:100%;border:0;background:transparent;padding:6px 0;font-size:var(--pd-text-body)}
 #ai-provider:hover {background:#2f3a4008}
-#ai-current,#key-help {font-size:12px;margin:4px 0 0;overflow-wrap:anywhere}
+#ai-current {font-size:12px;margin:4px 0 0;overflow-wrap:anywhere}
 .ai-key-control {display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:center;gap:4px}
 .ai-section #ai-advanced {margin-top:0}
 .ai-footer {display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:center;gap:8px 12px;margin-top:12px}

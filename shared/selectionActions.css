@@ -1,0 +1,7 @@
+/* One quiet surface for page, player and workspace selections. */
+.selection-actions {display:flex;align-items:center;gap:2px;width:max-content;padding:4px;background:var(--pd-surface);color:var(--pd-ink);border-radius:8px;box-shadow:0 4px 16px #2f3a4026;font:var(--pd-text-body)/1.5 var(--pd-font-ui);font-weight:400;text-shadow:none;letter-spacing:normal;text-transform:none}
+.selection-actions button {display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--pd-control-size);height:var(--pd-control-size);min-height:var(--pd-control-size);padding:0;border:0;border-radius:5px;background:transparent;color:var(--pd-muted);cursor:pointer;box-sizing:border-box}
+.selection-actions button:hover {background:var(--pd-selected);color:var(--pd-blue)}
+.selection-actions button:focus-visible {outline:2px solid var(--pd-blue);outline-offset:-2px}
+.selection-actions svg {display:block;width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
+.selection-actions [hidden] {display:none!important}

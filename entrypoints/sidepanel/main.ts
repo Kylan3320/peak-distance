@@ -10,7 +10,7 @@ import { buildMarkBuckets } from '@/shared/marker';
 import { effectiveEntryLanguage, isRtlLanguage, langDisplayName, normalizeLangTag } from '@/shared/languages';
 import { segmentWords } from '@/shared/tokenize';
 import { materialFromCandidate, type SelectionCandidate } from '@/shared/chat';
-import { CHAT_ADD_ICON, CHAT_ADD_BUTTON_STYLE } from '@/shared/brand';
+import { CHAT_ADD_ICON } from '@/shared/brand';
 // 侧栏三个视图：生词本（词条 / 上下文 / 词形关联管理）、字幕（当前标签页
 // 视频的原文列表 + 译文 + 播放控制）、复习（原句回忆，无 AI 调用）。
 // 数据全部来自 background 的 IndexedDB；vocab-changed 广播后刷新。
@@ -709,24 +709,27 @@ const videoWorkspace=createYoutubeWorkspace({
       closeSelection(false);bubbleRange=selection.range.cloneRange();
       const buttons=el('div','selection-actions');buttons.id='panel-selection-actions';
       buttons.addEventListener('pointerdown',event=>event.preventDefault());
-      const rect=info.rect;buttons.style.left=Math.max(8,Math.min(rect.left,innerWidth-220))+'px';buttons.style.top=Math.min(rect.bottom+4,innerHeight-44)+'px';
+      const rect=info.rect;
       const selectedVideo=subsState.videoId,selectedCue=subsState.cues[info.firstIndex];
       const candidate=listSelectionCandidate(info);
       if(candidate)void send({type:'selectionCandidateSet',tabId:subsTabId??undefined,candidate});
       // 词/短语翻译用补全/清洗后的有效表达；句段/跨行保持实际选文
       const snapshot:SelectionSnapshot={text:info.raw,title:subsState.title,url:videoContextUrl(selectedVideo,selectedCue?.startMs??0),source:candidate?.source,sourceLang:subsState.trackLang||undefined,languageEvidence:'track',position:{videoId:selectedVideo,trackId:subsState.trackId,trackKind:subsState.trackKind==='asr'?'asr':'manual',trackLang:subsState.trackLang||'und',startMs:selectedCue?.startMs??0,endMs:subsState.cues[info.firstIndex+info.count-1]?.endMs??selectedCue?.endMs??0}};
       // 分类表：word=查词+对话；phrase=查词+翻译+对话；sentence/cross-cue=翻译+对话
-      if(info.kind!=='word'){
-        const translate=el('button',undefined,message('翻译'));translate.onclick=()=>{closeSelection();selectionPopup.open(snapshot,rect);};buttons.append(translate);
-      }
       if((info.kind==='word'||info.kind==='phrase')&&info.hasWord&&info.raw.length<=200){
-        const lookup=el('button',undefined,message('查词'));lookup.onclick=()=>{closeSelection();if(subsState?.videoId===selectedVideo)void videoAction('lookup',info.firstIndex,info.expression??info.raw);};buttons.append(lookup);
+        const lookup=iconButton('lookup',message('查词'));lookup.onclick=()=>{closeSelection();if(subsState?.videoId===selectedVideo)void videoAction('lookup',info.firstIndex,info.expression??info.raw);};buttons.append(lookup);
+      }
+      if(info.kind!=='word'){
+        const translate=iconButton('translate',message('翻译'));translate.onclick=()=>{closeSelection();selectionPopup.open(snapshot,rect);};buttons.append(translate);
       }
       const chat=el('button','blc-chat-add');setLocalizedAttribute(chat, 'title', message('添加到对话'));setLocalizedAttribute(chat, 'aria-label', message('添加到对话'));chat.innerHTML=CHAT_ADD_ICON;
       chat.onmousedown=e=>e.preventDefault();
       chat.onclick=()=>{closeSelection();if(candidate)void attachSelectionCandidate(candidate,{tabId:subsTabId??undefined});};
       buttons.append(chat);
       const close=iconButton('close',message('关闭选区操作'));close.onclick=()=>closeSelection();buttons.append(close);document.body.append(buttons);
+      const box=buttons.getBoundingClientRect(),below=rect.bottom+6;
+      buttons.style.left=Math.max(8,Math.min(rect.left,innerWidth-box.width-8))+'px';
+      buttons.style.top=Math.max(8,below+box.height<=innerHeight-8?below:rect.top-box.height-6)+'px';
     };
     document.addEventListener('mouseup',showSelection);
     const wordOf=(e:Event)=>(e.composedPath()[0] as Element)?.closest?.('.w') as HTMLElement|null;

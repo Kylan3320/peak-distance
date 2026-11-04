@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 const profile=await mkdtemp(join(tmpdir(),'pd-settings-actions-'));
 const extension=resolve('.output/chrome-mv3');
-const context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,viewport:{width:1100,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
+const context=await chromium.launchPersistentContext(profile,{...(process.env.BLC_CHROME?{executablePath:process.env.BLC_CHROME}:{channel:'chromium'}),headless:true,viewport:{width:1100,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
 context.setDefaultTimeout(8000);
 const errors=[];context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));
 try {
@@ -41,7 +41,7 @@ try {
   await panel.locator('.library-tabs [data-view="knowledge"]').click();assert.equal(await review.isVisible(),false);
   await panel.locator('#open-settings').click();await panel.locator('#ai-current').filter({hasText:'deepseek-flash'}).waitFor();
   assert.equal(await panel.locator('#state').isVisible(),false);
-  assert.equal(await panel.locator('#clear').innerText(),'');assert.equal(await panel.locator('#key-help').isVisible(),false);
+  assert.equal(await panel.locator('#clear').innerText(),'');assert.equal(await panel.locator('#key-help').count(),0);
   assert.equal(await panel.locator('#vault-flush').isVisible(),false);assert.equal(await panel.locator('#vault-disconnect').isVisible(),false);
   // Control only status reads; directory permissions and synchronization are unchanged.
   const settings=await context.newPage();
@@ -93,7 +93,7 @@ try {
   await settings.locator('.ai-section').screenshot({path:'/tmp/peak-distance-ai-form-de.png'});
   await settings.locator('#clear').click();
   await settings.waitForFunction(async()=>!(await chrome.storage.local.get('aiServices')).aiServices.profiles.deepseek.apiKey);
-  assert.equal(await settings.locator('#clear').isVisible(),false);assert.equal(await settings.locator('#key-help').isVisible(),true);
+  assert.equal(await settings.locator('#clear').isVisible(),false);assert.equal(await settings.locator('#key-help').count(),0);
   assert.deepEqual(errors,[]);
   console.log('PASS direct delete cancel/confirm; SVG review navigation; split vault status/reconnect; aligned SVG header, AI icon save/permission failure/clear, locale update and 360px layout');
 } finally {await context.close();await rm(profile,{recursive:true,force:true});}
