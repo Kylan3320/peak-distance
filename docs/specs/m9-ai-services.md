@@ -32,4 +32,4 @@
 - 类型、构建、逻辑回归、多服务专项与字幕渲染检查通过。真实扩展 UI 保存读回、服务与凭据隔离、三种协议的解释／字幕／问答、授权拒绝与旧 Key 清除均通过受控验证。
 - 独立复查修复 Gemini 流式空白增量丢失、AI 配置切换后的字幕内存缓存未失效；对应回归检查已加入。
 - 工作区整体验证暴露原生侧栏重新激活的时序问题：失活面板仍可接收操作。失活时关闭交互并使过期恢复任务失效，新恢复完成才解锁；固定／浮动切换、草稿、引用、后台生成和设置往返检查通过。
-- [专项结果](../../.upstream/ai-services/results.json)、[窄设置](../../.upstream/ai-services/settings-400.png)、[宽设置](../../.upstream/ai-services/settings-800.png)。用户 Chrome 需重载 0.4.0 并刷新网页；预设域名首次保存可能弹出浏览器访问授权。
+- 专项结果（本机 `.upstream/ai-services/results.json`）、窄设置（本机 `.upstream/ai-services/settings-400.png`）、宽设置（本机 `.upstream/ai-services/settings-800.png`）。用户 Chrome 需重载 0.4.0 并刷新网页；预设域名首次保存可能弹出浏览器访问授权。

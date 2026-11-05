@@ -1,6 +1,6 @@
 // M11 统一语言边界（spec 3.4）：点击查词、悬停、页面标记、词次统计共用。
 // 优先浏览器内置分词（Intl.Segmenter，word 粒度）；探针实证 ja/zh/th 无词中
-// 断裂、RTL/土耳其语/德语复合词/重音均正确（tools/m11-probe-segmenter.ts）。
+// 断裂、RTL/土耳其语/德语复合词/重音均正确（见 docs/specs/m11-verification-report.md）。
 // 不建形态学引擎；语言清单外内容仍可拖选查询与保存。
 
 import type { LanguageTag } from './languages';

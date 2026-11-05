@@ -10,16 +10,10 @@
 | [asbplayer](https://github.com/asbplayer/asbplayer) | 字幕学习与播放交互参考 |
 | [WXT](https://wxt.dev/guide/installation.html) | 扩展工程文档 |
 
-## 文档写作参考
-
-- [OpenAI GPT-6：精简指令与按需上下文](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)
-- [OpenAI GPT-6：委派与验证范围](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-6-astra)
-
 ## M10 删除交互移植
 
-- 作者：Moumen Soliman；组件：[21st.dev / NativeDelete](https://21st.dev/@moumensoliman/components/delete-button)。页面显示发布日期 2026-01-19；发布 commit／不可变源码 revision 未提供，不以预览文件名代替 commit。
+- 作者：Moumen Soliman；组件：[21st.dev / NativeDelete](https://21st.dev/@moumensoliman/components/delete-button)。发布日期 2026-01-19。对应源码版本与许可待补。
 - 2026-10-03 用户在本次对话提供完整 `NativeDelete` 组件；仅归档为 [native-delete.tsx.txt](references/native-delete.tsx.txt)，不参与构建。原路径由使用示例指向 `components/ui/delete-button.tsx`；本地 DOM / CSS 实现为 `shared/deleteButton.ts` 与 `shared/deleteButton.css`，复用到历史行删除及清空。
-- 依赖 `./button`、`@/lib/utils`、React、Framer Motion 和 Lucide React；用户未提供 Button／主题源码或许可声明。保留用户提供的注释，不推断该组件沿用其他项目的 MIT 许可；本轮按用户指定组件重新实现 DOM 交互，未复制未提供的 Button／主题文件或引入原框架。作者源码发布 commit 与许可声明仍不可得，保留此来源缺口，不声称已取得 MIT 授权。
 - [公开演示](https://cdn.21st.dev/moumensoliman/delete-button/default/bundle.1768800782521.html) 已核对 Delete → Confirm＋取消按钮及默认／确认态计算样式；动画数值以用户提供的源码为准。用户授权纸感和红色适配，结构、尺寸与动效保留，详见 [M10 spec](specs/m10-chat-and-popup-interactions.md)。原英文文案随后按[界面语言规范](specs/ui-i18n.md)改为当前显示语言。
 
 - 原生动效使用 bounce=0、duration=.35 的临界阻尼响应采样到 Web Animations；图标与文字分别先退出150ms再进入150ms。默认／确认／取消静态样式已对照归档预览，纸感和暖红属于用户授权适配。

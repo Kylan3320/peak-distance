@@ -6,17 +6,15 @@
 | --- | --- |
 | [hero.png](../hero.png) | 中文 README 默认首图；混合排版的静态导出 |
 | [hero-layout.svg](hero-layout.svg) | 混合版可编辑排版源；通过相对路径引用项目已有品牌图 |
-| [hero.svg](../hero.svg) | 独立纯 SVG 版本，无外部图片、字体或脚本依赖 |
 | [hero-en.png](../hero-en.png) | 英文 README（README.en.md）首图；同一混合排版管线的英文导出 |
 | [hero-en-layout.svg](hero-en-layout.svg) | 英文混合版可编辑排版源；学习路线为 Encounter → Understand → Save → Review |
-| [hero-en.svg](../hero-en.svg) | 英文独立纯 SVG 版本 |
 | [render.mjs](render.mjs) | 使用项目已有 Playwright 与本机浏览器重新导出中英两个混合版 |
 
 ## 内容与视觉依据
 
 - 读者：在网页、X 和 YouTube 中学习多种语言的个人用户；英语原句用于示例。
 - 价值：查词后连同语境保存，并能回到原句复习。
-- 示例：正文与纯 SVG 用 `She is comfortable with people.` 说明流程；这是学习示意，不是实时查询或界面截图。
+- 示例：README 正文用 `She is comfortable with people.` 说明流程；这是学习示意，不是实时查询或界面截图。
 - 首次使用：构建并加载扩展，选词、查词、保存，再到生词本找到原句。
 - 配色与字体沿用 [design.md](../../../design.md)，具体排版值在 SVG 源文件维护。
 - 排版：Georgia 英文衬线标题，中文系统衬线标题，系统无衬线流程标签；1200 × 520 画布、64 单位外边距、轻分隔线。
@@ -32,6 +30,6 @@ node assets/readme/source/render.mjs
 
 默认使用本机 Windows Edge；可通过 `BLC_CHROME` 指定其它 Chromium 浏览器。导出 `hero.png` 与 `hero-en.png` 为 2400 × 1040，以保留高像素密度屏幕上的清晰度。字体由导出机器的系统字体决定。
 
-README 发布 PNG；排版源中的相对图片引用仅用于本地编辑与导出。纯 SVG 可以直接嵌入 GitHub，修改后无需导出。两版精确文案分别在源文件中维护。
+README 发布 PNG；排版源中的相对图片引用仅用于本地编辑与导出。两版精确文案分别在源文件中维护。
 
 验证时检查 900px 和 360px 宽度、浅色和深色页面背景。关键用法保留在 README 正文，图内辅助标签不承担唯一说明。

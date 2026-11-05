@@ -2,7 +2,7 @@
 // 由 background（内容读写）与扩展页面（授权/选目录）调用；句子／词条／偏好的
 // Markdown 往返在 ./format.ts，合并决策在 mergeVocabRecord。
 //
-// 探针实证（tools/m11-vault-probe.mjs）：
+// 文件系统验证见 docs/specs/m11-verification-report.md：
 // - 句柄可存 IndexedDB，SW 重启 / 浏览器重启后仍可读写；
 // - 并发替换写会使先前 FileHandle 失效 → 本层每次操作都重新获取句柄；
 // - 生词本.md / 句子.md are collections; chats and immutable materials retain separate files.

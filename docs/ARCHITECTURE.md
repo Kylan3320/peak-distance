@@ -41,7 +41,7 @@
 | `lib/db.ts` | 扩展源下的 IndexedDB，集中读写与增量升级 |
 | `shared/vocab.ts`、`shared/cues.ts`、`shared/review.ts`、`shared/chat.ts` | 词汇、时间轴、复习、材料与对话纯逻辑 |
 | `shared/languages.ts`、`shared/tokenize.ts` | 语言身份（标签、稳定键、按语言规范化）与统一分词边界（点击 / 标记 / 词次共用） |
-| `lib/lookupService.ts` | 查询路由：先复用适用词典缓存，AI 兜底关闭且未指定词典时可复用 Google 译文缓存；缓存未命中再按词典顺序联网，未命中／无适用词典时按授权尝试 AI；词典故障不触发 AI，悬停零 LLM |
+| `lib/lookupService.ts` | 查询路由：先复用适用词典缓存，AI 兜底关闭且未指定词典时可复用当前常规翻译来源的译文缓存；缓存未命中再按词典顺序联网，未命中／无适用词典时按授权尝试 AI；词典故障不触发 AI，悬停零 LLM |
 | `lib/vault/records.ts`、`lib/vault/format.ts`、`lib/vault/collectionFormat.ts`、`lib/vault/chatFormat.ts`、`lib/vault/fs.ts`、`lib/vault/sync.ts` | 学习库：共享记录映射、记录／集合 Markdown 往返与三方合并、会话/材料序列化、目录访问、同步编排 |
 | `shared/messages.ts`、`shared/protocol.ts` | 扩展内部消息；YouTube 页面桥协议 |
 | `shared/subtitleTracker.ts` | YouTube 轨道描述、内容身份、请求 URL 与凭据、明确选轨与播放器确认、捕获归属 |
