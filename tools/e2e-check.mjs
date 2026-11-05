@@ -1,11 +1,11 @@
 // M6 产品扩展验收；隔离 profile。BLC_SETTINGS_PATH 可指定本扩展已有设置目录。
 // 网络记录不含请求头或 key；测试材料均为本文件中的公开/合成文本。
+import { extensionPath as extension } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
 import { mkdtempSync, mkdirSync, cpSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, basename, sep } from 'node:path';
 
-const extension = resolve('.output/chrome-mv3');
 const profile = mkdtempSync(join(tmpdir(), 'blc-m6-'));
 const output = resolve(process.argv.includes('--m10') ? '.upstream/m10' : '.upstream/m6');
 mkdirSync(output, { recursive: true });

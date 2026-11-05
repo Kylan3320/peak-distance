@@ -36,7 +36,7 @@ npm ci
 npm run build
 ```
 
-然后按上面的步骤加载 `.output/chrome-mv3`。开发时可用 `npm run dev`。普通改动按受影响范围和风险选择必要检查；`npm run verify-local` 提供跨模块的本地检查，发布时按 ROADMAP 的发布约定执行。需要浏览器回归时，首次运行前执行 `npx playwright-core install chromium`。重新构建后，还需要重新加载扩展并刷新目标网页。
+测试源码构建时，按上面的步骤在独立浏览器配置中加载 `.output/build/chrome-mv3`。日常使用的扩展保留原安装目录。开发时可用 `npm run dev`。普通改动按受影响范围和风险选择必要检查，正式发布按 ROADMAP 的发布约定执行。需要浏览器回归时，首次运行前执行 `npx playwright-core install chromium`。重新构建后，重载测试扩展并刷新目标网页。
 
 开发入口见仓库中的 [ARCHITECTURE](https://github.com/Kylan3320/peak-distance/blob/main/docs/ARCHITECTURE.md)，任务、已知缺陷及 Git／发布约定见 [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md)。`npm run zip:source` 从当前 HEAD 生成源码包，排除规则由 `.gitattributes` 定义；Release 附件仅提供安装包，源码可从对应版本标签获取。
 
@@ -115,7 +115,7 @@ npm run build
 
 **如何更新？**
 
-将新版安装包解压到原安装目录并替换文件，在 `chrome://extensions` 中点击 Peak Distance 的「重新加载」，再刷新使用扩展的网页。不要先卸载扩展，卸载会删除浏览器中的本机扩展数据。
+将新版安装包解压到原安装目录并替换文件，保留已登记的扩展和浏览器配置。在 Chrome 的 `chrome://extensions` 和 Edge 的 `edge://extensions` 中，分别点击现有 Peak Distance 的「重新加载」。核对两款浏览器显示的版本，再刷新使用扩展的网页，检查已有学习记录和设置是否能读取。卸载扩展会删除浏览器中的本机扩展数据。
 
 **安装后为什么没有查词入口？**
 

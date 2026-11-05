@@ -1,3 +1,4 @@
+import { extensionPath } from './extension-path.mjs';
 import { renderM6 } from './render-m6.mjs';
 // 最小可重复渲染检查（spec §5：扩展现有检查，不新建测试平台）。
 // 用 playwright-core + 本机 Chrome 无头实例注入【构建产物】content script：
@@ -17,11 +18,11 @@ import { chromium } from 'playwright-core';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webScript = readFileSync(
-  join(here, '..', '.output', 'chrome-mv3', 'content-scripts', 'web.js'),
+  join(extensionPath, 'content-scripts', 'web.js'),
   'utf8',
 );
 const ytScript = readFileSync(
-  join(here, '..', '.output', 'chrome-mv3', 'content-scripts', 'youtube.js'),
+  join(extensionPath, 'content-scripts', 'youtube.js'),
   'utf8',
 );
 const shotDir = join(here, '..', '.upstream');
@@ -805,7 +806,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   await yt.locator('#blc-subs-switch #menu').screenshot({ path: join(shotDir, 'render-video-menu.png') });
   await yt.close();
 
-  await renderM6({ browser, port: ytPort, content: ytScript, inject: readFileSync(join(here, '..', '.output/chrome-mv3/content-scripts/youtube-inject.js'), 'utf8'), installStub, check });
+  await renderM6({ browser, port: ytPort, content: ytScript, inject: readFileSync(join(extensionPath, 'content-scripts', 'youtube-inject.js'), 'utf8'), installStub, check });
   const failed = results.filter((r) => !r.ok).length;
   console.log(`\n通过 ${results.length - failed}，失败 ${failed}`);
   process.exitCode = failed > 0 ? 1 : 0;

@@ -1,3 +1,4 @@
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import { access, mkdtemp, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -5,7 +6,6 @@ import os from 'node:os';
 import { chromium } from 'playwright-core';
 
 // Uses an isolated profile and fake AI responses.
-const extension = path.resolve(process.env.PEAK_DISTANCE_UI_EXTENSION || '.output/chrome-mv3');
 const manifest = path.join(extension, 'manifest.json');
 try {
   await access(manifest);

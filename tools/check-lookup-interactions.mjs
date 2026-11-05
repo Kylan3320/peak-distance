@@ -1,13 +1,13 @@
 // Built MV3 extension and real word card; disposable profile, controlled services, no real AI calls.
 // Run: npm run build && node tools/check-lookup-interactions.mjs
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 
 const profile = await mkdtemp(join(tmpdir(), 'pd-lookup-interactions-'));
-const extension = resolve('.output/chrome-mv3');
 const context = await chromium.launchPersistentContext(profile, {
   channel: 'chromium', headless: true,
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],

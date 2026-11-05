@@ -2,7 +2,7 @@
 //
 // 做什么：
 //   1. 用独立 user-data-dir 启动真实 Chrome（不影响用户正在运行的会话），
-//      以 --load-extension 加载 .output/chrome-mv3，开放 CDP 端口；
+//      以 --load-extension 加载待验收扩展，开放 CDP 端口；
 //   2. 打开人工字幕视频 → 等待徽标 data-blc-state="cues"，
 //      记录 cue 数、轨道类型、带时间戳的原文；
 //   3. 打开仅平台自动字幕(asr)的视频 → 同样验证；
@@ -10,6 +10,7 @@
 //
 // 用法：node tools/verify.mjs [--manual <url>] [--asr <url>...]
 
+import { extensionPath as EXT_DIR } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -19,7 +20,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const EXT_DIR = path.join(ROOT, '.output', 'chrome-mv3');
 const PROFILE = path.join(ROOT, '.chrome-profile');
 const PORT = 9333;
 

@@ -1,6 +1,7 @@
 import { defineConfig } from 'wxt';
 
 export default defineConfig({
+  outDir: '.output/build',
   // 桌面 Chrome，Manifest V3 是 WXT 的默认目标。
   manifest: {
     name: 'Peak Distance',

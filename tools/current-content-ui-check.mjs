@@ -1,5 +1,6 @@
 // Production extension + real IndexedDB/content scripts. Controlled pages and pre-existing answers.
 // --bbc probes the actual BBC page separately; it never substitutes fixture HTML for that URL.
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
@@ -8,7 +9,6 @@ import { resolve, join } from 'node:path';
 
 const root=resolve(import.meta.dirname,'..'),profile=await mkdtemp(join(tmpdir(),'pd-content-ui-'));
 const output=resolve('.upstream/current-content');await mkdir(output,{recursive:true});
-const extension=resolve('.output/chrome-mv3');
 const context=await chromium.launchPersistentContext(profile,{...(process.platform==='win32'?{executablePath:process.env.BLC_CHROME||'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'}:{channel:'chromium'}),headless:true,viewport:{width:1000,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
 context.setDefaultTimeout(12000);
 const errors=[];context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));

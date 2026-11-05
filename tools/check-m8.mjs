@@ -1,5 +1,6 @@
 // Real MV3 contexts and browser UI; controlled page/media and service responses.
 // --live-translation additionally checks the actual regular translation endpoint.
+import { extensionPath as extension } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,6 @@ import assert from 'node:assert/strict';
 
 const profile=mkdtempSync(join(tmpdir(),'pd-m8-'));
 const output=resolve('.upstream/m8');mkdirSync(output,{recursive:true});
-const extension=resolve('.output/chrome-mv3');
 const context=await chromium.launchPersistentContext(profile,{
   executablePath:process.env.BLC_CHROME||'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',headless:true,
   proxy:{server:process.env.BLC_PROXY||'http://127.0.0.1:7890'},

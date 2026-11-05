@@ -1,4 +1,5 @@
 // Production MV3 UI + IDB. Translation traffic is controlled; no real-service claim.
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { build } from 'esbuild';
@@ -6,7 +7,6 @@ import { mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join,resolve } from 'node:path';
 const profile=await mkdtemp(join(tmpdir(),'pd-translation-ui-'));
-const extension=resolve('.output/chrome-mv3');
 const context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,viewport:{width:1050,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
 context.setDefaultTimeout(10000);
 async function until(test){const deadline=Date.now()+8000;while(!await test()){assert.ok(Date.now()<deadline,'Timed out waiting for expected translation state');await new Promise(done=>setTimeout(done,25));}}

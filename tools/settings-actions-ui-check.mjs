@@ -1,11 +1,11 @@
 // Focused acceptance for library actions and the file-sharing / AI settings layout.
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright-core';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {join} from 'node:path';
 const profile=await mkdtemp(join(tmpdir(),'pd-settings-actions-'));
-const extension=resolve('.output/chrome-mv3');
 const context=await chromium.launchPersistentContext(profile,{...(process.env.BLC_CHROME?{executablePath:process.env.BLC_CHROME}:{channel:'chromium'}),headless:true,viewport:{width:1100,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
 context.setDefaultTimeout(8000);
 const errors=[];context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));
