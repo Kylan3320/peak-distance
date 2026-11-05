@@ -15,6 +15,40 @@ export interface Cue {
   zh?: string;
 }
 
+export interface SourceFragment extends Cue {
+  anchors?: { offset: number; time: number }[];
+  speakerBreaks?: number[];
+  windowId?: number;
+}
+
+export interface SubtitleFragment extends SourceFragment {
+  firstEvent: number;
+  lastEvent: number;
+}
+
+export interface LearningCue extends Cue {
+  from: number;
+  to: number;
+  firstFragment: number;
+  lastFragment: number;
+  firstOffset: number;
+  lastOffset: number;
+  interval: number;
+}
+
+export interface PlaybackInterval {
+  start: number;
+  dur: number;
+  firstCue: number;
+  lastFragment: number;
+}
+
+export interface SubtitleViews {
+  cues: LearningCue[];
+  fragments: SubtitleFragment[];
+  intervals: PlaybackInterval[];
+}
+
 export interface ConfigMessage {
   source: typeof CONTENT_SOURCE;
   type: 'config';
@@ -47,7 +81,7 @@ export interface SelectTrackMessage {
 
 export type ContentMessage = ConfigMessage | NudgeMessage | ByeMessage | SelectTrackMessage | SourceCancelMessage;
 
-export interface CuesMessage {
+export interface CuesMessage extends SubtitleViews {
   source: typeof INJECT_SOURCE;
   type: 'cues';
   videoId: string;
@@ -60,12 +94,8 @@ export interface CuesMessage {
   trackId: string;
   /** 嗅探器至今见过的 timedtext 请求数（诊断用，不受过滤影响） */
   seen: number;
-  /** 侧栏／AP／整句收藏使用的保守分组学习单位。 */
-  cues: Cue[];
-  /** 播放器使用的 ASR 去重短片段，与整句共用原始来源。 */
-  fragments: Cue[];
-  /** 每个短片段所属的 cues 索引，MAIN 在分组时记录。 */
-  fragmentGroups: number[];
+  /** 同一表示的原文、来源与时间数据指纹。 */
+  revision: string;
 }
 
 export interface NoCuesMessage {

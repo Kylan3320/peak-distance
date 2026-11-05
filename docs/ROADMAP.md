@@ -2,7 +2,7 @@
 
 ## 当前任务
 
-执行规格：[侧栏学习句：本地断句与来源定位](specs/subtitle-sentence-units.md)。方案已确认，待实施与最小验收；本次不接入 AI 断句、不发布插件。
+[侧栏学习句：本地断句与来源定位](specs/subtitle-sentence-units.md) 已实施，通过纯逻辑检查和隔离库的打包扩展验收。安装版验证见下方「已登录 YouTube」。
 
 安装基线为 [v0.70.1](https://github.com/Kylan3320/peak-distance/releases/tag/v0.70.1)。发布后的主线改动见 Git。
 
@@ -28,7 +28,6 @@
 | P1 问答同步覆盖远端续问 | A 生成中，B 提交新一轮，A 先读回再完成并写入 | 延后导入时保留原共同基准。A 完成后仍能读取 B 的历史，并能恢复 A 的结果。见 `tools/vault-sync-check.mjs` |
 | P1 删除词条丢笔记或复活词条 | 两端从同一版本起步，一端删除，另一端改笔记，交换提交顺序 | 两种顺序均报告冲突，保留可恢复的笔记与删除意图。见 `tools/vault-sync-check.mjs` |
 | P1 视频旧列表写入新库 | A、B 有同名词和同 ID 收藏句，从 A 切到 B 后触发 A 行的操作 | 旧行改状态和取消收藏均被拒绝，B 的记录保留。见 `tools/vocab-ownership-check.mjs` |
-| P2 换轨后收藏错句 | 同一视频切换轨道后，旧行的收藏请求到达 | 过期动作被拒绝，新行收藏指向实际显示的字幕。见 `tools/subtitle-reading-check.mjs` |
 | P2 翻译故障让未请求的字幕失去调度资格 | 首句收到 503，批次提前终止，随后渠道恢复 | 未尝试项仍可调度，已成功项保留，恢复后可补齐译文。见 `tools/translation-reliability-runtime-check.mjs` |
 | P2 偏好写入覆盖外部编辑 | 读取偏好后、提交前，另一端修改同一文件 | 保留外部修改与本机待办，并报告冲突。见 `tools/vault-sync-check.mjs` |
 
@@ -36,6 +35,7 @@
 
 | 主题 | 已交付行为与证据 |
 | --- | --- |
+| 侧栏学习句 | 本地提取句界并保留来源范围。按词段锚点定位，缺少锚点时逐项导航并按区间暂停。收藏和译文按学习项关联，换轨拒绝旧行操作。见[实施规格](specs/subtitle-sentence-units.md)与 `tools/subtitle-reading-check.mjs`。 |
 | 字幕读取与收藏 | [v0.70.0](https://github.com/Kylan3320/peak-distance/releases/tag/v0.70.0) 修复获取、收藏与阅读位置。侧栏显示学习句，播放器显示短片段。见[字幕规格](specs/subtitle-reading-fixes.md)及[选轨报告](specs/youtube-subtitle-language-verification.md) |
 | 选区翻译与文章学习 | [v0.6.9](https://github.com/Kylan3320/peak-distance/releases/tag/v0.6.9) 交付独立知识点、摘录收藏及后台回填。[v0.69.1](https://github.com/Kylan3320/peak-distance/releases/tag/v0.69.1) 接入内置翻译。见[翻译规格](specs/translation-learning.md)和[文章规格](specs/current-content-learning.md) |
 | 学习库与可靠性 | [M11 规格与阶段证据](specs/m11-verification-report.md)、[集合格式与同步](specs/vault-collections-sync.md)、[后续可靠性修复](specs/code-quality-review-20261013.md#2026-10-15长期可靠性修复) |

@@ -37,9 +37,11 @@ try {
           window.currentNonce = m.nonce;
           postMessage({ source: 'blc-inject', type: 'cues', nonce: m.nonce, videoId: 'abcdefghijk',
             trackId: 'https://www.youtube.com/api/timedtext?v=abcdefghijk&lang=en',
-            trackLang: 'en', trackKind: 'manual', seen: 1,
-            cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.' }],
-            fragments: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.' }], fragmentGroups: [0] }, '*');
+            trackLang: 'en', trackKind: 'manual', seen: 1, revision: 'fixture',
+            cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', from: 0, to: 20,
+              firstFragment: 0, lastFragment: 0, firstOffset: 0, lastOffset: 20, interval: 0 }],
+            fragments: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', firstEvent: 0, lastEvent: 0 }],
+            intervals: [{ start: 0, dur: 3000, firstCue: 0, lastFragment: 0 }] }, '*');
         }
         if (m.type === 'translation-request') window.translationRequests.push(m);
       });

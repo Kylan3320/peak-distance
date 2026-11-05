@@ -5,7 +5,7 @@ import { createYoutubeWorkspace, type WorkspaceState } from '@/shared/youtubeWor
 import { isPanelView, panelStateKey, panelTransportFailure, type SelectionSnapshot, type PanelFrameState } from '@/shared/panel';
 import { createTranslationPopup } from '@/shared/translationPopup';
 import { createLookupPopup } from '@/shared/lookupPopup';
-import { shadowSelection, classifyRangeIn, clampRangeToElement } from '@/shared/selection';
+import { shadowSelection, classifyRangeIn } from '@/shared/selection';
 import { buildMarkBuckets } from '@/shared/marker';
 import { effectiveEntryLanguage, isRtlLanguage, langDisplayName, normalizeLangTag } from '@/shared/languages';
 import { segmentWords } from '@/shared/tokenize';
@@ -17,7 +17,7 @@ import { CHAT_ADD_ICON } from '@/shared/brand';
 // 字幕控制消息经 tabs.sendMessage 直达当前标签页，携带 videoId 防串页。
 
 import { iconButton, uiIcon } from '@/shared/uiControls';
-import type { EntryView, SubViewState, ChatSourceInfo } from '@/shared/messages';
+import type { EntryView, SubViewState, ChatSourceInfo, SubtitleRowAction, SubtitleRowOperation, SubtitleRowRef } from '@/shared/messages';
 import { videoContextUrl, blankExpression, generalMeaning, VOCAB_STATUS_LABEL, visibleVocabStatus, type LearningResult, type SavedSentence, type VocabStatus } from '@/shared/vocab';
 import { buildReviewQueue, refreshQueue, scopeEntries, type LearningScope, type ReviewItem } from '@/shared/review';
 import { createArticleLearning, articleSource, type ArticleLearningSnapshot, type LearningCategory } from './articleLearning';
@@ -600,12 +600,12 @@ let subsLibraryDirty=true;
 let subsLibraryAt=0;
 const SUBS_LIBRARY_INTERVAL_MS=5000;
 let subsSignatureCached='';
-const subsSignature=(s:SubViewState)=>JSON.stringify([s.videoId,s.trackId,s.cues,s.currentIndex,s.notice,s.chineseVisible!==false]);
+const subsSignature=(s:SubViewState)=>JSON.stringify([s.videoId,s.trackId,s.generation,s.cues,s.currentIndex,s.notice,s.chineseVisible!==false]);
 function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['cues'];statuses:WorkspaceState['statuses'];sentences:WorkspaceState['sentences'];entries:WorkspaceState['entries']}):WorkspaceState{
   const cues=library?.cues??(cachedVideo&&cachedVideo.videoId===state.videoId&&cachedVideo.videoRef.trackId===state.trackId&&cachedVideo.cues.length===state.cues.length&&cachedVideo.cues.every((c,i)=>{const next=state.cues[i]!;return c.start===next.startMs&&c.dur===next.endMs-next.startMs&&c.text===next.text;})
     ?cachedVideo.cues
     :state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0})));
-  return {videoId:state.videoId,videoRef:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang,startMs:0},
+  return {videoId:state.videoId,generation:state.generation,videoRef:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang,startMs:0},
     trackLang:state.trackLang||undefined,
     cues,current:state.currentIndex,translations:new Map(state.cues.filter(c=>c.zh).map(c=>[c.id,c.zh!])),
     statuses:library?.statuses??cachedVideo?.statuses??new Map<string,string>(),
@@ -637,49 +637,44 @@ const videoWorkspace=createYoutubeWorkspace({
     document.addEventListener('pd-popup-outside',clearSelection);
     host.addEventListener('pd-subtitle-selection-clear',clearSelection);
     const selectionObserver=new MutationObserver(checkSelection);selectionObserver.observe(events,{childList:true,subtree:true});
-    // 字幕列表选区：单词/短语/句段/跨字幕项统一分类；原文行以外（译文、控件）不取
-    const rowIndexOf=(node:Node|null|undefined):number|null=>{
-      const element=node instanceof Element?node:node?.parentElement??null;
-      const row=element?.closest('[data-cue]');
-      return row?Number(row.getAttribute('data-cue')):null;
+    // 只读取选区与原文行的交集，排除时间、译文及操作控件。
+    const refOf = (node: Node) => {
+      const row = (node instanceof Element ? node : node.parentElement)?.closest('[data-cue]');
+      return row ? videoWorkspace.rowRef(row) : undefined;
     };
-    const enOf=(index:number):Element|null=>events.querySelector(`[data-cue="${index}"] .en`);
-    function listSelectionInfo(selection:{text:string;range:Range}):{
-      kind:'word'|'phrase'|'sentence'|'cross-cue';raw:string;expression:string|null;
-      firstIndex:number;count:number;hasWord:boolean;rect:DOMRect;
-    }|null{
-      const startIndex=rowIndexOf(selection.range.startContainer);
-      const endIndex=rowIndexOf(selection.range.endContainer);
-      if(startIndex===null&&endIndex===null)return null;
-      const first=startIndex??endIndex!;
-      const last=endIndex??startIndex!;
-      if(first===last){
-        const en=enOf(first);
-        if(!en)return null;
-        const clamped=clampRangeToElement(selection.range,en);
-        const raw=clamped.toString().trim();
-        if(!raw)return null;
-        const lang=((cachedVideo?.trackLang||subsState?.trackLang)||'en').split('-')[0]!;
-        // 分类与有效表达的统一计算（shared/selection.ts 的 classifyRangeIn）
-        const cls=classifyRangeIn(en,clamped,lang);
-        if(!cls)return null;
-        return {kind:cls.kind,raw,expression:cls.expression,firstIndex:first,count:1,hasWord:cls.hasWord,rect:selection.range.getBoundingClientRect()};
+    function listSelectionInfo(range: Range, state: SubViewState) {
+      const parts: { ref: SubtitleRowRef; en: Element; range: Range; text: string }[] = [];
+      const from = refOf(range.startContainer)?.index ?? 0;
+      const to = refOf(range.endContainer)?.index ?? state.cues.length - 1;
+      if (range.startContainer.getRootNode() !== events || range.endContainer.getRootNode() !== events) return null;
+      for (let i = from; i <= to; i++) {
+        const row = events.querySelector('[data-cue="' + i + '"]');
+        const en = row?.querySelector('.en');
+        const ref = row && videoWorkspace.rowRef(row);
+        if (!en || !ref || ref.generation !== state.generation || !range.intersectsNode(en)) continue;
+        const clamped = document.createRange();
+        clamped.selectNodeContents(en);
+        if (range.compareBoundaryPoints(Range.START_TO_START, clamped) > 0) {
+          clamped.setStart(range.startContainer, range.startOffset);
+        }
+        if (range.compareBoundaryPoints(Range.END_TO_END, clamped) < 0) {
+          clamped.setEnd(range.endContainer, range.endOffset);
+        }
+        const text = clamped.toString().trim();
+        if (text) parts.push({ ref, en, range: clamped, text });
       }
-      // 跨字幕项：实际选择的原文（按行收窄到 .en，不含译文/控件文字）
-      const parts:string[]=[];
-      for(let i=Math.min(first,last);i<=Math.max(first,last);i++){
-        const en=enOf(i);
-        if(!en)continue;
-        const clamped=clampRangeToElement(selection.range,en);
-        const part=clamped.toString().trim();
-        if(part)parts.push(part);
+      const first = parts[0], last = parts.at(-1);
+      if (!first || !last) return null;
+      const firstIndex = first.ref.index, lastIndex = last.ref.index;
+      const rect = range.getBoundingClientRect();
+      if (first === last) {
+        const cls = classifyRangeIn(first.en, first.range, state.trackLang.split('-')[0] || 'en');
+        return cls && { ...cls, raw: first.text, ref: first.ref, firstIndex, lastIndex, count: 1, rect };
       }
-      const raw=parts.join(' ').trim();
-      if(!raw)return null;
-      return {kind:'cross-cue',raw,expression:null,firstIndex:Math.min(first,last),count:Math.abs(last-first)+1,hasWord:false,rect:selection.range.getBoundingClientRect()};
+      const raw = parts.map((part, i) => (i ? state.cues[part.ref.index]!.joinBefore : '') + part.text).join('');
+      return {kind:'cross-cue' as const,raw,expression:null,ref:first.ref,firstIndex,lastIndex,count:parts.length,hasWord:false,rect};
     }
-    function listSelectionCandidate(info:{kind:'word'|'phrase'|'sentence'|'cross-cue';raw:string;expression:string|null;firstIndex:number;count:number}):SelectionCandidate|null{
-      const state=subsState;
+    function listSelectionCandidate(info:{kind:'word'|'phrase'|'sentence'|'cross-cue';raw:string;expression:string|null;firstIndex:number;lastIndex:number;count:number}, state:SubViewState):SelectionCandidate|null{
       if(!state?.videoId||!state.trackId||subsTabId===null)return null;
       const source:SelectionCandidate['source']={
         sourceType:'youtube',
@@ -691,7 +686,7 @@ const videoWorkspace=createYoutubeWorkspace({
       const cue=state.cues[info.firstIndex];
       if(info.kind==='cross-cue'){
         return {at:Date.now(),pageUrl:source.url,text:info.raw,kind:'cross-cue',expression:null,source,
-          crossFromMs:cue?.startMs??0,crossCount:info.count};
+          crossFromMs:cue?.startMs??0,crossToMs:state.cues[info.lastIndex]?.endMs,crossCount:info.count};
       }
       if(!cue)return null;
       return {at:Date.now(),pageUrl:source.url,text:info.raw,kind:info.kind,
@@ -702,29 +697,30 @@ const videoWorkspace=createYoutubeWorkspace({
     const showSelection=(e:MouseEvent)=>{
       if(currentView!=='subs'||e.composedPath().some(n=>n instanceof Element&&n.matches('#panel-selection-actions,#blc-lookup-popup,#pd-translation')))return;
       const selection=shadowSelection(events);
-      if(!selection||!subsState||sameRange(dismissedRange,selection.range)){checkSelection();return;}
-      const info=listSelectionInfo(selection);
+      const state = subsState, tabId = subsTabId;
+      if(!selection||!state||tabId===null||sameRange(dismissedRange,selection.range)){checkSelection();return;}
+      const info=listSelectionInfo(selection.range,state);
       if(!info)return;
       selectedAt=Date.now();e.stopPropagation();
       closeSelection(false);bubbleRange=selection.range.cloneRange();
       const buttons=el('div','selection-actions');buttons.id='panel-selection-actions';
       buttons.addEventListener('pointerdown',event=>event.preventDefault());
       const rect=info.rect;
-      const selectedVideo=subsState.videoId,selectedCue=subsState.cues[info.firstIndex];
-      const candidate=listSelectionCandidate(info);
-      if(candidate)void send({type:'selectionCandidateSet',tabId:subsTabId??undefined,candidate});
+      const selectedVideo=state.videoId,selectedCue=state.cues[info.firstIndex];
+      const candidate=listSelectionCandidate(info,state);
+      if(candidate)void send({type:'selectionCandidateSet',tabId,candidate});
       // 词/短语翻译用补全/清洗后的有效表达；句段/跨行保持实际选文
-      const snapshot:SelectionSnapshot={text:info.raw,title:subsState.title,url:videoContextUrl(selectedVideo,selectedCue?.startMs??0),source:candidate?.source,sourceLang:subsState.trackLang||undefined,languageEvidence:'track',position:{videoId:selectedVideo,trackId:subsState.trackId,trackKind:subsState.trackKind==='asr'?'asr':'manual',trackLang:subsState.trackLang||'und',startMs:selectedCue?.startMs??0,endMs:subsState.cues[info.firstIndex+info.count-1]?.endMs??selectedCue?.endMs??0}};
+      const snapshot:SelectionSnapshot={text:info.raw,title:state.title,url:videoContextUrl(selectedVideo,selectedCue?.startMs??0),source:candidate?.source,sourceLang:state.trackLang||undefined,languageEvidence:'track',position:{videoId:selectedVideo,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang||'und',startMs:selectedCue?.startMs??0,endMs:state.cues[info.lastIndex]?.endMs??selectedCue?.endMs??0}};
       // 分类表：word=查词+对话；phrase=查词+翻译+对话；sentence/cross-cue=翻译+对话
       if((info.kind==='word'||info.kind==='phrase')&&info.hasWord&&info.raw.length<=200){
-        const lookup=iconButton('lookup',message('查词'));lookup.onclick=()=>{closeSelection();if(subsState?.videoId===selectedVideo)void videoAction('lookup',info.firstIndex,info.expression??info.raw);};buttons.append(lookup);
+        const lookup=iconButton('lookup',message('查词'));lookup.onclick=()=>{closeSelection();void videoAction(info.ref,{action:'lookup',word:info.expression??info.raw});};buttons.append(lookup);
       }
       if(info.kind!=='word'){
-        const translate=iconButton('translate',message('翻译'));translate.onclick=()=>{closeSelection();selectionPopup.open(snapshot,rect);};buttons.append(translate);
+        const translate=iconButton('translate',message('翻译'));translate.onclick=async()=>{closeSelection();if(await validateRow(info.ref))selectionPopup.open(snapshot,rect);};buttons.append(translate);
       }
       const chat=el('button','blc-chat-add');setLocalizedAttribute(chat, 'title', message('添加到对话'));setLocalizedAttribute(chat, 'aria-label', message('添加到对话'));chat.innerHTML=CHAT_ADD_ICON;
       chat.onmousedown=e=>e.preventDefault();
-      chat.onclick=()=>{closeSelection();if(candidate)void attachSelectionCandidate(candidate,{tabId:subsTabId??undefined});};
+      chat.onclick=async()=>{closeSelection();if(candidate&&await validateRow(info.ref))void attachSelectionCandidate(candidate,{tabId});};
       buttons.append(chat);
       const close=iconButton('close',message('关闭选区操作'));close.onclick=()=>closeSelection();buttons.append(close);document.body.append(buttons);
       const box=buttons.getBoundingClientRect(),below=rect.bottom+6;
@@ -733,7 +729,10 @@ const videoWorkspace=createYoutubeWorkspace({
     };
     document.addEventListener('mouseup',showSelection);
     const wordOf=(e:Event)=>(e.composedPath()[0] as Element)?.closest?.('.w') as HTMLElement|null;
-    const openWord=(word:HTMLElement,compact:boolean)=>openPanelWord(word.textContent??'',Number(word.closest('[data-cue]')?.getAttribute('data-cue')),word,compact);
+    const openWord = (word: HTMLElement, compact: boolean) => {
+      const ref = refOf(word);
+      if (ref && word.isConnected) void openPanelWord(word.textContent ?? '', ref, word, compact);
+    };
     events.addEventListener('pointerover',e=>{const word=wordOf(e);if((e as PointerEvent).buttons||!word||word===hoveredWord||(lookupPopup.isOpen()&&!lookupPopup.isCompact()))return;clearTimeout(wordTimer);clearTimeout(closeTimer);wordTimer=setTimeout(()=>{if(!getSelection()?.toString()){hoveredWord=word;openWord(word,true);}},180);});
     events.addEventListener('pointerdown',()=>{clearTimeout(wordTimer);});
     events.addEventListener('pointerout',()=>{clearTimeout(wordTimer);closeTimer=setTimeout(()=>{if(lookupPopup.isCompact()){lookupPopup.close();hoveredWord=null;}},220);});
@@ -743,9 +742,9 @@ const videoWorkspace=createYoutubeWorkspace({
     return ()=>{closeSelection();selectionObserver.disconnect();document.removeEventListener('selectionchange',checkSelection);document.removeEventListener('pointerdown',outsideSelection,true);document.removeEventListener('keydown',escapeSelection);document.removeEventListener('pd-popup-outside',clearSelection);document.removeEventListener('mouseup',showSelection);host.removeEventListener('pd-subtitle-selection-clear',clearSelection);};
   },
   words:(parent,text)=>{const lang=((cachedVideo?.trackLang||subsState?.trackLang)||'en').split('-')[0]!;let last=0;for(const s of segmentWords(text,lang)){if(s.start>last)parent.append(document.createTextNode(text.slice(last,s.start)));const w=el('span','w',s.text);w.tabIndex=0;w.setAttribute('role','button');w.style.userSelect='text';parent.append(w);last=s.end;}if(last<text.length)parent.append(document.createTextNode(text.slice(last)));},
-  seek:(i,play)=>void videoAction('seek',i,undefined,play),lookup:(word,i,anchor)=>openPanelWord(word,i,anchor,false),
-  save:i=>videoAction('save',i),remove:async id=>{const result=await send<{ok:boolean}>({type:'deleteSentence',id});if(result?.ok){subsLibraryDirty=true;await pollSubs();}return {ok:!!result?.ok};},
-  ask:i=>{if(subsState?.cues[i])void subtitleAskAi(subsState,subsState.cues[i]!);},open:view=>{
+  seek:(ref,play)=>void videoAction(ref,{action:'seek',play}),lookup:(word,ref,anchor)=>void openPanelWord(word,ref,anchor,false),
+  save:ref=>videoAction(ref,{action:'save'}),remove:async id=>{const result=await send<{ok:boolean}>({type:'deleteSentence',id});if(result?.ok){subsLibraryDirty=true;await pollSubs();}return {ok:!!result?.ok};},
+  ask:ref=>void askFromRow(ref),open:view=>{
     if(view==='review' && subsState?.videoId && subsTabId!==null)beginReview({ category:'vocab', sourceKey:`yt:${subsState.videoId}`, language:normalizeLangTag(subsState.trackLang||'und'), returnTo:'video', video:{state:{...subsState,cues:[]},tabId:subsTabId,workspace:videoWorkspace.snapshot()}, source:{sourceType:'youtube',sourceKey:`yt:${subsState.videoId}`,title:subsState.title,url:videoContextUrl(subsState.videoId,0)} });
     else switchView(view);
   },
@@ -755,24 +754,45 @@ const articleLearning = createArticleLearning(document.getElementById('web-selec
   send, entry: (entry,vaultId) => renderEntry(entry, vaultId,true), translate: snapshot => selectionPopup.open(snapshot), changed: () => void persistPanel(),
   review: article => beginReview({ category: article.category, sourceKey:article.source?.sourceKey, source:article.source ?? undefined, language:article.language==='all'?undefined:article.language, returnTo:'article', article }),
 });
-function openPanelWord(word:string,index:number,anchor:HTMLElement,compact:boolean) {
-  const state=subsState,tabId=subsTabId,cue=state?.cues[index];
-  if(!state||tabId===null||!cue)return;
-  if(lookupTarget!==`${tabId}:${state.videoId}`)lookupPopup.close();
-  lookupTarget=`${tabId}:${state.videoId}`;
-  const token=crypto.randomUUID();
-  let closed=false;
-  const resume=()=>void tabSend(tabId,{type:'pd-video-action',videoId:state.videoId,index,action:'resumeLookup',token});
-  void tabSend(tabId,{type:'pd-video-action',videoId:state.videoId,index,action:'pauseLookup',token}).then(()=>{if(closed)resume();});
-  lookupPopup.open({snapshot:{source:'video',expression:word,sentence:cue.text,title:state.title,lang:state.trackLang||undefined,video:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang,startMs:cue.startMs}},anchor,compact,subLine:`YouTube · ${fmtClock(cue.startMs)}`,onContinueAsk:()=>void subtitleAskAi(state,cue),onClose:()=>{closed=true;resume();}});
+function rowSnapshot(ref: SubtitleRowRef) {
+  const state = subsState, tabId = subsTabId, cue = state?.cues[ref.index];
+  if (tabId === null || !state || !cue || ref.generation !== state.generation ||
+    ref.videoId !== state.videoId || ref.trackId !== state.trackId || ref.text !== cue.text) return null;
+  return { state, tabId, cue };
+}
+function sendRowAction(tabId: number, ref: SubtitleRowRef, operation: SubtitleRowOperation) {
+  const action: SubtitleRowAction = { type: 'pd-video-action', ...ref, ...operation };
+  return tabSend<{ok:boolean}>(tabId, action);
+}
+async function validateRow(ref: SubtitleRowRef) {
+  const snapshot = rowSnapshot(ref);
+  if (!snapshot || !(await sendRowAction(snapshot.tabId, ref, { action: 'validate' }))?.ok) return null;
+  return rowSnapshot(ref);
+}
+async function askFromRow(ref: SubtitleRowRef) {
+  const row = await validateRow(ref);
+  if (row) await subtitleAskAi(row.state, row.cue);
+}
+async function openPanelWord(word: string, ref: SubtitleRowRef, anchor: HTMLElement, compact: boolean) {
+  const row = rowSnapshot(ref);
+  if (!row) return;
+  const { state, tabId, cue } = row;
+  if (lookupTarget !== state.generation) lookupPopup.close();
+  lookupTarget = state.generation;
+  const token = crypto.randomUUID();
+  const resume = () => void sendRowAction(tabId, ref, { action: 'resumeLookup', token });
+  if (!(await sendRowAction(tabId, ref, { action: 'pauseLookup', token }))?.ok) return;
+  if (!anchor.isConnected || !rowSnapshot(ref)) { resume(); return; }
+  lookupPopup.open({snapshot:{source:'video',expression:word,sentence:cue.text,title:state.title,lang:state.trackLang||undefined,video:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang,startMs:cue.startMs}},anchor,compact,subLine:'YouTube · '+fmtClock(cue.startMs),onContinueAsk:()=>void askFromRow(ref),onClose:resume});
   const card=lookupPopup.host()?.shadowRoot?.querySelector('.card');card?.addEventListener('pointerenter',()=>clearTimeout(closeTimer));card?.addEventListener('pointerleave',()=>{closeTimer=setTimeout(()=>{if(lookupPopup.isCompact()){lookupPopup.close();hoveredWord=null;}},220);});
 }
-async function videoAction(action:string,index:number,word?:string,play?:boolean) {
-  if(subsTabId===null||!subsState?.videoId)return {ok:false};
-  const r=await tabSend<{ok:boolean}>(subsTabId,{type:'pd-video-action',action,index,word,play,videoId:subsState.videoId});
-  if(!r?.ok){if(action!=='save')feedback(message('视频操作失败，请回到原视频重试'));}
-  else {if(action==='save')subsLibraryDirty=true;await pollSubs();}
-  return {ok:!!r?.ok};
+async function videoAction(ref: SubtitleRowRef, operation: SubtitleRowOperation) {
+  const row = rowSnapshot(ref);
+  if (!row) return { ok: false };
+  const r = await sendRowAction(row.tabId, ref, operation);
+  if (!r?.ok) { if (operation.action !== 'save') feedback(message('视频操作失败，请回到原视频重试')); }
+  else { if (operation.action === 'save') subsLibraryDirty = true; await pollSubs(); }
+  return { ok: !!r?.ok };
 }
 async function refreshSubsLibrary(state:SubViewState):Promise<void> {
   subsLibraryAt=Date.now();subsLibraryDirty=false;
@@ -809,8 +829,9 @@ async function pollSubs():Promise<void> {
   const st=await tabSend<SubViewState>(id,{type:'blc-sub-get'});
   if(currentView!=='subs'||generation!==subsPollGeneration)return;
   const switched=subsTabId!==id||subsState?.videoId!==st?.videoId;
-  if(switched){lookupPopup.close();selectionPopup.close();}
-  if(switched||(subsState?.trackId??'')!==(st?.trackId??'')){closePanelSelectionActions();subsLibraryDirty=true;}
+  if(switched || subsState?.generation !== st?.generation){
+    lookupPopup.close();selectionPopup.close();closePanelSelectionActions();subsLibraryDirty=true;
+  }
   subsTabId=id;subsState=st?.type==='blc-sub-state'?st:null;
   document.getElementById('video-workspace')!.hidden=!subsState?.videoId;
   const web=document.getElementById('web-selection')!;web.hidden=!!subsState?.videoId;

@@ -3,7 +3,8 @@ import './current-content-learning-check';
 import { lookupDictionarySource } from '../lib/onlineDictionary';
 import { translateSentences } from '../lib/aiClient';
 import { defaultAiProfile } from '../shared/aiConfig';
-import { alignTranslatedCues } from '../shared/cues';
+import { subtitleSentenceChecks } from './subtitle-sentence-check';
+import { cueWords } from '../shared/cues';
 import { lookupOnline } from '../lib/lookupService';
 import { DEFAULT_SETTINGS } from '../shared/settings';
 import {
@@ -66,18 +67,6 @@ import {
   type VocabEntryRecord,
   type VideoRef,
 } from '../shared/vocab';
-import {
-  cueWords, cueEnd,
-  buildTranslateWindow,
-  cueIndexAt,
-  fmtClock,
-  normalizeAsrCues,
-  groupDisplayCues,
-  sameDisplayCues,
-  buildSubtitleViews,
-  alignFragmentTranslatedCues,
-  buildCueTranslationBatch,
-} from '../shared/cues';
 import { parseDefinitionReply, parseChatCompletion } from '../lib/aiClient';
 import { buildReviewQueue, refreshQueue } from '../shared/review';
 import type { EntryView } from '../shared/messages';
@@ -239,83 +228,7 @@ console.log('M1 词汇：planSave 决策（网页来源）');
   check('补释义条件：仅空释义时补', shouldBackfill(ctxs[0]) === true && shouldBackfill({ definition: 'x' }) === false);
 }
 
-console.log('M2 字幕：ASR 滚动重复消除与合并');
-{
-  const raw = [
-    { start: 0, dur: 2000, text: 'the sounds of', lastOff: 1800 },
-    { start: 1400, dur: 2000, text: 'the sounds of silence', lastOff: 3200 },
-    { start: 3400, dur: 1000, text: 'the sounds of silence', lastOff: 4200 }, // 同文重复
-    { start: 6000, dur: 1500, text: 'one duck', lastOff: 7300 },
-    { start: 7000, dur: 1500, text: 'one duck two many', lastOff: 8400 },
-  ];
-  const merged = normalizeAsrCues(raw);
-  check('滚动链合并为一条', merged.length === 2, `got ${merged.length}`);
-  check('保留链首起始时间', merged[0]?.start === 0);
-  check('文本取最长', merged[0]?.text === 'the sounds of silence');
-  check('时长延伸到链尾', merged[0] !== undefined && merged[0].start + merged[0].dur >= 4200);
-  check('第二条链起点独立', merged[1]?.start === 6000 && merged[1]?.text === 'one duck two many');
-  // 不相连的相似文本不合并
-  const far = [
-    { start: 0, dur: 1000, text: 'hello', lastOff: 900 },
-    { start: 9000, dur: 1000, text: 'hello world', lastOff: 9900 },
-  ];
-  check('时间不相连不合并', normalizeAsrCues(far).length === 2);
-  // 人工字幕原样
-  const manual = [
-    { start: 0, dur: 1000, text: 'A', lastOff: 1000 },
-    { start: 1200, dur: 1000, text: 'B', lastOff: 2200 },
-  ];
-  check('人工字幕不合并', normalizeAsrCues(manual).length === 2);
-}
-
-console.log('M2 字幕：currentTime 定位与翻译窗口');
-{
-  const make = (texts: string[], starts = texts.map((_, i) => i * 1000)) =>
-    texts.map((text, i) => ({ start: starts[i]!, dur: 1000, text, lastOff: starts[i]! + 900 }));
-  const grouped = groupDisplayCues(make(['This is', 'one complete sentence.', 'Unfinished', 'tail']), 'en');
-  check('整句只合并完整相邻 cue，未完尾部保留原项', grouped.length === 3 && grouped[0]?.text === 'This is one complete sentence.' && grouped[1]?.text === 'Unfinished');
-  check('合并保留首起点和最大结束时间', grouped[0]?.start === 0 && grouped[0].dur === 2000);
-  const longFirst = make(['One sentence', 'ends here.']); longFirst[0]!.dur = 4000;
-  check('重叠成员取最大终点，AP 等待完整显示项', cueEnd(groupDisplayCues(longFirst, 'en'), 0) === 4000);
-  const overlappingNext = groupDisplayCues([...longFirst, { start:2500, dur:1500, lastOff:2500, text:'Next sentence.' }], 'en');
-  check('保存源跨度与实际显示边界分离，重叠时 AP 在下一项出现前暂停', overlappingNext[0]!.dur === 4000 && cueIndexAt(overlappingNext,2500) === 1 && cueEnd(overlappingNext,0) === 2500);
-  check('无标点不猜句', groupDisplayCues(make(['one', 'two', 'three']), 'en').length === 3);
-  check('超过 1500ms 空隙不合并待定片段', groupDisplayCues(make(['A long', 'gap ends.'], [0, 2600]), 'en').length === 2);
-  check('固定称谓后点号不是句末', groupDisplayCues(make(['I saw Dr.', 'Smith today.']), 'en')[0]?.text === 'I saw Dr. Smith today.');
-  check('小数跨 cue 的点号不作为句末', groupDisplayCues(make(['It costs 3.', '14 dollars.']), 'en').length === 1);
-  check('首字母缩写内部点号不作为句末', groupDisplayCues(make(['The U.', 'S. team won.']), 'en').length === 1);
-  check('中文和日文合并不插空格', groupDisplayCues(make(['你好', '世界。']), 'zh-Hans')[0]?.text === '你好世界。' && groupDisplayCues(make(['これは', '日本語。']), 'ja')[0]?.text === 'これは日本語。');
-  check('单 cue 多句不拆', groupDisplayCues(make(['One. Two!']), 'en').length === 1);
-  check('同显示内容保留索引，时长变化使内容失效', sameDisplayCues(grouped, grouped.map(c => ({ ...c }))) && !sameDisplayCues(grouped, grouped.map((c, i) => i ? c : { ...c, dur: c.dur + 1 })));
-}
-{
-  const raw = [
-    { start: 0, dur: 800, text: 'This', lastOff: 0 },
-    { start: 200, dur: 800, text: 'This is', lastOff: 200 },
-    { start: 1000, dur: 1000, text: 'one sentence.', lastOff: 1000 },
-    { start: 2000, dur: 1000, text: 'The next sentence.', lastOff: 2000 },
-  ];
-  const views = buildSubtitleViews(raw, 'asr', 'en');
-  check('播放器保留 ASR 去重短片段，侧栏保留完整学习句', views.fragments.length === 3 && views.fragments[0]?.text === 'This is' && views.cues.length === 2 && views.cues[0]?.text === 'This is one sentence.');
-  check('分组时记录精确成员索引，不改变短片段时间', JSON.stringify(views.fragmentGroups) === '[0,0,1]' && views.fragments[1]?.start === 1000 && views.fragments[1].dur === 1000);
-  check('句内片段切换时学习单位保持，AP 取该单位最后片段', cueIndexAt(views.cues, 1200) === 0 && cueIndexAt(views.fragments, 1200) === 1 && views.fragmentGroups.lastIndexOf(0) === 1 && cueEnd(views.cues, 0) === 2000);
-  const translated = [
-    { start: 0, dur: 1000, text: '这是', lastOff: 0 },
-    { start: 1000, dur: 1000, text: '一个句子。', lastOff: 1000 },
-    { start: 2000, dur: 1000, text: '下一句。', lastOff: 2000 },
-  ];
-  const groupZh = alignTranslatedCues(views.cues, translated);
-  const fragmentZh = alignFragmentTranslatedCues(views.fragments, translated);
-  check('同次平台译文分别对齐整句和短片段', groupZh[0]?.zh === '这是 一个句子。' && fragmentZh[0]?.zh === '这是' && fragmentZh[1]?.zh === '一个句子。');
-  const ambiguous = [{ start: 0, dur: 2000, text: '这是一个句子。', lastOff: 0 }];
-  check('跨短片段的整句译文不重复显示在播放器，保留回退机会', alignTranslatedCues(views.cues, ambiguous)[0]?.zh === '这是一个句子。' && alignFragmentTranslatedCues(views.fragments, ambiguous).every(c => !c.zh));
-  const batch = buildCueTranslationBatch(views.cues, views.fragments, [0, 1], [0, 1, 2]);
-  const groupLast = batch.targets.find(target => target.view === 'groups' && target.index === 1)!;
-  const fragmentLast = batch.targets.find(target => target.view === 'fragments' && target.index === 2)!;
-  check('回退翻译双视图 ID 无歧义且同全文只请求一次', batch.items.length === 4 && groupLast.id === fragmentLast.id && batch.targets.find(target => target.view === 'fragments' && target.index === 0)?.id === views.cues.length);
-  const untouched = buildSubtitleViews(raw.slice(0, 1).concat([{ start: 3000, dur: 1000, text: 'unfinished', lastOff: 3000 }]), 'manual', 'en');
-  check('未合并原项也记录逐项归属', JSON.stringify(untouched.fragmentGroups) === '[0,1]');
-}
+subtitleSentenceChecks(check);
 {
   const tracker = new SubtitleSourceTracker('V');
   const emptyCandidate = TT('V', 'en', 'signature=empty');
@@ -333,24 +246,6 @@ console.log('M2 字幕：currentTime 定位与翻译窗口');
   tracker.noteTimedtext(emptyCandidate.replace('&pot=T', ''), WATCH('V'));
   check('捕获的原生请求不强制要求 pot', !!tracker.claimProduce(WATCH('V')));
 }
-{
-  const cues = [
-    { start: 0, dur: 1000, text: 'a', lastOff: 1000 },
-    { start: 2000, dur: 1500, text: 'b', lastOff: 3500 },
-    { start: 4000, dur: 1000, text: 'c', lastOff: 5000 },
-  ];
-  check('句中命中', cueIndexAt(cues, 2500) === 1);
-  check('句首边界命中', cueIndexAt(cues, 2000) === 1);
-  check('句间空隙无句', cueIndexAt(cues, 3800) === -1);
-  check('开头之前无句', cueIndexAt(cues, -5) === -1);
-  check('末句内命中', cueIndexAt(cues, 4800) === 2);
-  check('全片结束无句', cueIndexAt(cues, 9900) === -1);
-  check('翻译窗口：前后各 1/4', JSON.stringify(buildTranslateWindow(10, 5, 1, 4)) === '[4,5,6,7,8,9]');
-  check('翻译窗口：边界收敛', JSON.stringify(buildTranslateWindow(10, 0, 1, 4)) === '[0,1,2,3,4]');
-  check('翻译窗口：无当前句为空', buildTranslateWindow(10, -1, 1, 4).length === 0);
-  check('时钟格式', fmtClock(65000) === '1:05' && fmtClock(3723000) === '1:02:03');
-}
-
 console.log('M2 词汇：视频上下文去重（词条+videoId+轨道+起始时间+原文）');
 {
   const video: VideoRef = {
@@ -734,12 +629,6 @@ console.log('M5 问答：引用解析与 SSE 流');
 
 console.log('M6 对齐、缓存与来源边界');
 {
-  const english = [{ start: 0, dur: 2000, text: 'first', lastOff: 0 }, { start: 2000, dur: 2000, text: 'second', lastOff: 2000 }];
-  const chinese = [{ start: 2200, dur: 1700, text: '第二句', lastOff: 2200 }];
-  const aligned = alignTranslatedCues(english, chinese);
-  check('独立轨道缺首句不导致后句错配', !aligned[0]?.zh && aligned[1]?.zh === '第二句');
-  const paired = normalizeAsrCues([{ start: 0, dur: 1200, text: 'the', zh: '这', lastOff: 700 }, { start: 800, dur: 1600, text: 'the plane', zh: '这架飞机', lastOff: 1800 }]);
-  check('ASR 英文合并同时转换平台配对译文', paired.length === 1 && paired[0]?.zh === '这架飞机');
   const memory: Record<string, unknown> = {};
   (globalThis as any).browser = { permissions: {contains:async()=>true}, storage: { session: { get: async () => memory, set: async (r: any) => Object.assign(memory, r) }, local: { get: async () => ({ cacheLimit: 20 }), set: async () => {} } } };
   let calls = 0;
@@ -803,7 +692,6 @@ const m7Cues = [
 ];
 const m7Words = cueWords(m7Cues);
 check('词次按实际出现计数，字幕位置去重', m7Words[0]?.count === 2 && m7Words[0]?.positions.length === 1 && m7Words[1]?.count === 2);
-check('AP 保留未合并项的原显示边界，重叠在下一项开始结束', cueEnd(m7Cues, 0) === 2000 && cueEnd(m7Cues, 1) === 3000);
 
 // M11 语言身份与词条稳定键（纯逻辑）。
 console.log('M11 语言身份与词条键');

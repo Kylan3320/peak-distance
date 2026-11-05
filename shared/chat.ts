@@ -266,6 +266,7 @@ export interface SelectionCandidate {
   cue?: SelectionCueRef;
   /** 跨字幕项：起始毫秒与跨过的条数。 */
   crossFromMs?: number;
+  crossToMs?: number;
   crossCount?: number;
   /** 词卡继续问带入的已有释义。 */
   definition?: string;
@@ -284,7 +285,7 @@ export function materialFromCandidate(c: SelectionCandidate): { material: Materi
     const startMs = c.crossFromMs ?? c.cue?.startMs ?? 0;
     const material: MaterialPayload = {
       label: '跨字幕选段',
-      blocks: [{ id: 'p1', text, ...(Number.isFinite(startMs) && startMs >= 0 ? { startMs, endMs: startMs } : {}) }],
+      blocks: [{ id: 'p1', text, ...(Number.isFinite(startMs) && startMs >= 0 ? { startMs, endMs: c.crossToMs ?? startMs } : {}) }],
     };
     return { material, quote: { blockIds: ['p1'], note: c.crossCount ? `跨 ${c.crossCount} 条字幕 · ${fmtClock(startMs)}` : fmtClock(startMs) } };
   }

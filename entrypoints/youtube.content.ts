@@ -37,8 +37,10 @@ import {
   formatCue,
   type Cue,
   type InjectMessage,
+  type LearningCue,
+  type PlaybackInterval,
 } from '@/shared/protocol';
-import { cueIndexAt, cueEnd, fmtClock, sameDisplayCues, buildCueTranslationBatch, DISPLAY_CUE_VERSION } from '@/shared/cues';
+import { cueIndexAt, fmtClock, buildCueTranslationBatch, DISPLAY_CUE_VERSION } from '@/shared/cues';
 import { subtitleFontSize } from '@/shared/youtubeWorkspace';
 import { createLookupPopup } from '@/shared/lookupPopup';
 import {
@@ -58,7 +60,7 @@ import {
   type SelectionCandidate,
   type SourceDescriptor,
 } from '@/shared/chat';
-import type { ChatSourceInfo, SubControlMessage, SubViewState } from '@/shared/messages';
+import type { ChatSourceInfo, SubControlMessage, SubtitleRowAction, SubViewState } from '@/shared/messages';
 
 const SUBS_ID = 'blc-subs';
 const SWITCH_ID = 'blc-subs-switch';
@@ -80,10 +82,14 @@ export default defineContentScript({
     let currentVideoId = videoIdFromLocation();
     let nonce = 0;
     let navSeq = 0;
-    // 侧栏、整句收藏及 AP 使用学习单位；播放器使用同源短片段。
-    let cues: Cue[] = [];
+    // 侧栏逐项操作，播放器显示短片段，AP 按可定位的播放区间暂停。
+    let cues: LearningCue[] = [];
     let fragments: Cue[] = [];
-    let fragmentGroups: number[] = [];
+    let intervals: PlaybackInterval[] = [];
+    let revision = '';
+    let generation = crypto.randomUUID();
+    let pinnedIndex = -1;
+    let rowSeekTime: number | null = null;
     let lastTrack = '';
     let lastTrackLang = '';
     let lastTrackId = '';
@@ -303,7 +309,13 @@ export default defineContentScript({
       if (playListenerBound) return;
       playListenerBound = true;
       document.addEventListener('seeking', e => {
-        if (e.target instanceof HTMLVideoElement) { pausedByUsVideo = null; apHeld = false; apIndex = -1; apLastStopped = -1; }
+        const video = getVideo();
+        if (!video || e.target !== video) return;
+        if (rowSeekTime !== video.currentTime) { pinnedIndex = -1; rowSeekTime = null; }
+        pausedByUsVideo = null; apHeld = false; apIndex = -1; apLastStopped = -1;
+      }, true);
+      document.addEventListener('seeked', e => {
+        if (e.target === getVideo()) rowSeekTime = null;
       }, true);
       document.addEventListener('keydown', e => {
         if (e.key === ' ' || e.key.toLowerCase() === 'k') pausedByUsVideo = null;
@@ -646,7 +658,6 @@ export default defineContentScript({
       kind: 'word' | 'phrase' | 'sentence';
       hasWord: boolean;
       expression: string | null;
-      cueIndex: number;
       fragmentIndex: number;
       rect: DOMRect | null;
       range: Range;
@@ -663,16 +674,15 @@ export default defineContentScript({
       const raw = clamped.toString().trim();
       if (!raw) return null;
       const fragmentIndex = Number(en.dataset.fragment ?? currentFragmentIdx);
-      const cueIndex = fragmentGroups[fragmentIndex];
       const cue = fragments[fragmentIndex];
-      if (!cue || cueIndex === undefined || !currentVideoId || !lastTrackId) return null;
+      if (!cue || !currentVideoId || !lastTrackId) return null;
       const lang = baseLang(lastTrackLang) || 'en';
       // 分类与有效表达的统一计算（shared/selection.ts 的 classifyRangeIn）
       const cls = classifyRangeIn(en, clamped, lang);
       if (!cls) return null;
       let rect: DOMRect | null = null;
       try { rect = selected.range.getBoundingClientRect(); } catch { /* ignore */ }
-      return { raw, kind: cls.kind, hasWord: cls.hasWord, expression: cls.expression, cueIndex, fragmentIndex, rect, range: clamped.cloneRange() };
+      return { raw, kind: cls.kind, hasWord: cls.hasWord, expression: cls.expression, fragmentIndex, rect, range: clamped.cloneRange() };
     }
 
     function subtitleCandidate(info: SubtitleSelectionInfo): SelectionCandidate | null {
@@ -687,7 +697,7 @@ export default defineContentScript({
         expression: info.kind === 'sentence' ? null : info.expression,
         lang: lastTrackLang || undefined,
         source,
-        cue: { index: info.cueIndex, text: cue.text, startMs: cue.start, endMs: cue.start + cue.dur },
+        cue: { index: info.fragmentIndex, text: cue.text, startMs: cue.start, endMs: cue.start + cue.dur },
       };
     }
 
@@ -828,7 +838,6 @@ export default defineContentScript({
       if (cue) {
         const en = keepEn ? oldEn! : document.createElement('div');
         en.className = 'en'; en.dataset.fragment = String(currentFragmentIdx);
-        en.dataset.cue = String(fragmentGroups[currentFragmentIdx]);
         if (!en.textContent) appendWords(en, cue.text);
         en.querySelectorAll<HTMLElement>('.w').forEach(w => {
           w.classList.remove('saved', 'learning', 'known');
@@ -953,7 +962,11 @@ export default defineContentScript({
     function seekCue(index: number, play = false): void {
       const v = getVideo(), cue = cues[index]; if (!v || !cue) return;
       pausedByUsVideo = null; apHeld = false; apIndex = -1; apLastStopped = -1;
-      v.currentTime = cue.start / 1000;
+      pinnedIndex = index;
+      if (v.currentTime !== cue.start / 1000) {
+        v.currentTime = cue.start / 1000;
+        rowSeekTime = v.currentTime;
+      }
       if (play) void v.play();
       tick();
     }
@@ -1038,22 +1051,12 @@ export default defineContentScript({
     }
 
     /** 词卡「继续问」：附加词卡表达与可靠原字幕（可带已有释义），不发新查询。 */
-    async function continueAskFromVideo(ctx: {
-      snapshot: { expression: string; sentence?: string; video?: { startMs: number } };
+    async function continueAskFromVideo(source: SourceDescriptor, cue: Cue, index: number, ctx: {
+      snapshot: { expression: string };
       definition: string | null;
     }): Promise<void> {
-      const source = buildVideoSource();
-      if (!source) {
-        playerToast(message('字幕尚未就绪，等字幕出现后再继续问'));
-        return;
-      }
       const expression = ctx.snapshot.expression.trim();
       if (!expression) return;
-      const startMs = ctx.snapshot.video?.startMs;
-      const fragmentIndex = fragments.findIndex(c => c.start === startMs && c.text === ctx.snapshot.sentence);
-      const idx = fragmentIndex >= 0 ? fragmentGroups[fragmentIndex]!
-        : cues.findIndex(c => c.start === startMs && c.text === ctx.snapshot.sentence);
-      const cue = fragmentIndex >= 0 ? fragments[fragmentIndex] : cues[idx];
       const candidate: SelectionCandidate = {
         at: Date.now(),
         pageUrl: location.href,
@@ -1062,7 +1065,7 @@ export default defineContentScript({
         expression,
         lang: lastTrackLang || undefined,
         source,
-        ...(cue ? { cue: { index: idx, text: cue.text, startMs: cue.start, endMs: cue.start + cue.dur } } : {}),
+        cue: { index, text: cue.text, startMs: cue.start, endMs: cue.start + cue.dur },
         ...(ctx.definition ? { definition: ctx.definition } : {}),
       };
       const built = materialFromCandidate(candidate);
@@ -1120,26 +1123,24 @@ export default defineContentScript({
       }
     }
 
-    function neighborsText(index = currentIdx): string {
+    function neighborsText(items: Cue[], index: number): string {
       const parts: string[] = [];
-      const prev = cues[index - 1];
-      const next = cues[index + 1];
+      const prev = items[index - 1];
+      const next = items[index + 1];
       if (prev) parts.push(prev.text);
       if (next) parts.push(next.text);
       return parts.join(' / ').slice(0, 300);
     }
 
     function openPlayerLookup(expression: string, fragmentIndex: number, anchor?: HTMLElement, compact = false): void {
-      const groupIndex = fragmentGroups[fragmentIndex];
-      const fragment = fragments[fragmentIndex];
-      if (groupIndex === undefined || !fragment) return;
-      openLookup(expression, groupIndex, anchor, compact, fragment);
+      openLookup(expression, fragmentIndex, anchor, compact, fragments);
     }
 
-    function openLookup(expression: string, index = currentIdx, anchor?: HTMLElement, compact = false, visibleFragment?: Cue): void {
+    function openLookup(expression: string, index: number, anchor?: HTMLElement, compact = false, items: Cue[] = cues): void {
       externalLookupToken='';
-      const cue = visibleFragment ?? cues[index];
-      if (!cue || !currentVideoId || !lastTrackId) return;
+      const cue = items[index], source = buildVideoSource();
+      if (!cue || !source?.video || pendingTrack) return;
+      const lookupGeneration = generation;
       const video = getVideo();
       // 查词时暂停正在播放的视频；只记一次，恢复见 closeResume
       if (video && !video.paused && !pausedByUsVideo) {
@@ -1151,7 +1152,7 @@ export default defineContentScript({
         source: 'video',
         expression,
         sentence: cue.text,
-        neighbors: neighborsText(index) || undefined,
+        neighbors: neighborsText(items, index) || undefined,
         title: document.title,
         lang: lastTrackLang || undefined,
         video: {
@@ -1166,7 +1167,11 @@ export default defineContentScript({
       popup.open({
         snapshot, anchor, compact,
         subLine: `YouTube · ${fmtClock(cue.start)} · ${lastTrackLang}${lastTrack === 'asr' ? `(${tr('自动')})` : `(${tr('人工')})`}`,
-        onContinueAsk: (ctx) => void continueAskFromVideo(ctx),
+        onContinueAsk: (ctx) => {
+          if (lookupGeneration === generation && !pendingTrack && currentVideoId === videoIdFromLocation()) {
+            void continueAskFromVideo(source, cue, index, ctx);
+          }
+        },
         onClose: () => {
           // 只恢复：由本次查词暂停 && 仍是同一视频 && 仍处于暂停
           activeWord = null;
@@ -1192,14 +1197,18 @@ export default defineContentScript({
         if (!v) return;
         bindPlayListener();
         const t = v.currentTime * 1000;
-        let idx = cueIndexAt(cues, t);
+        const intervalIndex = cueIndexAt(intervals, t);
+        if (cues[pinnedIndex]?.interval !== intervalIndex && !apHeld) pinnedIndex = -1;
+        let idx = pinnedIndex >= 0 ? pinnedIndex : intervals[intervalIndex]?.firstCue ?? -1;
         let fragmentIdx = cueIndexAt(fragments, t);
         if (autoPause && !pendingTrack && !v.paused && !v.seeking) {
-          if (apIndex >= 0 && t >= cueEnd(cues, apIndex)) {
-            apDisplayIndex = apIndex; apLastStopped = apIndex; apIndex = -1;
-            apDisplayFragmentIndex = fragmentGroups.lastIndexOf(apDisplayIndex);
+          const ap = intervals[apIndex];
+          if (ap && t >= ap.start + ap.dur) {
+            apDisplayIndex = cues[currentIdx]?.interval === apIndex ? currentIdx : ap.firstCue;
+            apDisplayFragmentIndex = ap.lastFragment;
+            apLastStopped = apIndex; apIndex = -1;
             apHeld = true; pausedByUsVideo = null; v.pause();
-          } else if (apIndex < 0 && idx >= 0 && idx !== apLastStopped) apIndex = idx;
+          } else if (apIndex < 0 && intervalIndex >= 0 && intervalIndex !== apLastStopped) apIndex = intervalIndex;
         }
         if (apHeld) { idx = apDisplayIndex; fragmentIdx = apDisplayFragmentIndex; }
         if (idx !== currentIdx || fragmentIdx !== currentFragmentIdx) {
@@ -1282,7 +1291,7 @@ export default defineContentScript({
     }
 
     function captionCacheKey(targetLang: string, view: 'groups' | 'fragments'): string {
-      return JSON.stringify([DISPLAY_CUE_VERSION, view, currentVideoId, lastTrackId, targetLang]);
+      return JSON.stringify([DISPLAY_CUE_VERSION, view, currentVideoId, lastTrackId, targetLang, revision]);
     }
 
     function requestPlatform(): void {
@@ -1312,12 +1321,12 @@ export default defineContentScript({
     }
 
     function applyPlatformCues(translated: Cue[], targetLang: string, view: 'groups' | 'fragments'): void {
-      const byTime = new Map(translated.filter(c => c.zh).map(c => [`${c.start}|${c.dur}|${c.text}`, c.zh!]));
       const sourceLabel = `YouTube · ${langDisplayName(targetLang)} · ${tr('平台翻译')}`;
       const source = view === 'groups' ? cues : fragments;
       const target = view === 'groups' ? translations : fragmentTranslations;
       source.forEach((cue, id) => {
-        const zh = byTime.get(`${cue.start}|${cue.dur}|${cue.text}`);
+        const result = translated[id];
+        const zh = result?.text === cue.text && result.start === cue.start && result.dur === cue.dur ? result.zh : undefined;
         if (zh) { target.set(id, zh); if (view === 'groups') translationSources.set(id, sourceLabel); }
       });
       queueRender();
@@ -1407,8 +1416,13 @@ export default defineContentScript({
           return undefined;
         }
         if (m.type === 'pd-video-action') {
-          const a = msg as {videoId:string;action:string;index:number;word?:string;play?:boolean;token?:string};
-          if(a.videoId!==currentVideoId || !Number.isInteger(a.index) || !cues[a.index]) {sendResponse({ok:false});return true;}
+          const a = m as SubtitleRowAction;
+          const cue = cues[a.index];
+          if (pendingTrack || !Number.isInteger(a.index) || a.videoId !== currentVideoId || currentVideoId !== videoIdFromLocation() ||
+            a.trackId !== lastTrackId || a.generation !== generation || !cue || a.text !== cue.text) {
+            sendResponse({ ok: false });
+            return true;
+          }
           if(a.action==='pauseLookup'&&typeof a.token==='string') {
             externalLookupToken=a.token;popup.close();const v=getVideo();
             if(v&&!v.paused){pausedByUsVideo=currentVideoId;v.pause();}
@@ -1432,12 +1446,14 @@ export default defineContentScript({
             trackLang: lastTrackLang,
             translationLang: targetLangOf(),
             trackId: lastTrackId,
+            generation,
             cues: cues.map((c, i) => ({
               id: i,
               startMs: c.start,
               endMs: c.start + c.dur,
               text: c.text,
               zh: translations.get(i) ?? null,
+              joinBefore: i && c.from > cues[i - 1]!.to ? ' ' : '',
             })),
             chineseVisible: zhVisible,
             currentIndex: currentIdx,
@@ -1457,27 +1473,19 @@ export default defineContentScript({
             sendResponse({ ok: false, error: 'no-video' });
             return true;
           }
-          const cueStart = (i: number): number | null =>
-            i >= 0 && i < cues.length ? cues[i]!.start : null;
           try {
             if (c.action === 'seek' && typeof c.timeMs === 'number') {
+              pinnedIndex = -1;
               v.currentTime = c.timeMs / 1000;
             } else if (c.action === 'togglePlay') {
               if (v.paused) void v.play();
               else v.pause();
             } else if (c.action === 'replay') {
-              const s = cueStart(currentIdx) ?? cueStart(0);
-              if (s !== null) {
-                v.currentTime = s / 1000;
-                void v.play();
-              }
+              seekCue(Math.max(0, currentIdx), true);
             } else if (c.action === 'next' || c.action === 'prev') {
-              const target =
-                currentIdx < 0
-                  ? 0
-                  : Math.min(cues.length - 1, Math.max(0, currentIdx + (c.action === 'next' ? 1 : -1)));
-              const s = cueStart(target);
-              if (s !== null) v.currentTime = s / 1000;
+              const target = currentIdx < 0 ? 0 :
+                Math.min(cues.length - 1, Math.max(0, currentIdx + (c.action === 'next' ? 1 : -1)));
+              seekCue(target);
             }
           } catch {
             /* ignore */
@@ -1548,7 +1556,8 @@ export default defineContentScript({
       void updateVideoSession();
       navSeq++;
       cues = [];
-      fragments = []; fragmentGroups = [];
+      fragments = []; intervals = []; revision = ''; generation = crypto.randomUUID();
+      pinnedIndex = -1; rowSeekTime = null;
       lastTrack = '';
       lastTrackLang = '';
       lastTrackId = '';
@@ -1643,17 +1652,21 @@ export default defineContentScript({
           return;
         }
 
-        if (d.type === 'cues' && Array.isArray(d.cues) && Array.isArray(d.fragments) && Array.isArray(d.fragmentGroups)) {
+        if (d.type === 'cues' && Array.isArray(d.cues) && Array.isArray(d.fragments) && Array.isArray(d.intervals) && typeof d.revision === 'string') {
           const kind = d.trackKind === 'asr' ? 'asr' : 'manual';
           // 保留轨道完整语言标签（含变体，如 pt-BR）；匹配用 primary。
           const lang = String(d.trackLang || '').toLowerCase();
           const newTrackId = String(d.trackId || '');
-          const displayed = d.cues as Cue[];
+          const displayed = d.cues;
           const short = d.fragments as Cue[];
           if (!displayed.length) { nocuesReason = 'empty-track'; return; }
           // 同内容重复捕获不失效译文；时间、时长或原文改变则旧索引不再适用。
-          const contentChanged = lastTrackId !== newTrackId || !sameDisplayCues(cues, displayed) || !sameDisplayCues(fragments, short);
+          const contentChanged = lastTrackId !== newTrackId || revision !== d.revision;
           if (contentChanged) {
+            generation = crypto.randomUUID();
+            revision = d.revision;
+            cues = displayed; fragments = short; intervals = d.intervals;
+            pinnedIndex = -1; rowSeekTime = null;
             closeSelectionActions?.();
             pausedByUsVideo = null; popup.close(true); apIndex = -1; apHeld = false; apLastStopped = -1;
             stopTranslation(); platformState = 'idle'; clearTranslationResults();
@@ -1661,8 +1674,6 @@ export default defineContentScript({
             currentIdx = -1;
             currentFragmentIdx = -1; apDisplayFragmentIndex = -1;
           }
-          cues = displayed;
-          fragments = short; fragmentGroups = d.fragmentGroups;
           clearAcquisitionTimer();
           pendingTrack = null;
           if (bilingualOn) hideNativeCaptions();
