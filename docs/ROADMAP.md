@@ -2,7 +2,7 @@
 
 ## 当前任务
 
-暂无指定的功能实施规格。
+执行规格：[侧栏学习句：本地断句与来源定位](specs/subtitle-sentence-units.md)。方案已确认，待实施与最小验收；本次不接入 AI 断句、不发布插件。
 
 安装基线为 [v0.70.1](https://github.com/Kylan3320/peak-distance/releases/tag/v0.70.1)。发布后的主线改动见 Git。
 
