@@ -2,7 +2,7 @@ import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocal
 import { brandTokens, brandControls } from './brand';
 import type { Cue } from './protocol';
 import type { Settings } from './settings';
-import type { EntryView } from './messages';
+import type { EntryView, SubtitleRowRef } from './messages';
 import { cueWords, fmtClock } from './cues';
 import { sentenceId, visibleVocabStatus, type SavedSentence, type VideoRef } from './vocab';
 import { normalizeExpressionInLanguage } from './languages';
@@ -11,6 +11,7 @@ import { readingIcon, readingIconStyles, animateBookmark, type ReadingIcon } fro
 
 export interface WorkspaceState {
   videoId: string;
+  generation: string;
   videoRef: VideoRef;
   cues: Cue[];
   current: number;
@@ -67,11 +68,11 @@ const css = `
 export function createYoutubeWorkspace(actions: {
   bindWords: (host: HTMLElement) => () => void;
   words: (parent: HTMLDivElement, text: string) => void;
-  seek: (index: number, play?: boolean) => void;
-  lookup: (word: string, index: number, anchor: HTMLElement) => void;
-  save: (index: number) => Promise<{ok:boolean}>;
+  seek: (row: SubtitleRowRef, play?: boolean) => void;
+  lookup: (word: string, row: SubtitleRowRef, anchor: HTMLElement) => void;
+  save: (row: SubtitleRowRef) => Promise<{ok:boolean}>;
   remove: (id: string) => Promise<{ok:boolean}>;
-  ask: (index: number) => void;
+  ask: (row: SubtitleRowRef) => void;
   open: (view: 'list' | 'sentences' | 'review') => void;
   status: (key:string, status:string) => void;
 }, mount: HTMLElement) {
@@ -95,6 +96,7 @@ export function createYoutubeWorkspace(actions: {
   let lastStatuses: Map<string, string> | null = null;
   let lastCurrent = -1;
   let lastIdentity = '';
+  const rowRefs = new WeakMap<Element, SubtitleRowRef>();
   const saveButtons = new Map<number, HTMLButtonElement>();
   const pendingSaves = new Set<string>();
   // A real mutation reply can precede a competing library poll. Retain its
@@ -108,7 +110,13 @@ export function createYoutubeWorkspace(actions: {
     setLocalizedAttribute(b, 'title', label); setLocalizedAttribute(b, 'aria-label', label); return b;
   };
   const setScroll = (top: number) => { body.scrollTop = top; expectedScrollTop = body.scrollTop; };
-  const identity = () => `${state.videoId}:${state.videoRef.trackId}`;
+  const identity = () => state.generation;
+  const rowRef = (index: number): SubtitleRowRef => ({
+    index, text: state.cues[index]!.text, videoId: state.videoId, trackId: state.videoRef.trackId, generation: state.generation,
+  });
+  const seek = (index: number, play?: boolean) => {
+    if (state.cues[index]) actions.seek(rowRef(index), play);
+  };
   const cueId = (index:number) => sentenceId({...state.videoRef,startMs:state.cues[index]!.start},state.cues[index]!.text);
   const storedSaved = (index:number) => state.sentences.some(s => sentenceId(s.video,s.text) === cueId(index));
   const isSaved = (index:number) => confirmedSaves.get(cueId(index)) ?? storedSaved(index);
@@ -118,11 +126,13 @@ export function createYoutubeWorkspace(actions: {
     const label=message(busy?'保存中…':saved?'取消收藏':'收藏整句');
     setLocalizedAttribute(b,'title',label);setLocalizedAttribute(b,'aria-label',label);
   }
-  async function toggleSave(index:number, b:HTMLButtonElement, error:HTMLElement) {
+  async function toggleSave(ref: SubtitleRowRef, b:HTMLButtonElement, error:HTMLElement) {
+    if (ref.generation !== identity()) return;
+    const index = ref.index;
     const key=cueId(index); if(pendingSaves.has(key))return;
     const wasSaved=isSaved(index), savedIdentity=identity();
     pendingSaves.add(key); error.hidden=true; updateSaveButton(index,b);
-    let result:{ok:boolean};try {result=await actions.save(index);}catch {result={ok:false};}
+    let result:{ok:boolean};try {result=await actions.save(ref);}catch {result={ok:false};}
     pendingSaves.delete(key);
     if(identity()!==savedIdentity||!b.isConnected)return;
     if(result.ok) {
@@ -138,9 +148,9 @@ export function createYoutubeWorkspace(actions: {
     const b = button(head, label!, () => { scrollPositions.set(tab, body.scrollTop); tab = id!; render(); }); b.dataset.tab = id;
   }
 
-  icon(controls, 'previous', message('上一句'), () => actions.seek(Math.max(0, state.current - 1)));
-  icon(controls, 'replay', message('重播'), () => actions.seek(Math.max(0, state.current), true));
-  icon(controls, 'next', message('下一句'), () => actions.seek(Math.min(state.cues.length - 1, state.current + 1)));
+  icon(controls, 'previous', message('上一句'), () => seek(Math.max(0, state.current - 1)));
+  icon(controls, 'replay', message('重播'), () => seek(Math.max(0, state.current), true));
+  icon(controls, 'next', message('下一句'), () => seek(Math.min(state.cues.length - 1, state.current + 1)));
   controls.querySelectorAll('button').forEach(b => b.dataset.playback = '');
   const back = icon(controls, 'locate', message('回到当前句'), () => {
     if(shadowSelection(root))getSelection()?.removeAllRanges();
@@ -175,6 +185,7 @@ export function createYoutubeWorkspace(actions: {
   function line(index: number) {
     const cue = state.cues[index]!;
     const row = document.createElement('div'); row.className = 'row'; row.dataset.cue = String(index);
+    rowRefs.set(row, rowRef(index));
     const en = document.createElement('div'); en.className = 'en'; actions.words(en, cue.text); row.append(en);
     const zh = document.createElement('div'); zh.className = 'zh'; row.append(zh);
     return row;
@@ -196,27 +207,28 @@ export function createYoutubeWorkspace(actions: {
       if (tab === 'subs') {
         if (!state.cues.length) empty(message(state.notice || '正在读取字幕…'));
         state.cues.forEach((cue, i) => {
-          const row = line(i), tools = meta(row);
-          button(tools, fmtClock(cue.start), () => actions.seek(i)).dataset.playback = '';
+          const row = line(i), tools = meta(row), ref = rowRefs.get(row)!;
+          button(tools, fmtClock(cue.start), () => actions.seek(ref)).dataset.playback = '';
           const error=document.createElement('span');error.className='save-error';error.hidden=true;error.setAttribute('role','status');
-          const save=icon(tools,'bookmark',message('收藏整句'),()=>void toggleSave(i,save,error));saveButtons.set(i,save);
+          const save=icon(tools,'bookmark',message('收藏整句'),()=>void toggleSave(ref,save,error));saveButtons.set(i,save);
           save.addEventListener('pointerdown',e=>{if(shadowSelection(root))e.preventDefault();});
-          icon(tools, 'ask', message('问 AI'), () => actions.ask(i));tools.append(error); body.append(row);
+          icon(tools, 'ask', message('问 AI'), () => actions.ask(ref));tools.append(error); body.append(row);
         });
       } else if (tab === 'words') {
         if (!state.cues.length) empty(message(state.notice || '字幕尚未就绪'));
         for (const item of cueWords(state.cues, state.trackLang || undefined)) {
           const row = document.createElement('div'); row.className = 'row';
           const heading = document.createElement('div'); heading.className = 'word-heading'; row.append(heading);
-          const word = button(heading, item.word, () => { details.open = true; actions.lookup(item.word, item.positions[0]!, word); });
+          const first = rowRef(item.positions[0]!);
+          const word = button(heading, item.word, () => { details.open = true; actions.lookup(item.word, first, word); });
           word.className = 'word-action'; word.dataset.word = item.word;
           setLocalizedAttribute(word, 'aria-label', message('{word} · {count} 次',{word:item.word,count:item.count}));
           const count = document.createElement('span'); count.className = 'word-count'; count.setAttribute('aria-hidden','true'); setText(count, message('{count} 次',{count:item.count})); heading.append(count);
           const details = document.createElement('details'), summary = document.createElement('summary'); details.className = 'word-details'; setText(summary, message('字幕位置')); details.append(summary);
           for (const i of item.positions) {
-            const cue = state.cues[i]!, place = meta(details);
-            button(place, fmtClock(cue.start), () => actions.seek(i)).dataset.playback = '';
-            const lookup = button(place, cue.text, () => actions.lookup(item.word, i, lookup)); lookup.className = 'occurrence'; lookup.dataset.word = item.word;
+            const cue = state.cues[i]!, place = meta(details), ref = rowRef(i);
+            button(place, fmtClock(cue.start), () => actions.seek(ref)).dataset.playback = '';
+            const lookup = button(place, cue.text, () => actions.lookup(item.word, ref, lookup)); lookup.className = 'occurrence'; lookup.dataset.word = item.word;
           }
           row.append(details); body.append(row);
         }
@@ -228,13 +240,13 @@ export function createYoutubeWorkspace(actions: {
           count++;
           const row = document.createElement('div'); row.className = 'row';
           const heading = document.createElement('div'); heading.className = 'saved-heading'; row.append(heading);
-          const expr = button(heading, entry.expression, () => { const i = state.cues.findIndex(cue => cue.start === c.video?.startMs && cue.text === c.sentence); if (i >= 0) actions.lookup(entry.expression, i, expr); else actions.open('list'); }); expr.className = 'word-action'; expr.dataset.word = entry.expression;
+          const expr = button(heading, entry.expression, () => { const i = state.cues.findIndex(cue => cue.start === c.video?.startMs && cue.text === c.sentence); if (i >= 0) actions.lookup(entry.expression, rowRef(i), expr); else actions.open('list'); }); expr.className = 'word-action'; expr.dataset.word = entry.expression;
           const status = document.createElement('select'); setLocalizedAttribute(status, 'aria-label', message('{expression} 学习状态',{expression:entry.expression}));
           for (const [value, label] of [['saved',message('已收藏')],['known',message('已掌握')]] as const) { const option = document.createElement('option'); option.value = value!; setText(option,label!); status.append(option); }
           status.value = visibleVocabStatus(entry.status); status.addEventListener('change', () => actions.status(entry.key, status.value)); heading.append(status);
           const sentence = document.createElement('div'); sentence.className = 'saved-context'; sentence.textContent = c.sentence; row.append(sentence);
           const link = document.createElement('a'); link.className = 'saved-time'; link.href = c.url; link.textContent = fmtClock(c.video!.startMs);
-          link.dataset.playback = ''; link.addEventListener('click', e => { const i = state.cues.findIndex(cue => cue.start === c.video!.startMs); if (i >= 0) { e.preventDefault(); actions.seek(i); } });
+          link.dataset.playback = ''; link.addEventListener('click', e => { const i = state.cues.findIndex(cue => cue.start === c.video!.startMs && cue.text === c.sentence); if (i >= 0) { e.preventDefault(); seek(i); } });
           row.append(link); body.append(row);
         }
         for (const saved of state.sentences.filter(s => s.video.videoId === state.videoId)) {
@@ -244,7 +256,7 @@ export function createYoutubeWorkspace(actions: {
           if (saved.zh) { const zh = document.createElement('div'); zh.className = 'zh'; zh.textContent = saved.zh; row.append(zh); }
           const tools = meta(row);
           const link = document.createElement('a'); link.href = `https://www.youtube.com/watch?v=${encodeURIComponent(saved.video.videoId)}&t=${saved.video.startMs / 1000}s`; setText(link,message('{source} · {text}',{source:message('整句'),text:fmtClock(saved.video.startMs)})); link.style.color = 'var(--pd-blue)';
-          link.dataset.playback = ''; link.addEventListener('click', e => { const i = state.cues.findIndex(cue => cue.start === saved.video.startMs); if (i >= 0) { e.preventDefault(); actions.seek(i); } });
+          link.dataset.playback = ''; link.addEventListener('click', e => { const i = state.cues.findIndex(cue => cue.start === saved.video.startMs && cue.text === saved.text); if (i >= 0) { e.preventDefault(); seek(i); } });
           tools.append(link);
           const error=document.createElement('span');error.className='save-error';error.hidden=true;error.setAttribute('role','status');
           const remove=icon(tools,'bookmark',message('取消收藏'),async()=>{
@@ -290,6 +302,7 @@ export function createYoutubeWorkspace(actions: {
     lastCurrent = state.current;
   }
   return {
+    rowRef: (element: Element) => rowRefs.get(element),
     snapshot: () => ({ tab, follow, top:body.scrollTop }),
     restore(value: {tab?:string;follow?:boolean;top?:number}) { if(value.tab && ['subs','words','saved'].includes(value.tab))tab=value.tab;follow=value.follow!==false;render();setScroll(value.top??0); },
     update(next: WorkspaceState) { state = next; render(); },

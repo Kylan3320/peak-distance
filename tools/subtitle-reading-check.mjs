@@ -19,18 +19,13 @@ const json={events:[
   {tStartMs:1000,dDurationMs:1000,segs:[{utf8:'one sentence.'}]},
   {tStartMs:2000,dDurationMs:1000,segs:[{utf8:'The next sentence.'}]},
 ]};
-const translatedJson={events:[
-  {tStartMs:0,dDurationMs:1000,segs:[{utf8:'这是'}]},
-  {tStartMs:1000,dDurationMs:1000,segs:[{utf8:'一个句子。'}]},
-  {tStartMs:2000,dDurationMs:1000,segs:[{utf8:'下一句。'}]},
-]};
 const output=resolve('.upstream/subtitle-reading');await mkdir(output,{recursive:true});
 
 if(!process.argv.includes('--packaged-only')) {
 // Run the real MAIN entrypoint, with a native request first returning empty and then valid data.
 const inject = await compile("import './entrypoints/youtube-inject.content';");
 const messages=[], requests=[], listeners=[];let now=0;
-const scope={URL,AbortController,AbortSignal,Response,Map,Set,console,location:{href:'https://www.youtube.com/watch?v=reading01'},performance:{now:()=>++now,getEntriesByType:()=>[]},document:{getElementById:()=>null},setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>1,XMLHttpRequest:class{open(){}send(){}},defineContentScript:c=>c.main(),__listeners:listeners};
+const scope={crypto,TextEncoder,URL,AbortController,AbortSignal,Response,Map,Set,console,location:{href:'https://www.youtube.com/watch?v=reading01'},performance:{now:()=>++now,getEntriesByType:()=>[]},document:{getElementById:()=>null},setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>1,XMLHttpRequest:class{open(){}send(){}},defineContentScript:c=>c.main(),__listeners:listeners};
 scope.window=scope;
 scope.addEventListener=(type,fn)=>{if(type==='message')listeners.push(fn);};
 scope.postMessage=data=>messages.push(data);
@@ -48,7 +43,7 @@ check('repeated failed URL is not fetched again by extension',requests.length===
 await scope.fetch(source('valid'));await settle();
 const produced=messages.find(x=>x.type==='cues');
 check('later valid native source recovers in the same acquisition',produced?.cues.length===2&&produced.cues[0].text==='This is one sentence.');
-check('MAIN preserves normalized short fragments and explicit group mapping',produced.fragments.length===3&&produced.fragments[0].text==='This is'&&JSON.stringify(produced.fragmentGroups)==='[0,0,1]');
+check('MAIN preserves normalized short fragments and explicit group mapping',produced.fragments.length===3&&produced.fragments[0].text==='This is'&&JSON.stringify(produced.cues.map(c=>[c.firstFragment,c.lastFragment]))==='[[0,1],[2,2]]');
 scope.emit({source:'blc-content',type:'config',nonce:2});
 await settle();
 scope.emit({source:'blc-content',type:'source-cancel',nonce:2});
@@ -65,9 +60,9 @@ try {
   await page.addScriptTag({content:componentCode});
   await page.evaluate(()=>{
     const cues=Array.from({length:35},(_,i)=>({start:i*3000,dur:3000,lastOff:i*3000,text:`This is learning sentence number ${i}.`}));
-    window.readingState={videoId:'reading01',videoRef:{videoId:'reading01',trackId:'https://www.youtube.com/api/timedtext?v=reading01&lang=en',trackKind:'manual',trackLang:'en',startMs:0},cues,current:1,translations:new Map(cues.map((_,i)=>[i,'完整译文用于检查收藏后的阅读位置，译文占据多行时也应该保持稳定。'.repeat(3)])),statuses:new Map(),sentences:[],entries:[],notice:'',chinese:true};
+    window.readingState={generation:'fixture',videoId:'reading01',videoRef:{videoId:'reading01',trackId:'https://www.youtube.com/api/timedtext?v=reading01&lang=en',trackKind:'manual',trackLang:'en',startMs:0},cues,current:1,translations:new Map(cues.map((_,i)=>[i,'完整译文用于检查收藏后的阅读位置，译文占据多行时也应该保持稳定。'.repeat(3)])),statuses:new Map(),sentences:[],entries:[],notice:'',chinese:true};
     window.saveCalls=0;window.failSave=false;
-    window.workspace=ReadingTest.createYoutubeWorkspace({bindWords:()=>()=>{},words:(el,text)=>el.textContent=text,seek:()=>{},lookup:()=>{},ask:()=>{},open:()=>{},status:()=>{},remove:async()=>({ok:true}),save:async index=>{
+    window.workspace=ReadingTest.createYoutubeWorkspace({bindWords:()=>()=>{},words:(el,text)=>el.textContent=text,seek:()=>{},lookup:()=>{},ask:()=>{},open:()=>{},status:()=>{},remove:async()=>({ok:true}),save:async ({index})=>{
       window.saveCalls++;await new Promise(r=>setTimeout(r,90));if(window.failSave)return {ok:false};
       const state=window.readingState,cue=state.cues[index];state.sentences=[{id:'fixture',video:{...state.videoRef,startMs:cue.start},text:cue.text}];window.workspace.update({...state});return {ok:true};
     }},document.getElementById('mount'));
@@ -135,99 +130,225 @@ try {
   const id=new URL(worker.url()).host;
   await worker.evaluate(()=>chrome.storage.local.set({regularTranslation:'google-gtx',displayLanguage:'zh-Hans',panelMode:'floating'}));
   const control=await context.newPage();await control.goto(`chrome-extension://${id}/options.html`);
-  const fixture=`<!doctype html><title>Subtitle reading fixture</title><ytd-watch-flexy><div id="player-container-outer"><div id="movie_player" style="height:240px;position:relative"><video style="width:100%;height:200px"></video><div class="ytp-chrome-bottom"><div class="ytp-right-controls"><button class="ytp-subtitles-button" aria-pressed="true" aria-disabled="false">CC</button></div></div></div></div></ytd-watch-flexy><script>
+  const sentences = [
+    'But I I sometimes think our society gets too binary.',
+    "Everything's either black or white.",
+    'Everything gets polarized because of that.',
+  ];
+  const playerLine = sentences.slice(0,2).join(' ');
+  const combinedTranslation = '但我我有时觉得我们的社会太二元了。什么事都非黑即白。';
+  const event = (tStartMs,dDurationMs,utf8) => ({tStartMs,dDurationMs,segs:[{utf8}]});
+  const trailing = Array.from({length:13},(_,i)=>event(4500+i*750,750,'Additional practice sentence number '+(i+1)+'.'));
+  const pendingText = trailing[8].segs[0].utf8;
+  const sourceJson = anchored => ({events:[
+    {...event(0,2000,playerLine),segs:[{utf8:sentences[0]},{utf8:' '+sentences[1],...(anchored&&{tOffsetMs:850})}]},
+    event(2000,700,'Everything gets polarized'),
+    event(3000,1000,'because of that.'),
+    ...trailing,
+  ]});
+  const translationsFor = anchored => ({events:[
+    event(0,2000,combinedTranslation),
+    event(2000,700,'一切变得两极化'),
+    event(3000,1000,'就是因为这个。'),
+    ...trailing.flatMap((e,i)=>i===8&&!anchored?[]:[event(e.tStartMs,e.dDurationMs,'练习句 '+(i+1))]),
+  ]});
+  const fixture = `<!doctype html><title>Subtitle reading fixture</title><ytd-watch-flexy><div id="player-container-outer"><div id="movie_player" style="height:240px;position:relative"><video style="width:100%;height:200px"></video><div class="ytp-chrome-bottom"><div class="ytp-right-controls"><button class="ytp-subtitles-button" aria-pressed="true" aria-disabled="false">CC</button></div></div></div></div></ytd-watch-flexy><script>
     const vid=new URL(location.href).searchParams.get('v'),p=document.getElementById('movie_player'),v=document.querySelector('video');
-    const track={languageCode:'en',kind:'asr',name:'',baseUrl:'https://www.youtube.com/api/timedtext?v='+vid+'&lang=en&kind=asr&phase=empty'};
-    let current=track;p.getOption=(module,key)=>key==='tracklist'?[track]:current;p.setOption=(module,key,t)=>{current=t.languageCode?track:null;};p.loadModule=()=>{};
+    const track=(name,phase)=>({languageCode:'en',kind:'asr',name,baseUrl:'https://www.youtube.com/api/timedtext?v='+vid+'&lang=en&kind=asr&name='+name+'&phase='+phase});
+    const plain=track('Plain','empty'),anchored=track('Anchored','valid');
+    const independent={languageCode:'zh-Hans',name:'Independent',baseUrl:'https://www.youtube.com/api/timedtext?v='+vid+'&lang=zh-Hans'};
+    let current=plain;p.getOption=(module,key)=>key==='tracklist'?[plain,anchored,independent]:current;
+    p.setOption=(module,key,t)=>{current=t.languageCode?t:null;if(current?.name==='Anchored')fetch(anchored.baseUrl);};
+    p.loadModule=()=>{};
     document.querySelector('.ytp-subtitles-button').onclick=e=>e.currentTarget.setAttribute('aria-pressed',e.currentTarget.getAttribute('aria-pressed')!=='true');
-    const bytes=new Uint8Array(44+8000*2*10),d=new DataView(bytes.buffer),str=(at,s)=>[...s].forEach((c,i)=>bytes[at+i]=c.charCodeAt(0));str(0,'RIFF');d.setUint32(4,bytes.length-8,true);str(8,'WAVE');str(12,'fmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,1,true);d.setUint32(24,8000,true);d.setUint32(28,16000,true);d.setUint16(32,2,true);d.setUint16(34,16,true);str(36,'data');d.setUint32(40,bytes.length-44,true);v.src=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));
-    window.addEventListener('message',e=>{if(e.data?.source==='blc-content'&&e.data.type==='config'){fetch(track.baseUrl);if(vid!=='emptyonly')setTimeout(()=>fetch(track.baseUrl.replace('empty','valid')),100);}});
+    const bytes=new Uint8Array(44+8000*2*16),d=new DataView(bytes.buffer),str=(at,s)=>[...s].forEach((c,i)=>bytes[at+i]=c.charCodeAt(0));str(0,'RIFF');d.setUint32(4,bytes.length-8,true);str(8,'WAVE');str(12,'fmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,1,true);d.setUint32(24,8000,true);d.setUint32(28,16000,true);d.setUint16(32,2,true);d.setUint16(34,16,true);str(36,'data');d.setUint32(40,bytes.length-44,true);v.src=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));
+    window.addEventListener('message',e=>{if(e.data?.source==='blc-content'&&e.data.type==='config'){fetch(plain.baseUrl);if(vid!=='emptyonly')setTimeout(()=>fetch(plain.baseUrl.replace('empty','valid')),100);}});
   </script>`;
   await context.route('https://www.youtube.com/watch?*',r=>r.fulfill({contentType:'text/html',body:fixture}));
-  await context.route('https://www.youtube.com/api/timedtext?*',r=>{const u=new URL(r.request().url());return r.fulfill({contentType:'application/json',body:u.searchParams.has('tlang')?(u.searchParams.get('v')==='fallback01'?'':JSON.stringify(translatedJson)):u.searchParams.get('phase')==='empty'?'':JSON.stringify(json)});});
-  const page=await context.newPage();await page.goto('https://www.youtube.com/watch?v=reading01');
-  await page.locator('#blc-subs .en').filter({hasText:/^This is$/}).waitFor();
-  await page.locator('#blc-subs .zh').filter({hasText:/^这是$/}).waitFor();
-  const tabId=await control.evaluate(async()=> (await chrome.tabs.query({active:true,lastFocusedWindow:true}))[0].id);
-  const action=m=>control.evaluate(({tabId,m})=>chrome.tabs.sendMessage(tabId,m),{tabId,m});
-  const state=await action({type:'blc-sub-get'});
-  check('packaged acquisition recovers into grouped sidebar sentences',state.cues.length===2&&state.cues[0].text==='This is one sentence.'&&state.cues[1].text==='The next sentence.');
-  check('player starts with ASR-normalized short original and matching translation',await page.locator('#blc-subs .en').textContent()==='This is'&&await page.locator('#blc-subs .zh').textContent()==='这是');
-  await page.locator('#blc-subs-switch #learning').click();await page.locator('#blc-subs-switch #panel').click();
-  await page.frameLocator('#pd-floating-panel iframe').locator('#blc-learning-panel .en').first().waitFor();
-  const frame=page.frames().find(f=>f.url().includes('/sidepanel.html'));
-  const firstSidebarRow=frame.locator('#blc-learning-panel [data-cue="0"]');
-  check('sidebar keeps the full grouped original and translation',await firstSidebarRow.locator('.en').textContent()==='This is one sentence.'&&await firstSidebarRow.locator('.zh').textContent()==='这是 一个句子。');
-  await page.evaluate(()=>{document.querySelector('video').currentTime=1.2;});
-  await page.locator('#blc-subs .en').filter({hasText:/^one sentence\.$/}).waitFor();
-  await page.locator('#blc-subs .zh').filter({hasText:/^一个句子。$/}).waitFor();
-  check('advancing inside a group changes both player lines while sidebar stays full',await firstSidebarRow.locator('.en').textContent()==='This is one sentence.'&&(await action({type:'blc-sub-get'})).currentIndex===0);
-  await page.screenshot({path:resolve(output,'packaged-fragment-sidebar.png')});
-  await page.locator('#blc-subs .en').evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);getSelection().removeAllRanges();getSelection().addRange(r);el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,composed:true}));});
-  await page.locator('#pd-phrase-actions').waitFor();
-  await control.waitForFunction(async tabId=>{const result=await chrome.runtime.sendMessage({type:'selectionCandidateGet',tabId});return result?.candidate?.text==='one sentence.';},tabId);
-  const selected=await control.evaluate(tabId=>chrome.runtime.sendMessage({type:'selectionCandidateGet',tabId}),tabId);
-  check('player selection source uses visible fragment text and times',selected.candidate.cue.text==='one sentence.'&&selected.candidate.cue.startMs===1000&&selected.candidate.cue.endMs===2000);
-  await page.evaluate(()=>getSelection().removeAllRanges());await page.locator('#pd-phrase-actions').waitFor({state:'detached'});
-  check('packaged player selection bubble closes with selection',true);
-  await firstSidebarRow.getByRole('button',{name:'0:00',exact:true}).click();
-  await page.waitForFunction(()=>document.querySelector('video').currentTime<.1);
-  check('sidebar time action seeks to full grouped sentence start',await page.locator('#blc-subs .en').textContent()==='This is');
-  await firstSidebarRow.getByRole('button',{name:'收藏句子',exact:true}).click();
-  await firstSidebarRow.getByRole('button',{name:'取消收藏',exact:true}).waitFor();
-  const records=await control.evaluate(()=>chrome.runtime.sendMessage({type:'listSentences'}));
-  check('sidebar save confirms actual full-sentence persistence',records.sentences[0]?.text===state.cues[0].text&&records.sentences[0]?.video.startMs===0&&records.sentences[0]?.endMs===2000);
-  await firstSidebarRow.locator('.en').evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);getSelection().removeAllRanges();getSelection().addRange(r);el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,composed:true}));});
-  await frame.locator('#panel-selection-actions').waitFor();
-  await frame.locator('.brand-name').click();await frame.locator('#panel-selection-actions').waitFor({state:'detached'});
-  check('packaged sidepanel selection bubble closes on outside click',true);
-  await page.locator('#pd-floating-panel').evaluate(el=>el.style.width='320px');
-  check('narrow sidepanel keeps content within viewport',await frame.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-  await page.screenshot({path:resolve(output,'packaged-sidebar.png')});
-  await page.locator('#blc-subs-switch #learning').click();await page.locator('#blc-subs-switch #ap').check();
-  await page.locator('#blc-subs-switch #ap').waitFor({state:'attached'});
-  await page.waitForFunction(()=>!document.getElementById('blc-subs-switch').shadowRoot.querySelector('#ap').disabled);
-  await action({type:'pd-video-action',action:'seek',index:0,videoId:'reading01'});
-  await page.evaluate(()=>document.querySelector('video').play());
-  await page.waitForFunction(()=>document.querySelector('video').paused&&document.querySelector('video').currentTime>=2);
-  check('AP pauses at merged sentence end rather than first fragment',await page.evaluate(()=>document.querySelector('video').currentTime<2.4));
-  check('AP holds the grouped sentence final short fragment and its translation',await page.locator('#blc-subs .en').textContent()==='one sentence.'&&await page.locator('#blc-subs .zh').textContent()==='一个句子。'&&(await action({type:'blc-sub-get'})).currentIndex===0);
-  await page.screenshot({path:resolve(output,'packaged-ap-held.png')});
-
-  // One regular-service fallback batch covers both index domains and a cancelled
-  // epoch. The first response is deliberately released after translation is off.
-  await worker.evaluate(()=>{
-    globalThis.fallbackBatches=[];globalThis.fallbackStarted=false;globalThis.releaseOldFallback=null;
-    globalThis.fallbackReady=new Promise(resolve=>{globalThis.markFallbackReady=resolve;});
-    globalThis.fallbackCancelled=new Promise(resolve=>{globalThis.markFallbackCancelled=resolve;});
-    chrome.runtime.onMessage.addListener(m=>{if(m.type==='translateCues'&&m.videoId==='fallback01')globalThis.fallbackBatches.push(structuredClone(m.items));});
+  await context.route('https://www.youtube.com/api/timedtext?*',r=>{
+    const u=new URL(r.request().url()), anchored=u.searchParams.get('name')==='Anchored';
+    return r.fulfill({contentType:'application/json',body:u.searchParams.get('phase')==='empty'?'':JSON.stringify(
+      u.searchParams.has('tlang')?translationsFor(anchored):
+        u.searchParams.get('lang')==='zh-Hans'?{events:[event(3000,1000,'正是因为这个。')]}:sourceJson(anchored))});
+  });
+  const learnedTranslations = ['但我我有时觉得我们的社会太二元了。','什么事都非黑即白。'];
+  await worker.evaluate(({sentences,learnedTranslations,pendingText})=>{
+    globalThis.fallbackBatches=[];
+    globalThis.gates={};
+    const gate=(key)=>{
+      const state=globalThis.gates[key]={};
+      state.ready=new Promise(resolve=>{state.start=resolve;});
+      state.aborted=new Promise(resolve=>{state.abort=resolve;});
+      state.response=new Promise(resolve=>{state.release=resolve;});
+      return state;
+    };
+    gate('first');gate('old');
+    chrome.runtime.onMessage.addListener(m=>{
+      if(m.type==='translateCues'&&m.videoId==='reading01')globalThis.fallbackBatches.push(m.items);
+    });
     const originalFetch=globalThis.fetch;
     globalThis.fetch=async(input,options)=>{
-      const url=new URL(String(input));if(url.hostname!=='translate.googleapis.com')return originalFetch(input,options);
-      const text=url.searchParams.get('q');
-      if(!globalThis.fallbackStarted){globalThis.fallbackStarted=true;options.signal.addEventListener('abort',()=>globalThis.markFallbackCancelled(),{once:true});await new Promise(resolve=>{globalThis.releaseOldFallback=resolve;globalThis.markFallbackReady();});return new Response(JSON.stringify([[['OLD EPOCH',text]],null,'en']));}
-      const translated={'This is one sentence.':'整句回退译文','This is':'片段甲','one sentence.':'片段乙','The next sentence.':'后句译文'}[text];
-      if(!translated)throw new Error(`Unexpected fallback text: ${text}`);
+      const url=new URL(String(input));
+      if(url.hostname!=='translate.googleapis.com')return originalFetch(input,options);
+      const text=url.searchParams.get('q'), index=sentences.indexOf(text);
+      const blocked=text===pendingText?globalThis.gates.old:index===0?globalThis.gates.first:null;
+      if(blocked){
+        options.signal.addEventListener('abort',blocked.abort,{once:true});
+        blocked.start();await blocked.response;
+      }
+      const translated=text===pendingText?'OLD EPOCH':learnedTranslations[index];
+      if(!translated)throw new Error('Unexpected fallback text: '+text);
       return new Response(JSON.stringify([[[translated,text]],null,'en']));
     };
+  },{sentences,learnedTranslations,pendingText});
+  const gate = (key,stage)=>worker.evaluate(({key,stage})=>Promise.race([
+    globalThis.gates[key][stage],new Promise((_,reject)=>setTimeout(()=>reject(new Error(key+' did not reach '+stage)),8000)),
+  ]),{key,stage});
+  const release = key=>worker.evaluate(key=>globalThis.gates[key].release(),key);
+  const page=await context.newPage();await page.goto('https://www.youtube.com/watch?v=reading01');
+  const playerEn=page.locator('#blc-subs .en'), playerZh=page.locator('#blc-subs .zh');
+  await playerEn.waitFor();
+  const tabId=await control.evaluate(async()=> (await chrome.tabs.query({active:true,lastFocusedWindow:true}))[0].id);
+  const action=m=>control.evaluate(({tabId,m})=>chrome.tabs.sendMessage(tabId,m),{tabId,m});
+  const getState=()=>action({type:'blc-sub-get'});
+  const rowRef=(state,index)=>({type:'pd-video-action',videoId:state.videoId,trackId:state.trackId,generation:state.generation,index,text:state.cues[index].text});
+  const expectIndex=index=>control.waitForFunction(async({tabId,index})=>
+    (await chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'})).currentIndex===index,{tabId,index});
+  await gate('first','ready');
+  const state=await getState();
+  assert.deepEqual(state.cues.slice(0,3).map(c=>[c.text,c.startMs,c.endMs]),[
+    [sentences[0],0,2000],[sentences[1],0,2000],[sentences[2],2000,4000],
+  ]);
+  check('packaged acquisition recovers into split and cross-fragment sentences',true);
+  check('player keeps the original short unit and its platform translation',
+    await playerEn.textContent()===playerLine&&await playerZh.textContent()===combinedTranslation);
+  const settings=page.locator('#blc-subs-switch #learning');
+  await settings.click();await page.locator('#blc-subs-switch #panel').click();
+  await page.frameLocator('#pd-floating-panel iframe').locator('#blc-learning-panel .en').first().waitFor();
+  const frame=page.frames().find(f=>f.url().includes('/sidepanel.html'));
+  const workspace=frame.locator('#blc-learning-panel'), body=workspace.locator('.body');
+  const row=i=>workspace.locator('[data-cue="'+i+'"]');
+  const button=name=>workspace.getByRole('button',{name,exact:true});
+  check('sidebar shows the fixed sample as three distinct rows',
+    JSON.stringify(await workspace.locator('.en').allTextContents().then(a=>a.slice(0,3)))===JSON.stringify(sentences));
+  check('cross-fragment complete sentence uses the two exact platform translations',
+    await row(2).locator('.zh').textContent()==='一切变得两极化 就是因为这个。');
+
+  await body.hover();await page.mouse.wheel(0,24);
+  await workspace.locator('.controls button').last().waitFor();
+  await body.evaluate(el=>{
+    window.readingBody=el;
+    window.readingRows=[...el.children];
+    window.readingTop=el.scrollTop;
+    const first=el.querySelector('[data-cue="0"] .w:last-of-type').firstChild;
+    const last=el.querySelector('[data-cue="1"] .w').firstChild;
+    const range=document.createRange();
+    range.setStart(first,0);range.setEnd(last,last.length);
+    getSelection().removeAllRanges();getSelection().addRange(range);
+    first.parentElement.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,composed:true}));
   });
-  const fallback=await context.newPage();await fallback.goto('https://www.youtube.com/watch?v=fallback01');
-  await fallback.locator('#blc-subs .en').filter({hasText:/^This is$/}).waitFor();
-  await worker.evaluate(()=>Promise.race([globalThis.fallbackReady,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Fallback request did not start')),8000))]));
-  await fallback.locator('#blc-subs-switch #learning').click();await fallback.locator('#blc-subs-switch #chinese').uncheck();
-  await worker.evaluate(()=>Promise.race([globalThis.fallbackCancelled,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Fallback request was not cancelled')),8000))]));
-  await worker.evaluate(()=>globalThis.releaseOldFallback());
-  await fallback.waitForTimeout(100);
-  check('cancelled fallback epoch cannot reapply a late translation',await fallback.locator('#blc-subs .zh').count()===0&&!JSON.stringify(await control.evaluate(async()=>{const tab=(await chrome.tabs.query({active:true,lastFocusedWindow:true}))[0];return chrome.tabs.sendMessage(tab.id,{type:'blc-sub-get'});})).includes('OLD EPOCH'));
-  await fallback.locator('#blc-subs-switch #chinese').check();
-  await fallback.locator('#blc-subs .zh').filter({hasText:/^片段甲$/}).waitFor();
-  const fallbackTab=await control.evaluate(async()=> (await chrome.tabs.query({active:true,lastFocusedWindow:true}))[0].id);
-  const fallbackState=()=>control.evaluate(tabId=>chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'}),fallbackTab);
-  const translatedState=await fallbackState();
-  check('regular fallback keeps whole-sentence and fragment translation domains separate',translatedState.cues[0].zh==='整句回退译文'&&await fallback.locator('#blc-subs .zh').textContent()==='片段甲'&&await worker.evaluate(()=>globalThis.fallbackBatches.some(items=>items.some(i=>i.id===0&&i.text==='This is one sentence.')&&items.some(i=>i.id===2&&i.text==='This is')&&items.some(i=>i.id===3&&i.text==='one sentence.'))));
-  await fallback.evaluate(()=>{document.querySelector('video').currentTime=1.2;});
-  await fallback.locator('#blc-subs .zh').filter({hasText:/^片段乙$/}).waitFor();
-  check('fallback fragment advance does not repeat full-group translation',await fallback.locator('#blc-subs .en').textContent()==='one sentence.'&&(await fallbackState()).cues[0].zh==='整句回退译文');
+  await frame.locator('#panel-selection-actions').waitFor();
+  await control.waitForFunction(async tabId=>(await chrome.runtime.sendMessage({type:'selectionCandidateGet',tabId}))?.candidate?.text==="binary. Everything's",tabId);
+  const readingPreserved=()=>frame.evaluate(()=>{
+    const range=window.readingBody.getRootNode().getSelection().getRangeAt(0);
+    return window.readingRows.every((row,i)=>row===window.readingBody.children[i])&&
+      window.readingTop>0&&Math.abs(window.readingTop-window.readingBody.scrollTop)<2&&
+      range.startContainer.textContent==='binary'&&range.endContainer.textContent==="Everything's";
+  });
+  await release('first');
+  await row(1).locator('.zh').filter({hasText:learnedTranslations[1]}).waitFor();
+  check('split rows receive separate full-text fallback translations and retain reading state',
+    await row(0).locator('.zh').textContent()===learnedTranslations[0]&&await readingPreserved()&&
+    await worker.evaluate(sentences=>globalThis.fallbackBatches.some(items=>sentences.slice(0,2).every((text,id)=>items.some(i=>i.id===id&&i.text===text))),sentences));
+  const save=row(1).getByRole('button',{name:'收藏句子',exact:true});
+  await save.evaluate(el=>{el.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,composed:true}));el.click();});
+  await row(1).getByRole('button',{name:'取消收藏',exact:true}).waitFor();
+  const records=()=>control.evaluate(()=>chrome.runtime.sendMessage({type:'listSentences'}));
+  const saved=(await records()).sentences;
+  check('saving the second row persists only its visible text, track and interval and keeps reading state',
+    saved.length===1&&saved[0].text===sentences[1]&&saved[0].video.trackId===state.trackId&&
+    saved[0].video.startMs===0&&saved[0].endMs===2000&&await readingPreserved());
+  await page.evaluate(async()=>{
+    const onMessage=e=>{
+      if(e.data?.source!=='blc-inject'||e.data?.type!=='cues')return;
+      removeEventListener('message',onMessage);window.readingRecaptured=true;
+    };
+    addEventListener('message',onMessage);
+    await fetch('/api/timedtext?v=reading01&lang=en&kind=asr&name=Plain&phase=repeat');
+  });
+  await page.waitForFunction(()=>window.readingRecaptured);
+  check('same-content acquisition keeps the list generation and reading state',
+    (await getState()).generation===state.generation&&await readingPreserved());
+  await frame.locator('.brand-name').click();
+  await frame.locator('#panel-selection-actions').waitFor({state:'detached'});
+  await frame.evaluate(()=>getSelection().removeAllRanges());
+  await body.evaluate(el=>el.scrollTop=0);
+  await page.screenshot({path:resolve(output,'packaged-sidebar.png')});
+  check('sidebar adds no mechanism guidance',!/共用区间|句内时间|定位精度|可定位边界/.test(await workspace.innerText()));
+  const floating=page.locator('#pd-floating-panel');
+  const originalWidth=await floating.evaluate(el=>{const width=el.style.width;el.style.width='320px';return width;});
+  check('narrow sidebar keeps content within viewport',await frame.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await floating.evaluate((el,width)=>el.style.width=width,originalWidth);
+
+  await button('下一句').click();await expectIndex(1);
+  await button('下一句').click();await expectIndex(2);
+  await button('上一句').click();await expectIndex(1);
+  check('shared interval is reached item by item and preserves the explicitly selected second row',
+    await page.evaluate(()=>document.querySelector('video').currentTime<.1));
+  await page.evaluate(()=>{document.querySelector('video').currentTime=1.25;});
+  await expectIndex(0);
+  check('automatic following picks the first row when a shared interval is entered',true);
+
+  const videoTime=()=>page.evaluate(()=>document.querySelector('video').currentTime);
+  const play=()=>page.evaluate(()=>document.querySelector('video').play());
+  const waitPause=min=>page.waitForFunction(min=>{const v=document.querySelector('video');return v.paused&&v.currentTime>=min;},min);
+  await settings.click();await page.locator('#blc-subs-switch #ap').check();
+  await page.locator('#blc-subs-switch #panel').click();
+  await button('下一句').click();await expectIndex(1);
+  await button('重播').click();await waitPause(2);
+  check('AP pauses once at the shared interval end and holds its explicitly selected row and player fragment',
+    await videoTime()<2.4&&await playerEn.textContent()===playerLine&&(await getState()).currentIndex===1);
+  await play();await page.waitForFunction(()=>!document.querySelector('video').paused&&document.querySelector('video').currentTime>2.3);
+  await waitPause(4);
+  check('AP continues into the cross-fragment sentence and holds its final short fragment',
+    await videoTime()<4.4&&await playerEn.textContent()==='because of that.'&&
+    await playerZh.textContent()==='正是因为这个。'&&(await getState()).currentIndex===2);
+  await page.screenshot({path:resolve(output,'packaged-ap-held.png')});
+  await playerEn.evaluate(el=>{
+    const range=document.createRange();range.selectNodeContents(el);
+    getSelection().removeAllRanges();getSelection().addRange(range);
+    el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,composed:true}));
+  });
+  await page.locator('#pd-phrase-actions').waitFor();
+  await control.waitForFunction(async tabId=>{
+    const cue=(await chrome.runtime.sendMessage({type:'selectionCandidateGet',tabId}))?.candidate?.cue;
+    return cue?.text==='because of that.'&&cue.startMs===3000&&cue.endMs===4000;
+  },tabId);
+  await page.evaluate(()=>getSelection().removeAllRanges());
+  await page.locator('#pd-phrase-actions').waitFor({state:'detached'});
+  check('player selection uses the visible fragment and its original time range',true);
+
+  await action({type:'blc-sub-control',videoId:state.videoId,action:'seek',timeMs:trailing[8].tStartMs});
+  await gate('old','ready');
+  const trackSelect=page.locator('#blc-subs-switch #source-track');
+  if(!await trackSelect.isVisible())await settings.click();
+  const anchoredValue=await trackSelect.locator('option').filter({hasText:'Anchored'}).getAttribute('value');
+  await trackSelect.selectOption(anchoredValue);
+  await gate('old','aborted');
+  await control.waitForFunction(async({tabId,generation})=>(await chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'})).generation!==generation,{tabId,generation:state.generation});
+  const anchored=await getState();
+  check('late old-row save is rejected after a track change',!(await action({...rowRef(state,0),action:'save'})).ok&&
+    (await records()).sentences.length===1);
+  await release('old');
+  check('anchored track has the same text with two separately playable intervals',
+    anchored.trackId!==state.trackId&&anchored.cues[0].endMs===850&&anchored.cues[1].startMs===850&&anchored.cues[1].endMs===2000);
+  await action({...rowRef(anchored,0),action:'seek',play:true});await waitPause(.85);
+  check('AP honors the next word anchor while holding the original short fragment',
+    await videoTime()<1.1&&(await getState()).currentIndex===0&&await playerEn.textContent()===playerLine);
+  await play();await waitPause(2);
+  check('AP advances to the next anchored sentence and rejects the old translation result',
+    await videoTime()<2.4&&(await getState()).currentIndex===1&&
+    !(await getState()).cues.some(c=>c.zh==='OLD EPOCH'));
 
   const failed=await context.newPage();await failed.goto('https://www.youtube.com/watch?v=emptyonly');
   const started=Date.now();

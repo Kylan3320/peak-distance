@@ -221,7 +221,24 @@ export interface SubtitleCueView {
   endMs: number;
   text: string;
   zh: string | null;
+  joinBefore: string;
 }
+
+export interface SubtitleRowRef {
+  videoId: string;
+  trackId: string;
+  generation: string;
+  index: number;
+  text: string;
+}
+
+export type SubtitleRowOperation =
+  | { action: 'seek'; play?: boolean }
+  | { action: 'save' | 'validate' }
+  | { action: 'lookup'; word: string }
+  | { action: 'pauseLookup' | 'resumeLookup'; token: string };
+
+export type SubtitleRowAction = SubtitleRowRef & { type: 'pd-video-action' } & SubtitleRowOperation;
 
 /** 侧栏 → 标签页：请求当前视频的字幕状态。 */
 export interface SubGetMessage {
@@ -250,6 +267,7 @@ export interface SubViewState {
   trackLang: string;
   /** 稳定轨道标识（M5 问答材料快照需要；空 = 尚无轨道） */
   trackId: string;
+  generation: string;
   cues: SubtitleCueView[];
   currentIndex: number;
   playing: boolean;

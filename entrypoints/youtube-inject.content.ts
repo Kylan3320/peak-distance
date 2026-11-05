@@ -1,4 +1,5 @@
-import { alignTranslatedCues, alignFragmentTranslatedCues, buildSubtitleViews, sameDisplayCues } from '@/shared/cues';
+import type { SourceFragment, SubtitleViews } from '@/shared/protocol';
+import { alignLearningTranslations, alignFragmentTranslatedCues, buildSubtitleViews, parseJson3 } from '@/shared/cues';
 // MAIN world、document_start 的字幕嗅探脚本。
 //
 // 移植自 yt-dual-subs 的 inject.js（MIT，Gythiro，commit 5657c8a，2026-09-12，
@@ -85,33 +86,6 @@ export default defineContentScript({
       }
     }
 
-    // 解析 json3 为 cue 列表。保持事件顺序（不排序）；对缺失/空 segs 稳健。
-    // 自动字幕携带换人标记 “>>”/“>>>”，在产出文本时剥除。
-    function parseJson3(json: any): Cue[] {
-      const cues: Cue[] = [];
-      if (!json || !Array.isArray(json.events)) return cues;
-      for (const ev of json.events) {
-        if (!ev || !Array.isArray(ev.segs)) continue;
-        let text = '';
-        let off = 0;
-        for (const s of ev.segs) {
-          if (s && typeof s.utf8 === 'string') {
-            text += s.utf8;
-            // 记录最后一个非空白词的偏移；ASR 逐词携带 tOffsetMs，
-            // 空白 seg（“\n”）也可能带，会虚增。
-            if (s.utf8.trim() && typeof s.tOffsetMs === 'number') off = s.tOffsetMs;
-          }
-        }
-        text = text.replace(/\s+/g, ' ').trim();
-        text = text.replace(/(^|\s)>{2,}\s*/g, '$1').trim();
-        if (!text) continue; // 跳过样式/窗口/空白事件
-        const start = typeof ev.tStartMs === 'number' ? ev.tStartMs : 0;
-        const dur = typeof ev.dDurationMs === 'number' ? ev.dDurationMs : 0;
-        cues.push({ start, dur, text, lastOff: start + off });
-      }
-      return cues;
-    }
-
     // ---- 与 content script 的桥 ---------------------------------------------
 
     function post(
@@ -160,7 +134,10 @@ export default defineContentScript({
 
     // ---- 产出字幕（新来源/配置取消旧请求，不让旧视频阻塞当前视频） ------------
 
-    let subtitleSource: { src: string; videoId: string; trackId: string; rawCues: Cue[]; cues: Cue[]; fragments: Cue[]; fragmentGroups: number[] } | null = null;
+    let subtitleSource: {
+      src: string; videoId: string; trackId: string; rawCues: SourceFragment[];
+      input: string; revision: string; views: SubtitleViews;
+    } | null = null;
     let translationController: AbortController | null = null;
     let sourceController: AbortController | null = null;
 
@@ -191,16 +168,18 @@ export default defineContentScript({
           post('nocues', myNonce, { reason: 'empty-track' });
           return;
         }
-        const views = buildSubtitleViews(rawCues, kind, lang);
-        if (!subtitleSource || subtitleSource.trackId !== pinned.trackKey || !sameDisplayCues(subtitleSource.cues, views.cues) || !sameDisplayCues(subtitleSource.fragments, views.fragments)) {
+        const input = JSON.stringify([kind, lang, rawCues]);
+        if (subtitleSource?.trackId !== pinned.trackKey || subtitleSource.input !== input) {
+          const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+          if (stale()) return;
+          const revision = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
           translationController?.abort();
-          subtitleSource = { src, videoId: vid, trackId: pinned.trackKey, rawCues, ...views };
-        } else {
-          subtitleSource.src = src;
-          subtitleSource.rawCues = rawCues;
-        }
+          subtitleSource = { src, videoId: vid, trackId: pinned.trackKey, rawCues, input, revision,
+            views: buildSubtitleViews(rawCues, kind, lang) };
+        } else subtitleSource.src = src;
         post('cues', myNonce, {
-          ...views,
+          ...subtitleSource.views,
+          revision: subtitleSource.revision,
           trackKind: kind,
           trackLang: lang,
           trackId: pinned.trackKey,
@@ -230,12 +209,10 @@ export default defineContentScript({
       const currentSourceUrl = captionUrlFor({ id: trackOfUrl(source.trackId)!.id,
         url: tracker.sourceKey === source.trackId ? tracker.sourceUrl : source.src }, tracker.tokenSourceUrl, location.href)!;
       const targetPrimary = tlangCode(targetTag).split('-')[0]!.toLowerCase();
-      let normalized = source.cues.map(c => ({ ...c }));
-      let fragments = source.fragments.map(c => ({ ...c }));
-      const applyTranslated = (translated: Cue[]) => {
-        const grouped = alignTranslatedCues(source.cues, translated);
-        const short = alignFragmentTranslatedCues(source.fragments, translated);
-        normalized = normalized.map((cue, i) => ({ ...cue, zh: cue.zh ?? grouped[i]?.zh }));
+      let normalized: Cue[] = source.views.cues;
+      let fragments: Cue[] = source.views.fragments;
+      const applyFragments = (translated: Cue[]) => {
+        const short = alignFragmentTranslatedCues(source.views.fragments, translated);
         fragments = fragments.map((cue, i) => ({ ...cue, zh: cue.zh ?? short[i]?.zh }));
       };
       try {
@@ -244,14 +221,15 @@ export default defineContentScript({
         if (target) {
           // 上游捕获 URL 的有效 pot 保留；独立轨道自身签名优先。
           const url = captionUrlFor(target, tracker.tokenSourceUrl, location.href);
-          if (url) try { applyTranslated(parseJson3(await fetchJson3(url, controller.signal))); } catch { /* 缺失部分继续平台翻译 */ }
+          if (url) try { applyFragments(parseJson3(await fetchJson3(url, controller.signal))); } catch { /* 缺失部分继续平台翻译 */ }
         }
         if ((normalized.some(c => !c.zh) || fragments.some(c => !c.zh)) && !controller.signal.aborted) {
           // yt-dual-subs inject.js buildUrl：保留签名及 pot，仅设置 fmt/tlang。
           const url = new URL(currentSourceUrl); url.searchParams.set('tlang', tlangCode(targetTag));
           try {
             const translated = parseJson3(await fetchJson3(url.toString(), controller.signal));
-            applyTranslated(translated);
+            normalized = alignLearningTranslations(source.views, translated, source.rawCues);
+            applyFragments(translated);
           } catch { /* 通用翻译在隔离世界接手缺失项 */ }
         }
       } finally {

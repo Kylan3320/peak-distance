@@ -19,9 +19,9 @@ try {
     const video={videoId:'fixture',trackId:'en',trackKind:'manual',trackLang:'en',startMs:28000};
     const cues=[{start:28000,dur:2000,lastOff:30000,text:'A pragmatic approach is pragmatic.'},{start:42000,dur:2000,lastOff:44000,text:'A second pragmatic example.'},{start:60000,dur:2000,lastOff:62000,text:'Extraordinarilylongunbrokenterm appears here.'}];
     const entries=[{key:'en::pragmatic',expression:'pragmatic',status:'saved',contexts:[{video,sentence:cues[0].text,url:'https://example.com'}]},{key:'en::long',expression:'Extraordinarilylongunbrokenterm',status:'known',contexts:[{video:{...video,startMs:60000},sentence:cues[2].text,url:'https://example.com'}]}];
-    const actions={bindWords:()=>()=>{},words:(el,text)=>{el.textContent=text;},seek:i=>calls.push(['seek',i]),lookup:(word,i)=>calls.push(['lookup',word,i]),save:async()=>({ok:true}),remove:async()=>({ok:true}),ask:()=>{},open:view=>calls.push(['open',view]),status:(key,value)=>calls.push(['status',key,value])};
+    const actions={bindWords:()=>()=>{},words:(el,text)=>{el.textContent=text;},seek:({index})=>calls.push(['seek',index]),lookup:(word,{index})=>calls.push(['lookup',word,index]),save:async()=>({ok:true}),remove:async()=>({ok:true}),ask:()=>{},open:view=>calls.push(['open',view]),status:(key,value)=>calls.push(['status',key,value])};
     window.workspace=VideoWordsTest.createYoutubeWorkspace(actions,document.getElementById('mount'));
-    workspace.update({videoId:'fixture',videoRef:video,cues,current:0,translations:new Map(),statuses:new Map([['pragmatic','saved']]),sentences:[],entries,notice:'',chinese:true,trackLang:'en'});
+    workspace.update({generation:'fixture',videoId:'fixture',videoRef:video,cues,current:0,translations:new Map(),statuses:new Map([['pragmatic','saved']]),sentences:[],entries,notice:'',chinese:true,trackLang:'en'});
   });
   const panel=page.locator('#blc-learning-panel');
   await panel.locator('[data-tab="words"]').click();
