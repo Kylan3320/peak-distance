@@ -6,13 +6,13 @@
 //      添加到对话消息形状、拖选不触发单词点击。
 //   C. 真实 YouTube（可选，--no-video 跳过）：侧栏字幕列表跨项选择 → 附加。
 // 用法：node tools/selection-check.mjs [--no-video]
+import { extensionPath as extension } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, basename } from 'node:path';
 import { createServer } from 'node:http';
 
-const extension = resolve('.output/chrome-mv3');
 const profile = mkdtempSync(join(tmpdir(), 'blc-sel-'));
 const output = resolve('.upstream/selection-check');
 mkdirSync(output, { recursive: true });

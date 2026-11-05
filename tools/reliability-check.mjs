@@ -1,4 +1,5 @@
 // Production MV3 storage/lifecycle checks plus the real marker and IDB upgrade in disposable profiles.
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,6 @@ import { build } from 'esbuild';
 
 const root = resolve(import.meta.dirname, '..');
 const temporary = await mkdtemp(join(tmpdir(), 'pd-reliability-'));
-const extension = join(root, '.output/chrome-mv3');
 const contexts = [];
 const browserBinary=process.env.BLC_CHROME?{executablePath:process.env.BLC_CHROME}:{channel:'chromium'};
 async function until(check) {

@@ -1,4 +1,5 @@
 // Real MV3 storage, UI and background; controlled provider responses and permission decisions.
+import { extensionPath as extension } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,7 +7,6 @@ import { join, resolve, sep } from 'node:path';
 import assert from 'node:assert/strict';
 const profile=mkdtempSync(join(tmpdir(),'pd-ai-'));
 const output=resolve('.upstream/ai-services');mkdirSync(output,{recursive:true});
-const extension=resolve('.output/chrome-mv3');
 const context=await chromium.launchPersistentContext(profile,{executablePath:process.env.BLC_CHROME||'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',headless:true,args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`],viewport:{width:420,height:950}});
 context.setDefaultTimeout(10000);
 const results=[],errors=[];

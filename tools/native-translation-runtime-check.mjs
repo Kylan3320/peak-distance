@@ -1,4 +1,5 @@
 // Real installed Chrome/Edge + built extension. Only article HTML is controlled; translation uses real models.
+import { extensionPath } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright-core';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
@@ -21,10 +22,10 @@ for(const [name,executablePath] of Object.entries({chrome:'C:/Program Files/Goog
    args:['--enable-unsafe-extension-debugging','--disable-features='+features.filter(x=>!['Translate','OptimizationHints'].includes(x)).join(',')]});
   result.version=context.browser().version();
   const cdp=await context.browser().newBrowserCDPSession();
-  const previous=await cdp.send('Extensions.loadUnpacked',{path:resolve('.output/chrome-mv3')});
+  const previous=await cdp.send('Extensions.loadUnpacked',{path:extensionPath});
   const oldWorkers=new Set(context.serviceWorkers());
   await cdp.send('Extensions.uninstall',{id:previous.id});
-  const {id}=await cdp.send('Extensions.loadUnpacked',{path:resolve('.output/chrome-mv3')});
+  const {id}=await cdp.send('Extensions.loadUnpacked',{path:extensionPath});
   const base='chrome-extension://'+id, control=await context.newPage();await control.goto(base+'/options.html');
   context.setDefaultTimeout(10000);
   const worker=context.serviceWorkers().find(w=>w.url().startsWith(base)&&!oldWorkers.has(w))??await context.waitForEvent('serviceworker',w=>w.url().startsWith(base)&&!oldWorkers.has(w));

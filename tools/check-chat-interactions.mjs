@@ -1,5 +1,6 @@
 // Built MV3 extension, real storage/message routing, isolated profile and controlled AI stream.
 // Run: npm run build && node tools/check-chat-interactions.mjs
+import { extensionPath } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,7 +8,9 @@ import { join, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 
 const profile = await mkdtemp(join(tmpdir(), 'pd-chat-interactions-'));
-const extension = resolve(process.env.PEAK_DISTANCE_CHAT_EXTENSION || '.output/chrome-mv3');
+const extension = !process.env.PEAK_DISTANCE_UI_EXTENSION && process.env.PEAK_DISTANCE_CHAT_EXTENSION
+  ? resolve(process.env.PEAK_DISTANCE_CHAT_EXTENSION)
+  : extensionPath;
 const output = resolve('.upstream/chat-interactions');
 await mkdir(output, { recursive: true });
 const context = await chromium.launchPersistentContext(profile, {

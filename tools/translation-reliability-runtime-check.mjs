@@ -1,4 +1,5 @@
 // Production MV3 routing/storage with controlled Google and AI responses, isolated profile.
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -6,7 +7,6 @@ import { tmpdir } from 'node:os';
 import { resolve, join, dirname, basename } from 'node:path';
 
 const temporaryRoot=resolve(tmpdir()), profile=await mkdtemp(join(temporaryRoot,'pd-translation-reliability-'));
-const extension=resolve(process.env.PEAK_DISTANCE_UI_EXTENSION || '.output/chrome-mv3');
 let context;
 const launch=()=>chromium.launchPersistentContext(profile,{
   executablePath:process.env.BLC_CHROME || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true,

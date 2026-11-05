@@ -1,4 +1,5 @@
 // Focused runtime checks of the changed acquisition and reading paths. No user profile or vault.
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { build } from 'esbuild';
@@ -122,7 +123,6 @@ try {
 
 // Packaged MV3 integration: real MAIN/content scripts, messages, IndexedDB and AP.
 const profile=await mkdtemp(join(tmpdir(),'pd-reading-'));
-const extension=resolve('.output/chrome-mv3');
 const context=await chromium.launchPersistentContext(profile,{executablePath:process.env.BLC_CHROME||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true,viewport:{width:1280,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'--autoplay-policy=no-user-gesture-required']});
 context.setDefaultTimeout(10000);
 try {

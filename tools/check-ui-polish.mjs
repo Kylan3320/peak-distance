@@ -1,4 +1,5 @@
 // Focused visual/interaction check: actual extension chat and built lookup UI with controlled responses.
+import { extensionPath as extension } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,6 @@ import assert from 'node:assert/strict';
 const profile = mkdtempSync(join(tmpdir(), 'pd-polish-'));
 const output = resolve('.upstream/ui-polish');
 mkdirSync(output, { recursive: true });
-const extension = resolve('.output/chrome-mv3');
 const context = await chromium.launchPersistentContext(profile, {
   executablePath: process.env.BLC_CHROME || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   headless: true,

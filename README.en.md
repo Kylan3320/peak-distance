@@ -36,7 +36,7 @@ npm ci
 npm run build
 ```
 
-Then load `.output/chrome-mv3` following the steps above. During development you can use `npm run dev`. For ordinary changes, select the necessary checks based on the affected scope and risk; `npm run verify-local` provides local checks across modules. For releases, follow ROADMAP's release instructions. When browser regression checks are needed, run `npx playwright-core install chromium` before the first run. After rebuilding, reload the extension and refresh the target pages.
+To test a source build, load `.output/build/chrome-mv3` in a separate browser profile. Keep your everyday extension in its original installation folder. During development you can use `npm run dev`. For ordinary changes, select checks based on the affected scope and risk. For releases, follow ROADMAP's release instructions. When browser regression checks are needed, run `npx playwright-core install chromium` before the first run. After rebuilding, reload the test extension and refresh the target pages.
 
 See the repository's [ARCHITECTURE](https://github.com/Kylan3320/peak-distance/blob/main/docs/ARCHITECTURE.md) for code entry points and [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md) for tasks, known defects and Git/release conventions (both in Chinese). `npm run zip:source` archives the current HEAD using `.gitattributes`; release assets include only the extension package. Source is available from the matching version tag.
 
@@ -115,7 +115,7 @@ The extension relies on YouTube's existing subtitles. It does not capture audio 
 
 **How do I update?**
 
-Unzip the new package into the original installation folder, replacing the files, click **Reload** (重新加载) for Peak Distance in `chrome://extensions`, then refresh the pages using the extension. Do not uninstall first — uninstalling deletes the extension's local data in the browser.
+Unzip the new package into the original installation folder, replacing the files in place. Click **Reload** for the existing Peak Distance entry in Chrome at `chrome://extensions` and in Edge at `edge://extensions`. Confirm the version in each browser, refresh the pages using the extension, and check that your existing learning records and settings are readable. Uninstalling the extension deletes its local browser data.
 
 **Why is there no lookup entry after installing?**
 

@@ -4,7 +4,7 @@
 
 [侧栏学习句：本地断句与来源定位](specs/subtitle-sentence-units.md) 已复验。共用区间的译文自动补齐，同文句可分别收藏和取消，阿拉伯语、印地语样例按原标点拆句。登录环境验证见下方「已登录 YouTube」。
 
-安装基线为 [v0.71.0](https://github.com/Kylan3320/peak-distance/releases/tag/v0.71.0)。发布后的主线改动见 Git。
+当前公开发布版为 [v0.71.0](https://github.com/Kylan3320/peak-distance/releases/tag/v0.71.0)。发布后的主线改动见 Git。
 
 ## 未完成项
 
@@ -52,7 +52,6 @@
 
 发布步骤：
 
-1. 在待发布提交执行 `npm ci` 与 `npm run verify-local`；涉及界面语言或设置交互时补跑 `npm run check-ui-i18n`，其他专项按发布改动选择。
-2. 新规格进 minor 位，修复批次进 patch 位；`package.json` 与 `package-lock.json` 同步更新。版本提交完成后，从该提交构建并打 `v<version>` 标签。
-3. `npm run zip` 生成安装包。源码保留在仓库及对应版本标签，不再额外制作或上传 Release 源码附件；手动源码归档的排除规则仍由 `.gitattributes` 定义。
-4. Release 仅附安装包，不生成或上传独立校验文件；说明只保留「本版更新」。发布成功后同步中英文 README 的「当前发布版」及 ROADMAP，不把普通主线提交记为正式发布。
+1. 新规格进 minor 位，修复批次进 patch 位。`package.json` 与 `package-lock.json` 同步更新并提交。在版本提交上运行 `npm ci` 和 `npm run zip`，安装包生成在 `.output/build`。
+2. 将待发布 ZIP 解压到独立的空目录，把 `PEAK_DISTANCE_UI_EXTENSION` 设为该解包目录，在同一提交运行一次 `npm run verify-local`。涉及界面语言或设置交互时运行 `npm run check-ui-i18n`。其他专项只补具体覆盖缺口，沿用同一解包目录。只为本机安装已发布的包时，按 README 的升级步骤检查浏览器实际运行结果。
+3. 检查通过后为版本提交打 `v<version>` 标签，并将已验收的 ZIP 上传为 Release 的唯一附件。说明只保留「本版更新」。源码可从版本标签获取，手动源码归档的排除规则由 `.gitattributes` 定义。发布成功后同步中英文 README 的当前发布版及 ROADMAP，清理本次验收用的解包目录。

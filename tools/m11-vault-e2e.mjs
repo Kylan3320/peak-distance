@@ -7,6 +7,7 @@
 //   5. vaultDisconnect → 文件保留、状态未连接；重连（vaultConnect）不重复导入
 // 真实目录授权与跨浏览器并发为第二层（需用户），此处 OPFS 即真实目录句柄接口。
 // 运行：node tools/m11-vault-e2e.mjs
+import { extensionPath as extension } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,7 +15,6 @@ import { join, resolve, sep } from 'node:path';
 import assert from 'node:assert/strict';
 
 const profile = mkdtempSync(join(tmpdir(), 'pd-m11-e2e-'));
-const extension = resolve('.output/chrome-mv3');
 const output = resolve('.upstream/m11-vault');
 mkdirSync(output, { recursive: true });
 const results = [];

@@ -1,4 +1,5 @@
 // Production panel + worker + real IndexedDB/OPFS; delay only list response delivery.
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -7,7 +8,6 @@ import { join, resolve, sep } from 'node:path';
 
 const temporaryRoot = resolve(tmpdir());
 const profile = await mkdtemp(join(temporaryRoot, 'pd-vocab-owner-'));
-const extension = resolve(process.env.PEAK_DISTANCE_UI_EXTENSION || '.output/chrome-mv3');
 let context;
 try {
   context = await chromium.launchPersistentContext(profile, {

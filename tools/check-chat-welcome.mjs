@@ -1,4 +1,5 @@
 // Built extension: typing/deletion, caret, stable layout and reduced motion.
+import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,6 @@ import { chromium } from 'playwright-core';
 const profile = mkdtempSync(join(tmpdir(), 'pd-welcome-'));
 const output = resolve('.upstream/chat-welcome');
 mkdirSync(output, { recursive: true });
-const extension = resolve('.output/chrome-mv3');
 const context = await chromium.launchPersistentContext(profile, {
   executablePath: process.env.BLC_CHROME || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   headless: true,
