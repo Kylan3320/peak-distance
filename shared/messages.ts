@@ -64,7 +64,7 @@ export type BgcRequest =
   | { type: 'prepareNativeTranslation'; sourceLang?: string; targetLang?: string }
   | { type: 'cancelOnline'; requestId: string }
   | { type: 'subtitleMode'; videoId: string; mode?: 'regular' | 'ai'; autoPause?: boolean }
-  | { type: 'saveSentence'; sentence: import('./vocab').SavedSentence }
+  | { type: 'saveSentence'; sentence: import('./vocab').SavedSentence; range?: import('./vocab').SentenceRange }
   | { type: 'listSentences' }
   | { type: 'listKnowledge' }
   | { type: 'saveKnowledge'; chatId: string; messageId: string; title: string; body: string; vaultId: string | null }
@@ -222,6 +222,8 @@ export interface SubtitleCueView {
   text: string;
   zh: string | null;
   joinBefore: string;
+  from: number;
+  to: number;
 }
 
 export interface SubtitleRowRef {

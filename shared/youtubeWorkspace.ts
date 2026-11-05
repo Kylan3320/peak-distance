@@ -4,7 +4,7 @@ import type { Cue } from './protocol';
 import type { Settings } from './settings';
 import type { EntryView, SubtitleRowRef } from './messages';
 import { cueWords, fmtClock } from './cues';
-import { sentenceId, visibleVocabStatus, type SavedSentence, type VideoRef } from './vocab';
+import { matchSentenceBookmarks, visibleVocabStatus, type SavedSentence, type SentenceRange, type VideoRef } from './vocab';
 import { normalizeExpressionInLanguage } from './languages';
 import { shadowSelection } from './selection';
 import { readingIcon, readingIconStyles, animateBookmark, type ReadingIcon } from './readingIcons';
@@ -13,7 +13,7 @@ export interface WorkspaceState {
   videoId: string;
   generation: string;
   videoRef: VideoRef;
-  cues: Cue[];
+  cues: (Cue & SentenceRange)[];
   current: number;
   translations: Map<number, string>;
   statuses: Map<string, string>;
@@ -85,6 +85,7 @@ export function createYoutubeWorkspace(actions: {
   const controls = root.querySelector<HTMLDivElement>('.controls')!;
   const body = root.querySelector<HTMLDivElement>('.body')!;
   let state: WorkspaceState;
+  let bookmarks: ReturnType<typeof matchSentenceBookmarks> = [];
   let follow = true;
   let selectionHeld = false;
   let expectedScrollTop: number | null = null;
@@ -117,8 +118,8 @@ export function createYoutubeWorkspace(actions: {
   const seek = (index: number, play?: boolean) => {
     if (state.cues[index]) actions.seek(rowRef(index), play);
   };
-  const cueId = (index:number) => sentenceId({...state.videoRef,startMs:state.cues[index]!.start},state.cues[index]!.text);
-  const storedSaved = (index:number) => state.sentences.some(s => sentenceId(s.video,s.text) === cueId(index));
+  const cueId = (index:number) => bookmarks[index]!.id;
+  const storedSaved = (index:number) => !!bookmarks[index]!.saved;
   const isSaved = (index:number) => confirmedSaves.get(cueId(index)) ?? storedSaved(index);
   function updateSaveButton(index:number, b:HTMLButtonElement) {
     const saved=isSaved(index), busy=pendingSaves.has(cueId(index));
@@ -256,7 +257,7 @@ export function createYoutubeWorkspace(actions: {
           if (saved.zh) { const zh = document.createElement('div'); zh.className = 'zh'; zh.textContent = saved.zh; row.append(zh); }
           const tools = meta(row);
           const link = document.createElement('a'); link.href = `https://www.youtube.com/watch?v=${encodeURIComponent(saved.video.videoId)}&t=${saved.video.startMs / 1000}s`; setText(link,message('{source} · {text}',{source:message('整句'),text:fmtClock(saved.video.startMs)})); link.style.color = 'var(--pd-blue)';
-          link.dataset.playback = ''; link.addEventListener('click', e => { const i = state.cues.findIndex(cue => cue.start === saved.video.startMs && cue.text === saved.text); if (i >= 0) { e.preventDefault(); seek(i); } });
+          link.dataset.playback = ''; link.addEventListener('click', e => { const i = bookmarks.findIndex(bookmark => bookmark.saved?.id === saved.id); if (i >= 0) { e.preventDefault(); seek(i); } });
           tools.append(link);
           const error=document.createElement('span');error.className='save-error';error.hidden=true;error.setAttribute('role','status');
           const remove=icon(tools,'bookmark',message('取消收藏'),async()=>{
@@ -305,7 +306,13 @@ export function createYoutubeWorkspace(actions: {
     rowRef: (element: Element) => rowRefs.get(element),
     snapshot: () => ({ tab, follow, top:body.scrollTop }),
     restore(value: {tab?:string;follow?:boolean;top?:number}) { if(value.tab && ['subs','words','saved'].includes(value.tab))tab=value.tab;follow=value.follow!==false;render();setScroll(value.top??0); },
-    update(next: WorkspaceState) { state = next; render(); },
+    update(next: WorkspaceState) {
+      if (!state || next.generation !== state.generation || next.cues !== state.cues || next.sentences !== state.sentences) {
+        bookmarks = matchSentenceBookmarks(next.videoRef, next.cues, next.sentences);
+      }
+      state = next;
+      render();
+    },
     clearSavedFeedback() {confirmedSaves.clear();},
     destroy() {document.removeEventListener('selectionchange',selectionChanged);document.removeEventListener('pointerup',endScrollbar);document.removeEventListener('pointercancel',endScrollbar);unbindWords();unlocalize();host.remove();},
   };
