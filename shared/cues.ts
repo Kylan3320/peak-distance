@@ -28,7 +28,7 @@ export function cueWords(cues: Cue[], lang?: string): { word: string; count: num
 }
 
 /** 平台译文缓存随表示规则更新；轨道身份与历史收藏不变。 */
-export const DISPLAY_CUE_VERSION = 3;
+export const DISPLAY_CUE_VERSION = 4;
 
 /** JSON3 的词段偏移和换人标记转换到规范化后的字符坐标。 */
 export function parseJson3(json: any): SourceFragment[] {
@@ -123,7 +123,7 @@ export function buildSubtitleViews(rawCues: SourceFragment[], kind: 'manual' | '
       const suffix = part.segment.trimEnd();
       const end = part.index + suffix.length;
       const next = part.index + part.segment.length;
-      if (!/[.!?。！？]["'”’»」』）)\]]*$/.test(suffix)) continue;
+      if (!/\p{Sentence_Terminal}[\p{Pe}\p{Pf}"']*$/u.test(suffix)) continue;
       if (/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr)\.["'”’]*$/i.test(suffix)) continue;
       if (/\d\.$/.test(suffix) && /\d/.test(run[next] ?? '')) continue;
       if (/\b[A-Za-z]\.$/.test(suffix) && /^[A-Za-z]\./.test(run.slice(next, next + 2))) continue;
@@ -206,7 +206,10 @@ export function alignFragmentTranslatedCues(fragments: Cue[], translated: Cue[])
 }
 
 /** 后台字幕翻译仍用数字 ID；两个视图占不相交的域，相同全文只发一次。 */
-export function buildCueTranslationBatch(groups: Cue[], fragments: Cue[], groupIndices: number[], fragmentIndices: number[]): {
+export function buildCueTranslationBatch(
+  groups: Cue[], fragments: Cue[], groupIndices: number[], fragmentIndices: number[],
+  priority?: { group: number; fragment: number },
+): {
   items: { id: number; text: string }[];
   targets: { view: 'groups' | 'fragments'; index: number; id: number }[];
 } {
@@ -218,8 +221,14 @@ export function buildCueTranslationBatch(groups: Cue[], fragments: Cue[], groupI
     if (!byText.has(cue.text)) { byText.set(cue.text, id); items.push({ id, text: cue.text }); }
     targets.push({ view, index, id });
   };
-  for (const index of groupIndices) add(groups[index]!, index, 'groups', index);
-  for (const index of fragmentIndices) add(fragments[index]!, index, 'fragments', groups.length + index);
+  if (priority && fragmentIndices.includes(priority.fragment)) {
+    add(fragments[priority.fragment]!, priority.fragment, 'fragments', groups.length + priority.fragment);
+  }
+  if (priority && groupIndices.includes(priority.group)) add(groups[priority.group]!, priority.group, 'groups', priority.group);
+  for (const index of groupIndices) if (index !== priority?.group) add(groups[index]!, index, 'groups', index);
+  for (const index of fragmentIndices) {
+    if (index !== priority?.fragment) add(fragments[index]!, index, 'fragments', groups.length + index);
+  }
   return { items, targets };
 }
 

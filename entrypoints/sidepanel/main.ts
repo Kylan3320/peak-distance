@@ -602,9 +602,9 @@ const SUBS_LIBRARY_INTERVAL_MS=5000;
 let subsSignatureCached='';
 const subsSignature=(s:SubViewState)=>JSON.stringify([s.videoId,s.trackId,s.generation,s.cues,s.currentIndex,s.notice,s.chineseVisible!==false]);
 function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['cues'];statuses:WorkspaceState['statuses'];sentences:WorkspaceState['sentences'];entries:WorkspaceState['entries']}):WorkspaceState{
-  const cues=library?.cues??(cachedVideo&&cachedVideo.videoId===state.videoId&&cachedVideo.videoRef.trackId===state.trackId&&cachedVideo.cues.length===state.cues.length&&cachedVideo.cues.every((c,i)=>{const next=state.cues[i]!;return c.start===next.startMs&&c.dur===next.endMs-next.startMs&&c.text===next.text;})
+  const cues=library?.cues??(cachedVideo&&cachedVideo.generation===state.generation&&cachedVideo.cues.length===state.cues.length
     ?cachedVideo.cues
-    :state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0})));
+    :state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0,from:c.from,to:c.to})));
   return {videoId:state.videoId,generation:state.generation,videoRef:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang,startMs:0},
     trackLang:state.trackLang||undefined,
     cues,current:state.currentIndex,translations:new Map(state.cues.filter(c=>c.zh).map(c=>[c.id,c.zh!])),
@@ -799,7 +799,7 @@ async function refreshSubsLibrary(state:SubViewState):Promise<void> {
   const [vocab,saved,index]=await Promise.all([send<{ok:boolean;entries:EntryView[]}>({type:'listEntries'}),send<{ok:boolean;sentences:SavedSentence[]}>({type:'listSentences'}),send<{ok:boolean;items:import('@/shared/vocab').VocabIndexItem[]}>({type:'vocabIndex'})]);
   if(currentView!=='subs'||subsState!==state)return;
   const stable=<T>(old:T,next:T):T=>JSON.stringify(old)===JSON.stringify(next)?old:next;
-  const cues=state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0}));
+  const cues=state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0,from:c.from,to:c.to}));
   cachedVideo=rebuildCachedVideo(state,{
     cues:cachedVideo?.videoId===state.videoId?stable(cachedVideo.cues,cues):cues,
     statuses:buildMarkBuckets(index?.items??[]).get((state.trackLang||'en').split('-')[0]!)?.statusByKey??new Map<string,string>(),

@@ -5,6 +5,9 @@ import {
   buildSubtitleViews, buildTranslateWindow, cueIndexAt, fmtClock, normalizeAsrCues, parseJson3,
 } from '../shared/cues';
 import type { SourceFragment } from '../shared/protocol';
+import { matchSentenceBookmarks, sentenceId, type SavedSentence, type VideoRef } from '../shared/vocab';
+import { parseSentenceDocument, serializeSentenceRecord } from '../lib/vault/format';
+import { sentenceToVaultRecord } from '../lib/vault/records';
 
 export function subtitleSentenceChecks(check: (name: string, pass: boolean) => void): void {
   const make = (texts: string[], starts = texts.map((_, i) => i * 1000)): SourceFragment[] =>
@@ -36,6 +39,10 @@ export function subtitleSentenceChecks(check: (name: string, pass: boolean) => v
   check('中文和日文按原有规则连接并逐句拆分',
     same(texts(make(['你好', '世界。再见！']), 'zh-Hans'), ['你好世界。', '再见！']) &&
     same(texts(make(['これは', '日本語。次です。']), 'ja'), ['これは日本語。', '次です。']));
+  check('阿拉伯语问号和印地语句号均确认句末，保留闭引号与原文',
+    same(texts(make(['كيف حالك؟ أنا بخير.']), 'ar'), ['كيف حالك؟', 'أنا بخير.']) &&
+    same(texts(make(['यह पहला वाक्य है। यह दूसरा वाक्य है।']), 'hi'), ['यह पहला वाक्य है।', 'यह दूसरा वाक्य है।']) &&
+    same(texts(make(['«كيف حالك؟» أنا بخير.']), 'ar'), ['«كيف حالك؟»', 'أنا بخير.']));
   check('回退只使用未完成区间和源片段的交集',
     same(texts(make(['First sentence. Unfinished', 'tail'])), ['First sentence.', 'Unfinished', 'tail']) &&
     same(texts(make(['one', 'two', 'three'])), ['one', 'two', 'three']));
@@ -98,6 +105,24 @@ export function subtitleSentenceChecks(check: (name: string, pass: boolean) => v
     same(batch.items.slice(0, 2).map(i => i.text), ['One.', 'Two!']) &&
     batch.targets.find(t => t.view === 'fragments' && t.index === 0)?.id === views.cues.length &&
     batch.targets.find(t => t.view === 'fragments' && t.index === 3)?.id === 3);
+  const video: VideoRef = { videoId: 'test', trackId: 'https://www.youtube.com/api/timedtext?v=test&lang=en',
+    trackKind: 'manual', trackLang: 'en', startMs: 0 };
+  const duplicate = buildSubtitleViews(make(['No. No.']), 'manual', 'en').cues;
+  const oldId = sentenceId(video, 'No.');
+  const ids = duplicate.map(cue => sentenceId(video, cue.text, cue));
+  const record = (id: string): SavedSentence => ({ id, video, text: 'No.', endMs: 1000, title: 'Fixture', createdAt: 1 });
+  const legacy = record(oldId);
+  check('同文同时间的新收藏用原文范围区分',
+    same(ids.map(id => JSON.parse(id).at(-1)), [[0, 3], [4, 7]]) &&
+    matchSentenceBookmarks(video, duplicate, [record(ids[0]!)]).map(row => !!row.saved).join() === 'true,false');
+  check('旧收藏只关联唯一匹配项，保留实际 ID',
+    matchSentenceBookmarks(video, duplicate, [legacy]).every(row => !row.saved) &&
+    matchSentenceBookmarks(video, duplicate.slice(0, 1), [legacy])[0]?.saved?.id === oldId);
+  check('学习库交换格式原样保留新旧收藏 ID',
+    [oldId, ...ids].every(id => {
+      const parsed = parseSentenceDocument(serializeSentenceRecord(sentenceToVaultRecord(record(id))));
+      return !('error' in parsed) && parsed.id === id;
+    }));
   const cues = [
     { start: 0, dur: 1000, text: 'a', lastOff: 1000 },
     { start: 2000, dur: 1500, text: 'b', lastOff: 3500 },

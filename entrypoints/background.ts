@@ -48,7 +48,7 @@ import {
 import { vaultErrorCode } from '@/shared/vault';
 import { isLanguageTag, normalizeLangTag } from '@/shared/languages';
 import {
-  sentenceId,
+  sentenceId, isSentenceRange,
   isVocabStatus,
   normalizeExpression,
   normalizeEntryKey,
@@ -336,8 +336,9 @@ async function handle(
       const video = parseVideoRef(s?.video);
       const language = parseLangField(s?.language);
       if (!s || !video || typeof s.text !== 'string' || !s.text.trim() || s.text.length > MAX_SENTENCE ||
-          typeof s.title !== 'string' || !Number.isFinite(s.endMs) || s.endMs < video.startMs || language === null) return bad('bad-payload');
-      const savedSentence = { id: sentenceId(video, s.text), video, text: s.text, endMs: s.endMs, title: s.title.slice(0, MAX_TITLE),
+          typeof s.title !== 'string' || !Number.isFinite(s.endMs) || s.endMs < video.startMs || language === null ||
+          (m.range !== undefined && !isSentenceRange(m.range))) return bad('bad-payload');
+      const savedSentence = { id: sentenceId(video, s.text, m.range), video, text: s.text, endMs: s.endMs, title: s.title.slice(0, MAX_TITLE),
         zh: typeof s.zh === 'string' ? s.zh.slice(0, MAX_SENTENCE) : undefined,
         translationSource: typeof s.translationSource === 'string' ? s.translationSource.slice(0, 80) : undefined,
         ...(language ? { language } : {}),

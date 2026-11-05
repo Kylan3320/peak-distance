@@ -105,8 +105,48 @@ export interface SavedSentence {
   language?: LanguageTag;
 }
 
-export function sentenceId(video: VideoRef, text: string): string {
-  return JSON.stringify([video.videoId, normTrackKey(video.trackId, ''), video.startMs, collapseWhitespace(text)]);
+export interface SentenceRange {
+  from: number;
+  to: number;
+}
+
+export function isSentenceRange(value: unknown): value is SentenceRange {
+  if (!value || typeof value !== 'object') return false;
+  const { from, to } = value as SentenceRange;
+  return Number.isSafeInteger(from) && Number.isSafeInteger(to) && from >= 0 && to > from;
+}
+
+export function sentenceId(video: VideoRef, text: string, range?: SentenceRange): string {
+  const parts = [video.videoId, normTrackKey(video.trackId, ''), video.startMs, collapseWhitespace(text)];
+  return JSON.stringify(range ? [...parts, [range.from, range.to]] : parts);
+}
+
+/** 旧记录按轨道、时间和原文匹配，但只能归到一个当前学习项。 */
+export function matchSentenceBookmarks(
+  video: VideoRef, cues: readonly (SentenceRange & { start: number; text: string })[], saved: readonly SavedSentence[],
+) {
+  const legacyIds = cues.map(cue => sentenceId({ ...video, startMs: cue.start }, cue.text));
+  const counts = new Map<string, number>();
+  for (const id of legacyIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+  const exact = new Map<string, SavedSentence>();
+  const legacy = new Map<string, SavedSentence>();
+  for (const record of saved) {
+    exact.set(record.id, record);
+    const key = sentenceId(record.video, record.text);
+    if (counts.get(key) !== 1 || legacy.has(key)) continue;
+    // 库同步保留任意旧 ID。带范围的 ID 即使文本被外部编辑也不回退。
+    if (record.id.startsWith('[')) {
+      try {
+        const parts = JSON.parse(record.id);
+        if (Array.isArray(parts) && parts.length === 5 && Array.isArray(parts[4])) continue;
+      } catch { /* 旧 ID 也可以是任意字符串 */ }
+    }
+    legacy.set(key, record);
+  }
+  return cues.map((cue, index) => {
+    const id = sentenceId({ ...video, startMs: cue.start }, cue.text, cue);
+    return { id, saved: exact.get(id) ?? legacy.get(legacyIds[index]!) };
+  });
 }
 
 /** IndexedDB entries 记录（key 为规范化键）。forms 为关联词形（规范化后）。 */

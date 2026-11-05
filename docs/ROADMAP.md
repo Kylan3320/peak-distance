@@ -2,7 +2,7 @@
 
 ## 当前任务
 
-[侧栏学习句：本地断句与来源定位](specs/subtitle-sentence-units.md) 初版 `8080c66` 验收未通过。当前修复：共用播放区间后续句子漏译、同文句收藏互相删除、阿拉伯语／印地语有效句末漏切；按该规格完成后复验，暂不发布插件。
+[侧栏学习句：本地断句与来源定位](specs/subtitle-sentence-units.md) 已复验。共用区间的译文自动补齐，同文句可分别收藏和取消，阿拉伯语、印地语样例按原标点拆句。登录环境验证见下方「已登录 YouTube」。
 
 安装基线为 [v0.70.1](https://github.com/Kylan3320/peak-distance/releases/tag/v0.70.1)。发布后的主线改动见 Git。
 

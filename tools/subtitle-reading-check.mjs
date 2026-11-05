@@ -59,7 +59,7 @@ try {
   await page.evaluate(()=>{window.browser={runtime:{getURL:()=>''}};});
   await page.addScriptTag({content:componentCode});
   await page.evaluate(()=>{
-    const cues=Array.from({length:35},(_,i)=>({start:i*3000,dur:3000,lastOff:i*3000,text:`This is learning sentence number ${i}.`}));
+    const cues=Array.from({length:35},(_,i)=>({start:i*3000,dur:3000,lastOff:i*3000,text:`This is learning sentence number ${i}.`})).map((cue,i)=>({...cue,from:i*50,to:i*50+cue.text.length}));
     window.readingState={generation:'fixture',videoId:'reading01',videoRef:{videoId:'reading01',trackId:'https://www.youtube.com/api/timedtext?v=reading01&lang=en',trackKind:'manual',trackLang:'en',startMs:0},cues,current:1,translations:new Map(cues.map((_,i)=>[i,'完整译文用于检查收藏后的阅读位置，译文占据多行时也应该保持稳定。'.repeat(3)])),statuses:new Map(),sentences:[],entries:[],notice:'',chinese:true};
     window.saveCalls=0;window.failSave=false;
     window.workspace=ReadingTest.createYoutubeWorkspace({bindWords:()=>()=>{},words:(el,text)=>el.textContent=text,seek:()=>{},lookup:()=>{},ask:()=>{},open:()=>{},status:()=>{},remove:async()=>({ok:true}),save:async ({index})=>{
@@ -137,6 +137,10 @@ try {
   ];
   const playerLine = sentences.slice(0,2).join(' ');
   const combinedTranslation = '但我我有时觉得我们的社会太二元了。什么事都非黑即白。';
+  const eight = [...sentences, 'It shows up everywhere.', 'People take sides.', 'That can shut down a conversation.',
+    'Sometimes the answer is somewhere in between.', 'We should make room for that.'];
+  const nextShared = Array.from({length:14},(_,i)=>'Reading example number '+(i+1)+' is ready.');
+  const denseLines = [eight.join(' '), nextShared.join(' '), 'No. No.'];
   const event = (tStartMs,dDurationMs,utf8) => ({tStartMs,dDurationMs,segs:[{utf8}]});
   const trailing = Array.from({length:13},(_,i)=>event(4500+i*750,750,'Additional practice sentence number '+(i+1)+'.'));
   const pendingText = trailing[8].segs[0].utf8;
@@ -161,19 +165,28 @@ try {
     p.setOption=(module,key,t)=>{current=t.languageCode?t:null;if(current?.name==='Anchored')fetch(anchored.baseUrl);};
     p.loadModule=()=>{};
     document.querySelector('.ytp-subtitles-button').onclick=e=>e.currentTarget.setAttribute('aria-pressed',e.currentTarget.getAttribute('aria-pressed')!=='true');
-    const bytes=new Uint8Array(44+8000*2*16),d=new DataView(bytes.buffer),str=(at,s)=>[...s].forEach((c,i)=>bytes[at+i]=c.charCodeAt(0));str(0,'RIFF');d.setUint32(4,bytes.length-8,true);str(8,'WAVE');str(12,'fmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,1,true);d.setUint32(24,8000,true);d.setUint32(28,16000,true);d.setUint16(32,2,true);d.setUint16(34,16,true);str(36,'data');d.setUint32(40,bytes.length-44,true);v.src=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));
+    const bytes=new Uint8Array(44+8000*2*(vid==='dense01'?65:16)),d=new DataView(bytes.buffer),str=(at,s)=>[...s].forEach((c,i)=>bytes[at+i]=c.charCodeAt(0));str(0,'RIFF');d.setUint32(4,bytes.length-8,true);str(8,'WAVE');str(12,'fmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,1,true);d.setUint32(24,8000,true);d.setUint32(28,16000,true);d.setUint16(32,2,true);d.setUint16(34,16,true);str(36,'data');d.setUint32(40,bytes.length-44,true);v.src=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));
     window.addEventListener('message',e=>{if(e.data?.source==='blc-content'&&e.data.type==='config'){fetch(plain.baseUrl);if(vid!=='emptyonly')setTimeout(()=>fetch(plain.baseUrl.replace('empty','valid')),100);}});
   </script>`;
   await context.route('https://www.youtube.com/watch?*',r=>r.fulfill({contentType:'text/html',body:fixture}));
   await context.route('https://www.youtube.com/api/timedtext?*',r=>{
     const u=new URL(r.request().url()), anchored=u.searchParams.get('name')==='Anchored';
+    if(u.searchParams.get('v')==='dense01'){
+      const events=u.searchParams.has('tlang')||u.searchParams.get('lang')!=='en'?[]:
+        [event(0,30000,denseLines[0]),event(30000,30000,denseLines[1]),event(60000,2000,denseLines[2])];
+      return r.fulfill({contentType:'application/json',body:u.searchParams.get('phase')==='empty'?'':JSON.stringify({events})});
+    }
     return r.fulfill({contentType:'application/json',body:u.searchParams.get('phase')==='empty'?'':JSON.stringify(
       u.searchParams.has('tlang')?translationsFor(anchored):
         u.searchParams.get('lang')==='zh-Hans'?{events:[event(3000,1000,'正是因为这个。')]}:sourceJson(anchored))});
   });
   const learnedTranslations = ['但我我有时觉得我们的社会太二元了。','什么事都非黑即白。'];
-  await worker.evaluate(({sentences,learnedTranslations,pendingText})=>{
+  const denseTranslations = [...learnedTranslations,'一切因此两极化。','这种事到处都有。','人们各选一边。',
+    '这会让对话进行不下去。','有时答案在两者之间。','我们应该为此留出空间。'];
+  const densePlayerTranslation = denseTranslations.join('');
+  await worker.evaluate(({sentences,learnedTranslations,pendingText,eight,nextShared,denseLines,denseTranslations,densePlayerTranslation})=>{
     globalThis.fallbackBatches=[];
+    globalThis.denseBatches=[];
     globalThis.gates={};
     const gate=(key)=>{
       const state=globalThis.gates[key]={};
@@ -182,25 +195,34 @@ try {
       state.response=new Promise(resolve=>{state.release=resolve;});
       return state;
     };
-    gate('first');gate('old');
+    gate('first');gate('old');gate('denseLast');gate('crossing');
     chrome.runtime.onMessage.addListener(m=>{
       if(m.type==='translateCues'&&m.videoId==='reading01')globalThis.fallbackBatches.push(m.items);
+      if(m.type==='translateCues'&&m.videoId==='dense01')globalThis.denseBatches.push(m.items);
     });
+    const byText=new Map([
+      ...sentences.slice(0,2).map((text,i)=>[text,learnedTranslations[i]]),
+      ...eight.map((text,i)=>[text,denseTranslations[i]]),
+      ...nextShared.map((text,i)=>[text,'阅读示例 '+(i+1)+' 已就绪。']),
+      [denseLines[0],densePlayerTranslation],[denseLines[1],'阅读示例已就绪。'],
+      ['No. No.','不。不。'],['No.','不。'],[pendingText,'OLD EPOCH'],
+    ]);
+    const blockedTexts=new Map([[pendingText,'old'],[sentences[0],'first'],[eight[7],'denseLast'],[nextShared[4],'crossing']]);
     const originalFetch=globalThis.fetch;
     globalThis.fetch=async(input,options)=>{
       const url=new URL(String(input));
       if(url.hostname!=='translate.googleapis.com')return originalFetch(input,options);
-      const text=url.searchParams.get('q'), index=sentences.indexOf(text);
-      const blocked=text===pendingText?globalThis.gates.old:index===0?globalThis.gates.first:null;
+      const text=url.searchParams.get('q');
+      const blocked=globalThis.gates[blockedTexts.get(text)];
       if(blocked){
         options.signal.addEventListener('abort',blocked.abort,{once:true});
         blocked.start();await blocked.response;
       }
-      const translated=text===pendingText?'OLD EPOCH':learnedTranslations[index];
+      const translated=byText.get(text);
       if(!translated)throw new Error('Unexpected fallback text: '+text);
       return new Response(JSON.stringify([[[translated,text]],null,'en']));
     };
-  },{sentences,learnedTranslations,pendingText});
+  },{sentences,learnedTranslations,pendingText,eight,nextShared,denseLines,denseTranslations,densePlayerTranslation});
   const gate = (key,stage)=>worker.evaluate(({key,stage})=>Promise.race([
     globalThis.gates[key][stage],new Promise((_,reject)=>setTimeout(()=>reject(new Error(key+' did not reach '+stage)),8000)),
   ]),{key,stage});
@@ -349,6 +371,92 @@ try {
   check('AP advances to the next anchored sentence and rejects the old translation result',
     await videoTime()<2.4&&(await getState()).currentIndex===1&&
     !(await getState()).cues.some(c=>c.zh==='OLD EPOCH'));
+
+  const dense=await context.newPage();
+  await dense.goto('https://www.youtube.com/watch?v=dense01');
+  const densePlayer=dense.locator('#blc-subs .en');
+  await densePlayer.waitFor();
+  const denseTab=await control.evaluate(async()=> (await chrome.tabs.query({active:true,lastFocusedWindow:true}))[0].id);
+  const denseState=()=>control.evaluate(tabId=>chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'}),denseTab);
+  const waitDense=async (condition,arg)=>{
+    const limit=Date.now()+10000;
+    do {
+      const state=await denseState();
+      if(condition(state,arg))return state;
+      await new Promise(resolve=>setTimeout(resolve,50));
+    } while(Date.now()<limit);
+    assert.fail('Timed out waiting for dense subtitle state');
+  };
+  await gate('denseLast','ready');
+  await dense.locator('#blc-subs .zh').filter({hasText:densePlayerTranslation}).waitFor();
+  check('current player fragment is first in the initial batch and displays before the final row translation',
+    await worker.evaluate(text=>globalThis.denseBatches[0]?.[0].text===text&&globalThis.denseBatches[0].length===8,denseLines[0])&&
+    (await denseState()).cues[7].zh===null);
+  await release('denseLast');
+  const denseInitial=await waitDense(state=>state.cues.slice(0,12).every(cue=>cue.zh));
+  check('eight learning rows receive their own translations without a row action or playhead change',
+    denseInitial.currentIndex===0&&denseInitial.cues.slice(0,8).every((cue,i)=>
+      cue.text===eight[i]&&cue.zh===denseTranslations[i]&&cue.startMs===0&&cue.endMs===30000));
+  await dense.evaluate(()=>{document.querySelector('video').currentTime=30;});
+  await gate('crossing','ready');
+  const lastPair=8+nextShared.length, deferred=lastPair-2;
+  check('later candidate is still pending while the batch for its interval is in flight',
+    (await denseState()).cues[deferred].zh===null&&
+    await worker.evaluate(text=>globalThis.denseBatches.every(items=>items.every(item=>item.text!==text)),nextShared.at(-2)));
+  await dense.evaluate(()=>{document.querySelector('video').currentTime=60;});
+  await waitDense((state,index)=>state.currentIndex===index,lastPair);
+  await release('crossing');
+  const afterCrossing=await waitDense(state=>state.cues.every(cue=>cue.zh));
+  check('unsubmitted rows complete after leaving their interval',
+    afterCrossing.currentIndex===lastPair&&afterCrossing.cues[deferred].zh==='阅读示例 13 已就绪。');
+
+  const denseRecords=async()=> (await records()).sentences.filter(s=>s.video.videoId==='dense01');
+  const saveDirect=(cue,withRange=false)=>control.evaluate(({cue,withRange,state})=>chrome.runtime.sendMessage({
+    type:'saveSentence',...(withRange&&{range:{from:cue.from,to:cue.to}}),
+    sentence:{video:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind,trackLang:state.trackLang,startMs:cue.startMs},
+      text:cue.text,endMs:cue.endMs,title:'Subtitle reading fixture'},
+  }),{cue,withRange,state:afterCrossing});
+  assert.ok((await saveDirect(afterCrossing.cues[lastPair])).ok);
+  assert.ok((await saveDirect(afterCrossing.cues[0])).ok);
+  const legacy=(await denseRecords()).find(s=>s.text==='No.');
+  const openDensePanel=async()=>{
+    await dense.locator('#blc-subs-switch #learning').click();
+    await dense.locator('#blc-subs-switch #panel').click();
+    const frame=dense.frameLocator('#pd-floating-panel iframe');
+    const list=frame.locator('#blc-learning-panel');
+    await list.locator('.en').first().waitFor();
+    return list;
+  };
+  let denseList=await openDensePanel();
+  const denseRow=i=>denseList.locator('[data-cue="'+i+'"]');
+  const bookmark=(i,saved)=>denseRow(i).getByRole('button',{name:saved?'取消收藏':'收藏句子',exact:true});
+  await bookmark(0,true).waitFor();
+  for(const i of [lastPair,lastPair+1]){
+    await bookmark(i,false).click();
+    await bookmark(i,true).waitFor();
+  }
+  const beforeReload=(await denseRecords()).filter(s=>s.text==='No.');
+  const storedId=i=>beforeReload.find(s=>JSON.stringify(JSON.parse(s.id).at(-1))===
+    JSON.stringify([afterCrossing.cues[i].from,afterCrossing.cues[i].to]))?.id;
+  const firstId=storedId(lastPair), secondId=storedId(lastPair+1);
+  check('identical rows save two distinct range IDs and leave the ambiguous old record intact',
+    beforeReload.length===3&&!!firstId&&!!secondId&&firstId!==secondId&&beforeReload.some(s=>s.id===legacy.id));
+  assert.ok((await saveDirect(afterCrossing.cues[lastPair+1],true)).ok);
+  check('repeated saving of the same range is idempotent',(await denseRecords()).length===4);
+  await dense.reload();
+  await densePlayer.waitFor();
+  denseList=await openDensePanel();
+  await bookmark(lastPair,true).waitFor();
+  await bookmark(lastPair+1,true).click();
+  await bookmark(lastPair+1,false).waitFor();
+  check('reload restores both bookmarks and cancelling the second removes only its ID',
+    await bookmark(lastPair,true).isVisible()&&
+    JSON.stringify((await denseRecords()).filter(s=>s.text==='No.').map(s=>s.id).sort())===
+    JSON.stringify([firstId,legacy.id].sort()));
+  await bookmark(0,true).click();
+  await bookmark(0,false).waitFor();
+  check('a uniquely matching legacy bookmark can still be cancelled by its persisted ID',
+    (await denseRecords()).every(s=>s.text==='No.'));
 
   const failed=await context.newPage();await failed.goto('https://www.youtube.com/watch?v=emptyonly');
   const started=Date.now();
