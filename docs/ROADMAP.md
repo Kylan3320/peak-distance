@@ -13,11 +13,24 @@
 | 已登录 YouTube | 用当前构建确认字幕读取、重试、换轨、侧栏收藏整句、逐句暂停，以及侧栏跨项选区和页面正文添加到对话。见[字幕阅读](specs/subtitle-reading-fixes.md)和[选区验收](specs/selection-chat-actions-verification.md) |
 | X 选区 | 在真实帖子选取正文并添加到对话，确认材料属于目标帖子。见[选区验收](specs/selection-chat-actions-verification.md) |
 | 工作区 | 在用户 Chrome 中验证固定／浮动切换保留输入和材料，两种模式均可点击选区入口，明确关闭原生侧栏清除未发送内容。约一分钟偶发白屏的直接原因待定位，排查暂缓。见 [M10 报告](specs/m10-verification-report.md)及[后续修复](specs/m10-followup-verification.md) |
-| 共享学习库 | 用原生目录确认授权恢复、Obsidian 编辑读回、跨程序同时写入时冲突可见且内容保留。冲突版本选择、分叉续聊保存为两个会话尚未实现。混用版本的格式兼容策略待定。见 [M11](specs/m11-multilingual-local-vault.md)及[同步修订](specs/vault-collections-sync.md) |
+| 共享学习库 | 用原生目录确认授权恢复、Obsidian 编辑读回、跨程序同时写入时冲突可见且内容保留。冲突版本选择、分叉续聊保存为两个会话尚未实现。见 [M11](specs/m11-multilingual-local-vault.md)及[混用版本限制](specs/vault-collections-sync.md#混用版本限制) |
 | 词条原文语言 | 词卡和已保存词条的语言纠正尚未实现。是否排期及已存词条合并规则待定。见 [M11](specs/m11-multilingual-local-vault.md#32-内容语言与理解语言) |
 | NativeDelete 来源 | 对应源码版本与许可待补。见[来源记录](REFERENCES.md#m10-删除交互移植) |
 
 后续候选为 Anki、X thread、Netflix。
+
+## 已复现缺陷
+
+在 `e7109d3` 上用隔离浏览器和受控数据复现。按下列条件关闭，并把相应场景纳入现有专项检查。
+
+| 优先级与缺陷 | 复现条件 | 关闭条件 |
+| --- | --- | --- |
+| P1 问答同步覆盖远端续问 | A 生成中，B 提交新一轮，A 先读回再完成并写入 | 延后导入时保留原共同基准。A 完成后仍能读取 B 的历史，并能恢复 A 的结果。见 `tools/vault-sync-check.mjs` |
+| P1 删除词条丢笔记或复活词条 | 两端从同一版本起步，一端删除，另一端改笔记，交换提交顺序 | 两种顺序均报告冲突，保留可恢复的笔记与删除意图。见 `tools/vault-sync-check.mjs` |
+| P1 视频旧列表写入新库 | A、B 有同名词和同 ID 收藏句，从 A 切到 B 后触发 A 行的操作 | 旧行改状态和取消收藏均被拒绝，B 的记录保留。见 `tools/vocab-ownership-check.mjs` |
+| P2 换轨后收藏错句 | 同一视频切换轨道后，旧行的收藏请求到达 | 过期动作被拒绝，新行收藏指向实际显示的字幕。见 `tools/subtitle-reading-check.mjs` |
+| P2 翻译故障让未请求的字幕失去调度资格 | 首句收到 503，批次提前终止，随后渠道恢复 | 未尝试项仍可调度，已成功项保留，恢复后可补齐译文。见 `tools/translation-reliability-runtime-check.mjs` |
+| P2 偏好写入覆盖外部编辑 | 读取偏好后、提交前，另一端修改同一文件 | 保留外部修改与本机待办，并报告冲突。见 `tools/vault-sync-check.mjs` |
 
 ## 规格与历史证据
 

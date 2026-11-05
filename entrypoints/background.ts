@@ -569,7 +569,7 @@ async function handle(
           if (!config.apiKey) return bad('no-key');
           if (validateAiProfile(config)) return bad('invalid-config');
           const scope = aiCacheScope(config);
-          const textKey = (text: string) => JSON.stringify(['translation', scope, langScope, text]);
+          const textKey = (text: string) => JSON.stringify(['ai-subtitle-translation', scope, langScope, text]);
           const translations: { id: number; text: string }[] = [];
           const missing: typeof items = [];
           for (const item of items) {

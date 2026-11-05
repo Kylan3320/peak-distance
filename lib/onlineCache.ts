@@ -55,6 +55,8 @@ async function load(): Promise<void> {
       if (!ordinary(key)) records[key] = record.writtenAt !== undefined ? record : { value: record.value, writtenAt: record.at ?? now, usedAt: record.at ?? now };
     }
     for (const [key, record] of Object.entries((local[QUERY_STORE] ?? {}) as Record<string, RecordValue>)) {
+      // Legacy AI subtitle keys used a serialized scope array in place of a translation service.
+      if (key.startsWith('["translation","[')) continue;
       if (ordinary(key) && Number.isFinite(record.expiresAt) && Number.isFinite(record.writtenAt) && Number.isFinite(record.usedAt)) records[key] = record;
     }
     prune(); persist();
