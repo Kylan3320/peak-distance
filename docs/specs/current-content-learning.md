@@ -2,7 +2,7 @@
 
 ## 1. 目标、范围与状态
 
-2026-10-17：代码及接续修复已合入 `main`；必要受控检查及真实 BBC 页面链路通过，原生侧栏切换和用户原生目录实机范围保留，详见第 6 节。尚未发布。发布基线与其他未完成项见 [ROADMAP](../ROADMAP.md)。决策来源：[用户分享讨论](https://chatgpt.com/share/6ad34f48-3854-83e8-acc8-54444aad81af)。
+随 v0.6.9 交付。行为与阶段证据见下文，待验项见 [ROADMAP](../ROADMAP.md)。决策来源：[用户分享讨论](https://chatgpt.com/share/6ad34f48-3854-83e8-acc8-54444aad81af)。
 
 选择方案 B：补全现有「当前内容」，串起「读这篇 → 保存表达与知识点 → 回顾与复习这篇」。本篇生词限定为在本文主动保存过的词条及其语境；词条继续共用全局学习状态，文章只是组织来源范围。知识点是独立学习记录，删除原聊天后仍可查看、编辑、复习和同步。
 
@@ -57,39 +57,13 @@
 - 保留旧词汇、句子、聊天与库文件；增量升级不清库。共享新记录需参与同步的两端均更新到实现本 spec 的版本；不承诺旧版识别知识点。实施时依据实际序列化确定格式升级或拒绝策略，确保不支持新格式的一端不会静默删写未知记录；不为旧版构建双写兼容引擎。
 - 保持现有权限、worker 串行、写前／写后校验与冲突边界，不把它描述为跨程序互斥。不扩大已有未实测原生目录并发保证。
 
-## 4. 事实依据、复用落点与实施顺序
+## 4–5. 实现与检查入口
 
-以下为 2026-10-17 实施前工作树只读核实的历史基线及当时改动方向，供追溯，不代表当前实现；交付状态见 ROADMAP。
+模块入口见[技术边界](../ARCHITECTURE.md#当前文章学习与独立知识点)。纯逻辑检查随 `npm run regress` 执行，界面检查使用 `npm run check-current-content`。需要真实 BBC 页面或强制验证原生侧栏时，分别传入 `--bbc` 或 `--require-native`。
 
-| 当前事实／入口 | 必要改动方向 |
-| --- | --- |
-| `shared/vocab.ts` 分开保存词条与带 URL、原句、释义的上下文；`shared/chat.ts` 已有来源规范化 | 复用来源身份，统一限定本文上下文的查询与队列输入 |
-| `entrypoints/sidepanel/main.ts` 的 `pollSubs()` 网页分支仅显示最近选区；视频分支复用 `shared/youtubeWorkspace.ts` | 补当前文章列表与临时选区区域，复用视频已保存路径 |
-| `shared/review.ts` 的 `buildReviewQueue()` 默认排除 known，取 `contexts[0]`；`refreshQueue()` 重新构建同一全库队列 | 增加显式范围，贯通启动、刷新、再来一轮及返回；不再借用其他来源原句 |
-| sidepanel 的窗口 session 快照保存队列、位置、揭示状态；`chatView.ts` 有同轮材料定位和回答标记 | 扩展现有复习恢复状态；从可靠快照保存独立内容，保留原标记动作 |
-| `lib/db.ts` 的 `DATA_STORES`、库切换事务、待办与导入路径按记录类别组织 | 增量增加知识点持久化，覆盖归存、恢复、首次连接、修改／删除与判重 |
-| `shared/vault.ts`、`lib/vault/records.ts`、`collectionFormat.ts`、`format.ts`、`fs.ts`、`sync.ts` 负责合同、映射、集合和同步 | 新类别贯通序列化／解析、恢复辅助数据、索引、扫描、提交、读回、冲突及删除路由；检查旧删除路由是否会把新类别当词条 |
-| `shared/messages.ts`、`entrypoints/background.ts` 提供消息与可信读写边界 | 按现有模式增加必要消息与变化通知，宿主页面不直接读库或目录 |
+[实施前基线与阶段计划](https://github.com/Kylan3320/peak-distance/blob/e7109d3a2af3d8d22fed31281beedfeb4e0b1072/docs/specs/current-content-learning.md#4-事实依据复用落点与实施顺序)。
 
-按依赖推进，不另建通用学习实体框架或同步引擎：
-
-1. 明确并实现最小来源／复习范围和知识点数据合同，补纯逻辑样例；字段、DB／库格式版本以实现类型和 schema 为准，不在本文复制第二份字段表。
-2. 贯通知识点本机事务及完整学习库生命周期；先证明独立恢复与删除，再接保存 UI。核对所有记录类别枚举、DATA_STORES、首次导入、共享辅助数据与删除分派。
-3. 补当前文章两个子视图与回答保存编辑；列表、计数和预览统一使用限定后的上下文。
-4. 将范围贯穿既有词汇复习和知识点队列、窗口恢复、入口返回及本视频已保存词汇路径；不重写现有容器。
-5. 按下节矩阵完成必要验证，并在本 spec／ROADMAP 如实记录结果与剩余实机项。局部函数命名、文件拆分留给源码，不再交给下游选择产品方案。
-
-## 5. 环境前提与检查入口
-
-仓库要求见 [README](../../README.md)、[package.json](../../package.json) 和 [wxt.config.ts](../../wxt.config.ts)：Node.js 22+、npm、桌面 Chrome 142+，WXT／TypeScript、MV3，构建目录 `.output/chrome-mv3`。开发与加载步骤沿用 README。
-
-实施开始时分支为 `main`，已有设计、产品、技术、文案、进度和本 spec 的未提交改动；本轮保留这些内容并切到 `codex/current-content-learning`。Node.js `v24.14.1`、npm `11.11.0`；受控扩展 UI 使用 Edge `155.0.4283.45`，双浏览器同步使用本机 Chrome `155.0.8059.84` 与 Edge 的隔离配置。Playwright 下载的 Chromium 启动报 `spawn UNKNOWN`，检查工具现可通过 `BLC_CHROME` 显式指定已安装浏览器。原生目录授权与跨程序并发未验证。
-
-实现后执行 `npm run typecheck`、`npm run build`、`npm run regress`；在现有 `tools/regress.ts`／生命周期检查、`tools/vault-sync-check.mjs` 及相关真实 DB 工具中补受影响行为，不只测试 UI mock。新界面文案维护五语言目录，按改动执行 `npm run check-i18n`、`npm run check-ui-i18n`。界面沿用已有浏览器检查工具，按本次路径补少量交互断言。`verify-local` 用于需要跨模块验证时，发布另按 ROADMAP；文档阶段不运行这些命令，不把旧报告作为当前通过证据。
-
-## 6. 验收矩阵与完成条件
-
-以下为验收合同，本轮逐项结果与未验证范围见第 6.1 节。受控通过不能替代实机通过。
+## 6. 阶段验收
 
 | 场景 | 必须观察到的结果 |
 | --- | --- |
@@ -108,9 +82,7 @@
 | 无新增 AI 请求 | 保存已有回答、列表查看、编辑、复习和再来一轮均无新 AI 调用 |
 | BBC 实际界面链路 | 在下列页面完成收藏→本篇显示→原文定位→本篇复习，并检查知识点保存、删除聊天后独立读取及窄面板、键盘与固定／浮动布局 |
 
-BBC 案例：[Office English 页面](https://www.bbc.co.uk/learningenglish/english/features/office-english/260817)。真实网络／页面或原生目录受阻时记录具体阻碍及未验收范围，不伪造通过、不扩大为无关问题排查。
-
-完成须同时满足行为合同、本机与学习库全链路、必要回归和对应 UI 验证；未完成实机项明确保留，不能只以类型／构建通过宣称全功能验收。
+BBC 案例：[Office English 页面](https://www.bbc.co.uk/learningenglish/english/features/office-english/260817)。
 
 ### 6.1 本轮实施与验证（2026-10-17）
 

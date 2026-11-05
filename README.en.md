@@ -29,7 +29,7 @@ No Node.js and no commands needed. After installing, pin Peak Distance to the to
 <details>
 <summary>Build from source</summary>
 
-Prepare Node.js 22+ and npm. After downloading the source, run in the project directory:
+Prepare Node.js 22.12 or newer and npm. After downloading the source, run in the project directory:
 
 ```sh
 npm ci
@@ -80,7 +80,7 @@ Words are kept in `生词本.md` (vocabulary) and sentences in `句子.md` (sent
 
 After updating the extension on both browsers, connect the same folder in each and click **Sync now** (立即同步). Syncing writes local changes first, then reads back what the other browser wrote; switching back to a browser also reads the shared files. Insufficient permissions, corrupted files and conflicts are reported clearly; uncommitted content stays on the machine where it was made.
 
-This release adds shared translation excerpts and independent knowledge records, and fixes subtitle translation caching, cross-vault actions and word-form merging. Update every browser using the same vault; older versions cannot write the new vault format. Native shared-folder permission recovery and simultaneous writes across applications still need real-world verification. See the repository's [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md) for details and repair status (in Chinese).
+Translation excerpts and independent knowledge records sync through the vault. Update all browsers connected to the same vault together. See the repository's [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md) for details and repair status (in Chinese).
 
 The extension works without connecting a folder — records stay in the browser extension. Disconnecting the vault never deletes existing files, and API keys and AI service settings are never written into it.
 

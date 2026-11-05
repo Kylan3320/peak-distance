@@ -9,16 +9,16 @@
 ## 环境与提交
 
 - 分支 `codex/m11-integration`（B0=eb7d25c 独立仓库基线；主要提交 721198b 基础合同、d964063 路由、05ed1b1 分词/轨道、e06894a 库格式、614e47a FS+同步、e9309f9 纵向 e2e、c5ac9a1 UI+迁移、6d456a2 写前检查、1845c79 聊天/材料）。
-- 自动化浏览器：Microsoft Edge（本机安装版，`tools/m11-vault-probe.mjs` 等实际启动）。品牌 Chrome 154 忽略 `--load-extension`，与既有 M6–M10 检查一致，自动化一律 Edge；用户 Chrome 实机项未测。
+- 自动化浏览器：Microsoft Edge（本机安装版，[目录探针](https://github.com/Kylan3320/peak-distance/blob/65449f8/tools/m11-vault-probe.mjs)）。品牌 Chrome 154 忽略 `--load-extension`，与既有 M6–M10 检查一致，自动化一律 Edge；用户 Chrome 实机项未测。
 - Node v24.14.1（分词/回归）；`npm run verify-local`（typecheck + build + regress 191/191 + chat-lifecycle）通过。
 
 ## 验收矩阵
 
 | 编号 | 结果 | 证据与边界 |
 | --- | --- | --- |
-| L1 | 模块级通过；真实 Chrome 未测 | 免费渠道探针（tools/m11-probe-translation.ts，真实网络）：19 固定语言对全部可用、sl=auto 4/4 正确、zh-Hans→zh-CN / zh-Hant→zh-TW 实测有效、300ms 间隔零限流；词典能力按设计仅 en→zh（路由按语言对门控，非英语源不冒充词典结果）。AI 释义路由受控验证（回归）。 |
+| L1 | 模块级通过；真实 Chrome 未测 | 免费渠道探针（[脚本](https://github.com/Kylan3320/peak-distance/blob/65449f8/tools/m11-probe-translation.ts)，真实网络）：19 固定语言对全部可用、sl=auto 4/4 正确、zh-Hans→zh-CN / zh-Hant→zh-TW 实测有效、300ms 间隔零限流；词典能力按设计仅 en→zh（路由按语言对门控，非英语源不冒充词典结果）。AI 释义路由受控验证（回归）。 |
 | L2 | 模块级通过 | 语言作用域键（`lang::表达`）与缓存随语言对区分（regress）；en/fr `pain` 不同键不串；`und` 词条可保存可复习（回归+e2e ja 词条全链路）。真实同形词实机未测。 |
-| L3 | 探针+回归通过；实机未测 | Intl.Segmenter 探针 15 语言 52/52（无词中断裂；泰语复合词按字典细粒度，可接受）；标记命中扫描回归（跨语言不套用、拉丁保守 en 桶、短语窗口最长优先）；点击定位 wordAt 回归（含日语/土耳其语）。真实页面点击/悬停待实机。 |
+| L3 | 探针+回归通过；实机未测 | Intl.Segmenter [分词探针](https://github.com/Kylan3320/peak-distance/blob/65449f8/tools/m11-probe-segmenter.ts)覆盖 15 语言 52/52（无词中断裂；泰语复合词按字典细粒度，可接受）；标记命中扫描回归（跨语言不套用、拉丁保守 en 桶、短语窗口最长优先）；点击定位 wordAt 回归（含日语/土耳其语）。真实页面点击/悬停待实机。 |
 | L4 | 受控通过 | 路由矩阵回归：悬停零 LLM、开关关→免费译文、开+未配置→免费路径+提示、词典明确未命中→AI 一次（缓存去重）、限流→degraded 标注+免费译文不触发 AI。真实服务计数待实机。 |
 | L5 | 部分通过 | 缓存/在途身份随语言对与 AI 配置快照区分（回归）；换轨/换视频取消沿用 M5–M7 已验收机制；语言维度迟到结果隔离待实机。 |
 | L6 | 代码级通过；实机未测 | 非英文轨道不再丢弃、不强切英语（同语言人工优先、任选人工、无轨道明确提示）；译文目标按设置解析（含 zh-Hant）；平台译文轨/tlang 按目标语言（inject 实改）；“中文显隐”文案改“译文显隐”。真实日语/RTL 视频需用户已登录环境。 |
@@ -34,7 +34,7 @@
 
 ## 语言与服务覆盖记录
 
-- 目标清单 20 语言的路由、键、规范化、分词、显示名已集中实现（shared/languages.ts、tokenize.ts）；真实免费翻译样本覆盖 19 对+auto（tools/m11-probe-translation-results.json）。
+- 目标清单 20 语言的路由、键、规范化、分词、显示名已集中实现（shared/languages.ts、tokenize.ts）；真实免费翻译样本覆盖 19 对+auto（[探针结果](https://github.com/Kylan3320/peak-distance/blob/65449f8/tools/m11-probe-translation-results.json)）。
 - 词典：youdao/cambridge 仅 en→zh-Hans 语言对（设计边界，spec 3.3）；其余语言对走免费译文/AI 兜底，UI 可辨认来源。
 - AI：提示按实际源/目标语言组织；查词兜底默认关、仅主动查词、悬停/预取/预览零调用（回归证实）。
 

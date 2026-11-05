@@ -4,14 +4,6 @@
 
 本文保留审查与本地验收时点；10 月 13 日的修复随后正式发布，发布记录见 [ROADMAP](../ROADMAP.md)。下表七项“待修”是当时状态，已由文末 10 月 15 日的可靠性修复接续；后者随 v0.6.7 发布。
 
-## 先核对 AI coding 常见错误
-
-- [Karpathy 的原帖存档](https://threadreaderapp.com/thread/2015883857489522876.html)描述的风险包括未经核实的假设、不暴露理解缺口和权衡、过度抽象、留下死代码、修改无关逻辑。他强调明确成功标准和可验证的反馈循环。原 X 链接本次无法直接获取，使用作者原文镜像，不以转述或第三方“Karpathy skills”作为依据。
-- [Lauren Tan（poteto）署名的 pstack 指南](https://github.com/cursor/plugins/blob/main/pstack/README.md)主张先确认核心数据与共享逻辑，反复修失败时重新审视前提，减去冗余，降低读者理解成本；[其验收指南](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/06-verify-and-ship.md)区分“编译通过”和“实际交付物满足完成条件”。原 X 帖本次获取失败，因此仅引用可核对的署名资料。这些文件仅用于研究，未安装或执行其工作流。
-- [OpenAI 官方代码审查建议](https://developers.openai.com/blog/custom-code-review-rules-for-codex)强调影响实际行为、容易遗漏的项目约束与有证据的可操作发现，避免噪声式审查。落实到本项目：审查合同、提交边界、身份与恢复；不能用“文件长”“注释多”代替缺陷证据。
-
-归纳出的审查标准是：关键假设有依据；单一数据合同贯穿入口、缓存与出口；失败不能被悄悄抹掉；重试确实能恢复；修复针对根因；测试验证用户路径和实际产物。没有发现可以证明“项目整体应重写”的证据。现有共享路由、词卡和事务划分有合理职责，主要缺陷在合同没有贯穿全链路及异常收尾。
-
 ## 独立审查发现
 
 下列坐标是基线 `dea3aa1` 的行号，便于追溯；所有触发路径均已用受控服务或真实 IndexedDB 复现。优先级按用户影响划分。本轮只修与当前查词／布局直接相关的问题，其余保留待办。
@@ -56,10 +48,10 @@
 
 已通过：
 
-- `npm run verify-local`：类型、生产构建、234 项回归、聊天生命周期、六类 AI 协议与 i18n 检查。
+- `npm run verify-local`：类型、构建、回归、聊天生命周期、AI 协议及 i18n 检查。
 - `PEAK_DISTANCE_UI_EXTENSION=.output/chrome-mv3 npm run check-ui-i18n`：五语言界面、输入保留、设置保存与失败反馈、AI 响应语言、网页词卡及视频控制。工具新增生产产物路径参数，默认开发路径保持原值。
 - `node tools/check-lookup-interactions.mjs`：生产词卡 AI 首次／缓存显示、三类降级重复查询、缓存不绕过新 AI 配置、真实 runtime.reload 后的失效提示和无效重试移除；全程受控服务、无真实 AI 请求。
-- `node tools/check-chat-interactions.mjs` 连续三次通过：材料折叠和展开、首问快捷按钮、首次发送、生成中防重复、移除与草稿、历史与引用续聊、Enter／换行／输入法、外框边缘及键盘调节、窄宽空间约束。截图位于 `.upstream/chat-interactions/`。
+- `node tools/check-chat-interactions.mjs` 通过：材料折叠和展开、首问快捷按钮、首次发送、生成中防重复、移除与草稿、历史与引用续聊、Enter／换行／输入法、外框边缘及键盘调节、窄宽空间约束。截图位于 `.upstream/chat-interactions/`。
 - 子 agent 复核修复 diff，独立通过类型、233 项回归及两个交互检查，未发现新增 P1；其补充的混合失败问题随后由根任务修复并加入最终第 234 项回归。
 - 用户 Chrome：安装目录先完整备份至 `/Users/boohee/Downloads/peak-distance-0.6.5-chrome-before-edge-lookup-20261013`，再复制通过检查的生产产物。原生管理页显示“已重新加载”；新网页真实查词 `a` 返回有道释义，实际聊天面板显示紧凑品牌区与上边缘调节按钮、可通过 Tab 到达。没有发送真实 AI 问题、收藏测试词或删除用户记录。已关闭验收标签页并恢复原 X 标签页；原先打开的网页需要刷新以重建内容脚本。
 

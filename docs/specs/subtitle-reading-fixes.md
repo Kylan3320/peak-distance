@@ -1,6 +1,6 @@
 # 字幕获取、阅读交互与收藏修复
 
-2026-10-29：用户批准实施；本文是本批次执行规格。状态和入口由 ROADMAP 维护。未发布，不改版号。
+随 v0.70.0 交付。本文维护字幕行为及阶段证据，待验项见 [ROADMAP](../ROADMAP.md)。
 
 ## 事实与范围
 
@@ -48,24 +48,9 @@ SVG范围：词卡保存／已掌握／继续问／关闭；字幕顶部上一�
 
 parseMaterialDocument和parseChatDocument入口统一CRLF/CR→LF并沿用已有BOM处理。不修改原文件、正文或格式版本。真实损坏继续失败。将已有扫描中的首个失败相对路径及简短原因沿连接／同步返回到设置页；保留error分类，通用状态刷新不能覆盖本次具体诊断，成功清除。无需持久诊断表或同步重构。
 
-## 6. 分工和共享合同
+## 6–7. 阶段实施记录
 
-同一共享checkout，每个文件一个作者，不创建额外工作树，不commit/reset其他人的改动。
-
-- 字幕agent：entrypoints/youtube*.content.ts、shared/cues.ts、shared/subtitleTracker.ts、shared/protocol.ts、tools/regress.ts。负责获取、整句、AP、播放器气泡及save真实回执。保留pd-video-action参数形状，save改为异步返回真实{ok:boolean}，可附局部error；现有SubViewState.cues变为显示cue，语义统一。不要编辑sidepanel、brand、uiMessages。
-- UI agent：shared/lookupPopup.ts、shared/youtubeWorkspace.ts、entrypoints/sidepanel/main.ts、对应局部样式，以及需要的局部SVG帮助模块。负责词卡／工作区／全部句子图标，收藏状态、局部更新、跟随和侧栏气泡。以视频save回执驱动完成；Workspace actions.save允许返回Promise<{ok:boolean}>，UI agent负责sidepanel适配。不改youtube内容脚本、vault、uiMessages。
-- vault agent：lib/vault/chatFormat.ts、lib/vault/sync.ts、shared/settingsView.ts、entrypoints/background.ts、需要的vault消息类型、tools/m11-vault-format-check.ts。只做换行与错误传播，不改youtube/sidepanel主入口/uiMessages。
-- commander：shared/uiMessages.ts、docs、集成、最多一个聚焦受控浏览器验收脚本及最终检查。新文案由agent上报，统一接入。跨所有权文件先发消息，不擅自修改。
-
-## 7. 最小验收
-
-1. 获取：先空后成功；重复捕获不重复拉取；30秒收尾；取消／换视频后的迟到结果无效。
-2. 分组：完整跨cue合并；无句末／时间断开保留；小数／称谓。播放器在同一学习句内逐片段切换原文／译文，侧栏保持整句，选区定位使用可见片段时间；侧栏收藏及AP仍保持学习句语义。
-3. UI：收藏成功／失败／连续点击；不跳动；自动和手动意图下选区结束；气泡关闭；窄面板可用。不要测SVG路径或像素快照。
-4. 文件：LF/CRLF等价，真实损坏仍报错并带路径。用户学习库只读作验证，不用于写入测试。
-5. 真实YouTube：已知视频读取、一次重试、整句收藏和AP。没有条件则明确保留未验，不以mock代替。
-
-基础检查仅typecheck、build、相关纯逻辑回归、格式检查和i18n检查；集中运行一次，新增失败才重跑涉及项。不跑全站E2E、全主题矩阵、压力测试或发布检查。集成后单独只读审查，只报可证实的正确性、数据安全、范围遗漏问题，不提无关重构。
+[当时的分工与验收清单](https://github.com/Kylan3320/peak-distance/blob/e7109d3a2af3d8d22fed31281beedfeb4e0b1072/docs/specs/subtitle-reading-fixes.md#6-分工和共享合同)。
 
 ## 8. 实施与验证（2026-10-29）
 
@@ -75,7 +60,7 @@ parseMaterialDocument和parseChatDocument入口统一CRLF/CR→LF并沿用已有
 - 聚焦运行脚本覆盖真实MAIN入口的空响应→有效来源、重复URL、取消，以及浏览器中的收藏／失败／防连点、节点与滚动保留、选区跟随恢复；另使用打包MV3的MAIN/content/background/IndexedDB验证整句、真实保存回执、AP、播放器／侧栏气泡及整轮期限。页面和字幕响应为受控夹具，不代表真实服务通过。
 - 浏览器检查发现并修复了元素型Range端点未暂停跟随、失败后按钮仍保留忙碌名称两项缺陷。重叠时间跨度的审查疑点已按实际显示边界澄清并增加用例，不改变既有播放裁剪规则。
 - 用户指定的`材料/选中句段-68423c78--v1.md`已由新解析器只读解析成功，未修改文件。原生目录重新连接及同步界面仍需用户浏览器实机确认。
-- 真实视频`YRvf00NooN8`的新构建隔离浏览器检查遇到YouTube“请登录，以便我们确认你不是聊天机器人”，未进入可播放状态，最终按获取期限退出。此项不计通过，不重装用户扩展、不复制登录数据、不绕过验证；已登录Chrome下的读取／重试／收藏／AP验收待接续。
+- 真实视频`YRvf00NooN8`的新构建隔离浏览器检查遇到YouTube“请登录，以便我们确认你不是聊天机器人”，未进入可播放状态，最终按获取期限退出。登录态验收见 ROADMAP。
 - 检查产物位于被Git忽略的`.upstream/subtitle-reading/`；当前可加载构建为`.output/chrome-mv3/`。
 
 ## 9. 播放器短片段接续（2026-10-29）
@@ -86,4 +71,4 @@ parseMaterialDocument和parseChatDocument入口统一CRLF/CR→LF并沿用已有
 - 平台译文分别对齐；跨片段的整句译文不重复显示，缺失片段复用既有授权回退；同一批次组与片段ID分域并按内容去重，两种表示共用取消代次和来源变更清理。缓存版本更新并区分表示。
 - `npm run typecheck`、`npm run build`、相关`tools/regress.ts`通过。独立验收实际执行了`tools/subtitle-reading-check.mjs`的MAIN／组件部分，以及单独的`--packaged-only`部分；分别通过，不宣称修改定位器后重新运行了完整组合套件。
 - 浏览器检查覆盖同组内短原文／短译文切换、侧栏整句不变、播放器选区片段时间、侧栏整句收藏与跳转、句末AP保留片段、常规回退翻译ID分域与取消后迟到排除；保留获取期限检查。已目视检查`packaged-fragment-sidebar.png`、`packaged-sidebar.png`和`packaged-ap-held.png`。
-- 本次没有重新尝试受登录验证阻碍的真实视频环境；第8节登录态Chrome实机、原生目录重连未验边界继续保留。未发布、未修改用户学习库。
+- 登录态视频与原生目录重连待验，入口见 ROADMAP。

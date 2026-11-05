@@ -1,11 +1,19 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { chromium } from 'playwright-core';
 
-// Run while WXT's development server is running. Uses an isolated profile and fake AI responses.
-const extension=path.resolve(process.env.PEAK_DISTANCE_UI_EXTENSION || '.output/chrome-mv3-dev');
+// Uses an isolated profile and fake AI responses.
+const extension = path.resolve(process.env.PEAK_DISTANCE_UI_EXTENSION || '.output/chrome-mv3');
+const manifest = path.join(extension, 'manifest.json');
+try {
+  await access(manifest);
+} catch (error) {
+  if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+  console.error(`Extension manifest not found at ${manifest}. Run npm run build or set PEAK_DISTANCE_UI_EXTENSION to a built extension directory.`);
+  process.exit(1);
+}
 const profile=await mkdtemp(path.join(os.tmpdir(),'peak-distance-ui-'));
 const output=process.env.PEAK_DISTANCE_UI_OUTPUT;
 if(output)await mkdir(output,{recursive:true});
