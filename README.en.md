@@ -66,7 +66,7 @@ Hover a word in the subtitles to see its meaning and pause playback; click to ex
 
 In **Settings → Languages** (设置 → 语言设置), choose the default **Explanation language** — the language you want translations and word explanations in. You can also set a language pair individually, for example understanding English via Chinese, or Japanese via English.
 
-Expressions from web pages and videos go into the same vocabulary book (生词本). The language filter at the top of the vocabulary book shows records for one language at a time, where you can adjust the **Saved / Learning / Known** (已收藏／学习中／已掌握) status or start sentence review.
+Expressions from web pages and videos go into the same vocabulary book (生词本). The language filter at the top of the vocabulary book shows records for one language at a time, where you can adjust the **Saved / Known** (已收藏／已掌握) status or start sentence review.
 
 Different language pairs have different lookup sources. English to Chinese prefers online dictionaries; other combinations may use regular translations. Word cards show their source; when a language cannot be determined it is marked **Unconfirmed** (待确认) instead of assuming everything is English.
 

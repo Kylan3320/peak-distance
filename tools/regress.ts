@@ -17,7 +17,7 @@ import { planLegacyLanguage } from '../shared/vocab';
 import { serializeChatRecord, parseChatDocument, serializeMaterialSnapshot, parseMaterialDocument, materialIdOf } from '../lib/vault/chatFormat';
 import type { ChatMessageRecord, MaterialSnapshotRecord } from '../shared/chat';
 import { materialFromCandidate, candidateMatchesPage, type SelectionCandidate } from '../shared/chat';
-import { scanMarkHits, type MarkBucket } from '../shared/marker';
+import { buildMarkBuckets, scanMarkHits, type MarkBucket } from '../shared/marker';
 // 离线回归检查（node 运行，无需浏览器）：
 //   1. M0 时序 A/B：捕获归属、换视频重置、跨视频旧响应丢弃。
 //   2. M1 词汇逻辑：规范化去重、上下文追加 / 去重、状态保持与显式更新。
@@ -417,6 +417,7 @@ console.log('M3 词形：关联、独立与冲突');
     { key: 'constraint', expression: 'constraint', status: 'learning' as const, forms: [] },
     { key: 'go', expression: 'go', status: 'saved' as const, forms: ['went'] },
   ];
+  check('旧 learning 词条与词形按已收藏标记', buildMarkBuckets([{key:'en::walk',expression:'walk',language:'en',status:'learning',forms:['walked']}]).get('en')?.statusByKey.get('walked') === 'saved');
   const fi = buildFormIndex(items);
   check('constrained 关联 constrain', fi.get('constrained') === 'constrain');
   check('constraining 关联 constrain', fi.get('constraining') === 'constrain');

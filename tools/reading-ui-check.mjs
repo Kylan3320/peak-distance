@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 const profile=await mkdtemp(join(tmpdir(),'pd-ui-polish-'));
 const extension=resolve('.output/chrome-mv3');
-const context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,viewport:{width:1100,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
+const context=await chromium.launchPersistentContext(profile,{...(process.env.BLC_CHROME?{executablePath:process.env.BLC_CHROME}:{channel:'chromium'}),headless:true,viewport:{width:1100,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
 context.setDefaultTimeout(8000);
 const errors=[];context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));
 try {
@@ -22,6 +22,7 @@ try {
   const url='https://example.com/ui-polish';
   await context.route('https://example.com/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><html lang="en"><meta charset="utf-8"><title>A thoughtful approach to work</title><article><p>The quality of our work lies in the details.</p></article></html>'}));
   assert.equal((await send({type:'save',snapshot:{source:'web',expression:'hilarious',sentence:'This is hilarious.',url,title:'Reading source',lang:'en'},definition:'很可笑的，很滑稽的'})).ok,true);
+  await send({type:'setStatus',key:'en::hilarious',status:'learning',vaultId:null});
   await send({type:'setNote',key:'en::hilarious',note:'用于描述令人发笑的情境。',vaultId:null});
   const panel=await context.newPage();await panel.goto(`${base}/sidepanel.html#list`);await panel.waitForFunction(()=>!document.body.inert);
   const row=panel.locator('#list .entry[data-key="en::hilarious"]');await row.waitFor();
@@ -38,15 +39,30 @@ try {
   await row.locator('.entry-details summary').click();
   assert.equal(await row.locator('.context').evaluate(n=>n.firstElementChild.className),'sentence');
   const picker=row.locator('select.status');
+  assert.deepEqual(await picker.locator('option').evaluateAll(options=>options.map(option=>option.value)),['saved','known']);
+  assert.equal(await picker.inputValue(),'saved');
   assert.equal(await picker.evaluate(n=>getComputedStyle(n).appearance),'base-select');
   await picker.click();assert.equal(await picker.evaluate(n=>n.matches(':open')),true);
   await panel.screenshot({path:'/tmp/peak-distance-picker.png'});
   await panel.keyboard.press('ArrowDown');await panel.keyboard.press('Enter');
-  await panel.waitForFunction(async()=>(await chrome.runtime.sendMessage({type:'listEntries'})).entries[0].status==='learning');
+  await panel.waitForFunction(async()=>(await chrome.runtime.sendMessage({type:'listEntries'})).entries[0].status==='known');
+  await send({type:'setStatus',key:'en::hilarious',status:'saved',vaultId:null});
   await panel.screenshot({path:'/tmp/peak-distance-vocab.png'});
   console.log('PASS picker keyboard selection and persistence; note preview, cancel, failed-save draft and successful save; context order');
 
-  if(process.argv.includes('--learning-only')) {
+  if(process.argv.includes('--status-only')) {
+    await send({type:'setStatus',key:'en::hilarious',status:'learning',vaultId:null});
+    await panel.getByRole('button',{name:'原句复习',exact:true}).click();
+    await panel.locator('#review-body').getByRole('button',{name:'英语',exact:true}).click();
+    await panel.locator('.review-progress').filter({hasText:'已收藏'}).waitFor();
+    await panel.getByRole('button',{name:'显示单词',exact:true}).click();
+    assert.equal(await panel.getByRole('button',{name:'学习中',exact:true}).count(),0);
+    assert.equal(await panel.getByRole('button',{name:'已掌握',exact:true}).count(),1);
+    assert.equal((await send({type:'listEntries'})).entries[0].status,'learning');
+    await panel.getByRole('button',{name:'下一条',exact:true}).click();
+    await panel.locator('[data-i18n="本轮复习完成 🎉"]').waitFor();
+    console.log('PASS legacy status remains stored, appears as saved and advances in review');
+  } else if(process.argv.includes('--learning-only')) {
     const web=await context.newPage();await web.goto(url);await web.locator('html[data-blc-web="1"]').waitFor();
     await panel.locator('#views [data-view="subs"]').click();await web.bringToFront();
     await panel.getByRole('heading',{name:'A thoughtful approach to work',exact:true}).waitFor();

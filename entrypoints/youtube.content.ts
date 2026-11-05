@@ -579,7 +579,7 @@ export default defineContentScript({
           .wrap { text-align:center; padding:12px 18px; background:#151719; border-radius:0 0 8px 8px; }
           .en { font-weight:600; overflow-wrap:anywhere; } .zh { font-size:.8em; color:#e1cc91; margin-top:6px; }
           .notice { color:#b7bdc7; font-size:14px; } .w { cursor:pointer; border-radius:3px; } .w:hover { background:#454d58; }
-          .w:focus-visible { outline:2px solid #8ab4f8; } .saved { border-bottom:2px solid #8ab4f8; } .learning { border-bottom:2px solid #fdd663; } .known { color:#9aa0a6; }
+          .w:focus-visible { outline:2px solid #8ab4f8; } .saved { border-bottom:2px solid #8ab4f8; } .known { color:#9aa0a6; }
           button { cursor:pointer; margin:6px; padding:4px 10px; border:1px solid #555; border-radius:5px; background:#292b30; color:#eee; font:14px system-ui; }
           :host([data-fullscreen]) .wrap { background:transparent; padding:4px 8px; text-shadow:0 1px 3px #000,0 0 2px #000; }
           :host([data-fullscreen]) .en,:host([data-fullscreen]) .zh { width:fit-content;max-width:100%;margin-left:auto;margin-right:auto;background:rgba(16,18,20,.25);padding:2px 8px;border-radius:4px; }
