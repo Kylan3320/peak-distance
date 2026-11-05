@@ -23,6 +23,7 @@ import {
   type ContextExplanation,
   type VocabStatus,
   VOCAB_STATUS_LABEL,
+  visibleVocabStatus,
 } from '@/shared/vocab';
 import { entryKeyOf } from './languages';
 import { readingIcon, readingIconStyles, animateBookmark } from './readingIcons';
@@ -177,7 +178,6 @@ export function createLookupPopup(opts: {
         .chip { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
                 font:12px/1.6 system-ui; vertical-align: 3px; }
         .chip.saved { background: var(--pd-selected); color: var(--pd-blue); }
-        .chip.learning { background: #fef7e0; color: #b06000; }
         .chip.known { background: #e6f4ea; color: #137333; }
         .ctx { color: var(--pd-muted); font-size: 13px; margin: 4px 0 8px;
                display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -194,8 +194,10 @@ export function createLookupPopup(opts: {
         audio {width:100%;margin-top:8px}
         .link-btn {cursor:pointer;color:var(--pd-blue);font:13px/1.5 system-ui;border:0;background:transparent;border-radius:6px;padding:6px 8px;min-height:32px}
         .link-btn:hover {background:var(--pd-selected)}
-        .row { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .sources {padding-top:12px;border-top:1px solid var(--pd-line);gap:4px;margin-bottom:8px}
+        .row { margin-top: 12px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+        .sources {padding-top:12px;border-top:1px solid var(--pd-line);margin-bottom:4px}
+        .sources select {border-color:transparent;background:transparent;padding-left:7px}
+        .actions .close {margin-left:auto}
         .sources a {display:inline-flex;align-items:center;gap:4px;min-height:34px;padding:4px 7px;border-radius:6px;color:var(--pd-muted);font:13px/1.5 system-ui;text-decoration:none}
         .sources a:hover {background:var(--pd-selected);color:var(--pd-blue)}
         .sources a svg {width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
@@ -207,7 +209,6 @@ export function createLookupPopup(opts: {
         select {cursor:pointer;max-width:100%;min-height:34px;padding:6px 10px;border:1px solid var(--pd-line);border-radius:6px;font:13px/1.5 system-ui;background:var(--pd-surface)}
         select:hover {border-color:var(--pd-muted)}
         option {background:var(--pd-surface);color:var(--pd-ink)}
-        @media(max-width:359px) {.sources select {width:100%;margin-bottom:4px}}
         .feedback { font-size: 12px; margin-top: 8px; }
         .feedback:empty {display:none}
         .feedback.err { color: #d93025; }
@@ -279,8 +280,9 @@ export function createLookupPopup(opts: {
     head.textContent = p.snapshot.expression;
     if (p.status) {
       const chip = document.createElement('span');
-      chip.className = `chip ${p.status}`;
-      setText(chip, message(VOCAB_STATUS_LABEL[p.status]));
+      const status = visibleVocabStatus(p.status);
+      chip.className = `chip ${status}`;
+      setText(chip, message(VOCAB_STATUS_LABEL[status]));
       head.appendChild(chip);
     }
     body.appendChild(head);
@@ -306,7 +308,7 @@ export function createLookupPopup(opts: {
 
     // 操作区
     const row = document.createElement('div');
-    row.className = 'row';
+    row.className = 'row actions';
 
     const save = document.createElement('button');
     save.className = `act reading-icon save${p.savedContextId !== null ? ' is-saved' : ''}`;
@@ -349,11 +351,11 @@ export function createLookupPopup(opts: {
       const sel = document.createElement('select');
       sel.className = 'status';
       setLocalizedAttribute(sel, 'aria-label', message('学习状态'));
-      for (const s of ['saved', 'learning', 'known'] as const) {
+      for (const s of ['saved', 'known'] as const) {
         const opt = document.createElement('option');
         opt.value = s;
         setText(opt, message(VOCAB_STATUS_LABEL[s]));
-        if (p.status === s) opt.selected = true;
+        if (p.status && visibleVocabStatus(p.status) === s) opt.selected = true;
         sel.appendChild(opt);
       }
       sel.addEventListener('change', () => void doStatus(sel.value as VocabStatus));
@@ -361,7 +363,7 @@ export function createLookupPopup(opts: {
     }
 
     const close = document.createElement('button');
-    close.className = 'act reading-icon';
+    close.className = 'act reading-icon close';
     close.innerHTML = readingIcon('close');
     setLocalizedAttribute(close, 'title', message('关闭'));
     setLocalizedAttribute(close, 'aria-label', message('关闭'));

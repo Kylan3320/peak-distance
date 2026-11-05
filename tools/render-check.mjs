@@ -199,10 +199,10 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   );
   check('标记：saved 样式', byText.get('abandon')?.cls === 'blc-mark saved');
   check('标记：known 低强调样式', byText.get('probe')?.cls === 'blc-mark known');
-  check('标记：learning 样式', byText.get('committee')?.cls === 'blc-mark learning');
+  check('标记：旧 learning 按已收藏显示', byText.get('committee')?.cls === 'blc-mark saved');
   check(
     '标记：短语最长优先（give up 整体，give 不单独拆）',
-    byText.get('give up')?.status === 'learning' && !byText.has('give'),
+    byText.get('give up')?.status === 'saved' && !byText.has('give'),
     JSON.stringify([...byText.keys()]),
   );
   const skipped = await page.evaluate(

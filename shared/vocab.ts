@@ -40,6 +40,11 @@ export type VocabStatus = 'saved' | 'learning' | 'known';
 
 export const VOCAB_STATUSES: readonly VocabStatus[] = ['saved', 'learning', 'known'];
 
+/** 旧版学习中记录继续保留，界面和标记按已收藏处理。 */
+export function visibleVocabStatus(status: VocabStatus): 'saved' | 'known' {
+  return status === 'known' ? 'known' : 'saved';
+}
+
 /** 状态的界面显示名（词卡与侧栏共用）。 */
 export const VOCAB_STATUS_LABEL: Record<VocabStatus, string> = {
   saved: '已收藏',

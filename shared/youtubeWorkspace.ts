@@ -4,7 +4,7 @@ import type { Cue } from './protocol';
 import type { Settings } from './settings';
 import type { EntryView } from './messages';
 import { cueWords, fmtClock } from './cues';
-import { sentenceId, type SavedSentence, type VideoRef } from './vocab';
+import { sentenceId, visibleVocabStatus, type SavedSentence, type VideoRef } from './vocab';
 import { normalizeExpressionInLanguage } from './languages';
 import { shadowSelection } from './selection';
 import { readingIcon, readingIconStyles, animateBookmark, type ReadingIcon } from './readingIcons';
@@ -40,7 +40,7 @@ const css = `
   .meta { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:8px; color:var(--pd-muted); font-size:12px; }
   .meta button {font-size:var(--pd-text-meta);padding:2px 7px} .meta button[data-playback] {min-height:28px;padding:2px 4px;border:0;background:transparent;color:var(--pd-muted);font-variant-numeric:tabular-nums} .meta button[data-playback]:hover {background:var(--pd-selected);color:var(--pd-blue)} .muted { color:var(--pd-muted); padding:12px; }
   .w { cursor:pointer; border-radius:3px; } .w:hover { background:var(--pd-selected); }
-  .saved { border-bottom:2px solid var(--pd-blue); } .learning { border-bottom:2px solid var(--pd-gold); } .known { color:var(--pd-muted); }
+  .saved { border-bottom:2px solid var(--pd-blue); } .known { color:var(--pd-muted); }
   .word { font-size:16px; } details { margin-top:8px; } summary { cursor:pointer; color:var(--pd-blue); }
   ${readingIconStyles}
   .save-error {color:#b3261e;font-size:12px;flex-basis:100%}
@@ -209,8 +209,8 @@ export function createYoutubeWorkspace(actions: {
           const row = document.createElement('div'); row.className = 'row';
           const expr = button(row, entry.expression, () => { const i = state.cues.findIndex(cue => cue.start === c.video?.startMs && cue.text === c.sentence); if (i >= 0) actions.lookup(entry.expression, i, expr); else actions.open('list'); }); expr.dataset.word = entry.expression;
           const status = document.createElement('select'); setLocalizedAttribute(status, 'aria-label', message('{expression} 学习状态',{expression:entry.expression}));
-          for (const [value, label] of [['saved',message('已收藏')],['learning',message('在学')],['known',message('已掌握')]] as const) { const option = document.createElement('option'); option.value = value!; setText(option,label!); status.append(option); }
-          status.value = entry.status; status.addEventListener('change', () => actions.status(entry.key, status.value)); row.append(status);
+          for (const [value, label] of [['saved',message('已收藏')],['known',message('已掌握')]] as const) { const option = document.createElement('option'); option.value = value!; setText(option,label!); status.append(option); }
+          status.value = visibleVocabStatus(entry.status); status.addEventListener('change', () => actions.status(entry.key, status.value)); row.append(status);
           const sentence = document.createElement('div'); sentence.textContent = c.sentence; row.append(sentence);
           const link = document.createElement('a'); link.href = c.url; link.textContent = fmtClock(c.video!.startMs); link.style.color = 'var(--pd-blue)';
           link.dataset.playback = ''; link.addEventListener('click', e => { const i = state.cues.findIndex(cue => cue.start === c.video!.startMs); if (i >= 0) { e.preventDefault(); actions.seek(i); } });

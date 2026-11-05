@@ -11,7 +11,7 @@
 
 import { normalizeExpressionInLanguage, parseEntryKey, primaryOfLang } from '@/shared/languages';
 import { detectTextLanguage, segmentWords } from '@/shared/tokenize';
-import type { VocabIndexItem } from '@/shared/vocab';
+import { visibleVocabStatus, type VocabIndexItem } from '@/shared/vocab';
 
 const STYLE_ID = 'blc-mark-style';
 const MARK_ATTR = 'data-blc-key';
@@ -75,6 +75,7 @@ export function buildMarkBuckets(items: VocabIndexItem[]): Map<string, MarkBucke
   const formConflict = new Set<string>();
 
   for (const it of items) {
+    const status = visibleVocabStatus(it.status);
     const lang = it.language ? primaryOfLang(it.language) : 'en';
     const bucket = bucketFor(lang);
     const norm = (t: string) => normalizeExpressionInLanguage(t, lang);
@@ -83,18 +84,18 @@ export function buildMarkBuckets(items: VocabIndexItem[]): Map<string, MarkBucke
     const key = norm(expression);
     if (!key) continue;
     if (/\s/.test(key)) {
-      bucket.phrases.set(key, it.status);
-      if (isSpacelessScript(lang)) bucket.phrases.set(key.replace(/\s+/g, ''), it.status);
+      bucket.phrases.set(key, status);
+      if (isSpacelessScript(lang)) bucket.phrases.set(key.replace(/\s+/g, ''), status);
     } else {
-      bucket.statusByKey.set(key, it.status);
+      bucket.statusByKey.set(key, status);
     }
     for (const f of it.forms ?? []) {
       const fk = norm(parseEntryKey(f)?.expression ?? f);
       if (!fk || fk === key) continue;
       const ownerKey = `${lang}\u0000${fk}`;
       const prev = formOwner.get(ownerKey);
-      if (prev && prev.status !== it.status) formConflict.add(ownerKey);
-      else if (!prev) formOwner.set(ownerKey, { lang, status: it.status });
+      if (prev && prev.status !== status) formConflict.add(ownerKey);
+      else if (!prev) formOwner.set(ownerKey, { lang, status });
     }
   }
   for (const [ownerKey, owner] of formOwner) {
@@ -186,10 +187,6 @@ export function createMarker(opts: {
       span.blc-mark[${MARK_ATTR}].saved {
         background: rgba(26, 115, 232, 0.08) !important;
         border-bottom: 1px solid #1a73e8 !important;
-      }
-      span.blc-mark[${MARK_ATTR}].learning {
-        background: rgba(254, 240, 201, 0.6) !important;
-        border-bottom: 1px solid #b06000 !important;
       }
       span.blc-mark[${MARK_ATTR}].known {
         color: #5f6368 !important;

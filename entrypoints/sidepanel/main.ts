@@ -18,7 +18,7 @@ import { CHAT_ADD_ICON } from '@/shared/brand';
 
 import { iconButton, uiIcon } from '@/shared/uiControls';
 import type { EntryView, SubViewState, ChatSourceInfo } from '@/shared/messages';
-import { videoContextUrl, blankExpression, generalMeaning, VOCAB_STATUS_LABEL, type LearningResult, type SavedSentence, type VocabStatus } from '@/shared/vocab';
+import { videoContextUrl, blankExpression, generalMeaning, VOCAB_STATUS_LABEL, visibleVocabStatus, type LearningResult, type SavedSentence, type VocabStatus } from '@/shared/vocab';
 import { buildReviewQueue, refreshQueue, scopeEntries, type LearningScope, type ReviewItem } from '@/shared/review';
 import { createArticleLearning, articleSource, type ArticleLearningSnapshot, type LearningCategory } from './articleLearning';
 import { appendKnowledgeBody, knowledgeRow } from './knowledgeView';
@@ -311,10 +311,10 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
 
   const sel = el('select', 'status') as HTMLSelectElement;
   setLocalizedAttribute(sel, 'aria-label', message('{expression} 学习状态', {expression:entry.expression}));
-  for (const s of ['saved', 'learning', 'known'] as const) {
+  for (const s of ['saved', 'known'] as const) {
     const opt = el('option', undefined, message(VOCAB_STATUS_LABEL[s]));
     opt.value = s;
-    if (entry.status === s) opt.selected = true;
+    if (visibleVocabStatus(entry.status) === s) opt.selected = true;
     sel.appendChild(opt);
   }
   sel.addEventListener('change', async () => {
@@ -324,7 +324,7 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
       status: sel.value as VocabStatus,
       vaultId,
     });
-    if (!r?.ok) sel.value = entry.status;
+    if (!r?.ok) sel.value = visibleVocabStatus(entry.status);
   });
   head.appendChild(sel);
   const noteEdit = iconButton('edit', message('编辑笔记'));
@@ -994,7 +994,7 @@ function renderReview(): void {
   }
   const it = reviewQueue[reviewIdx]!;
   const prog = el('div', 'review-progress');
-  setText(prog,message('{index} / {count} · {status}',{index:reviewIdx+1,count:reviewQueue.length,status:message(VOCAB_STATUS_LABEL[it.status])}));
+  setText(prog,message('{index} / {count} · {status}',{index:reviewIdx+1,count:reviewQueue.length,status:message(VOCAB_STATUS_LABEL[visibleVocabStatus(it.status)])}));
   body.appendChild(prog);
 
   const card = el('div', 'review-card');
@@ -1043,9 +1043,6 @@ function renderReview(): void {
     });
     actions.appendChild(reveal);
   } else {
-    const learn = el('button', 'ghost', message('在学'));
-    learn.addEventListener('click', () => void reviewStatus('learning'));
-    actions.appendChild(learn);
     const known = el('button', undefined, message('已掌握'));
     known.addEventListener('click', () => void reviewStatus('known'));
     actions.appendChild(known);

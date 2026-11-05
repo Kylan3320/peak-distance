@@ -131,7 +131,7 @@ export async function ensureVault(dir: DirHandle): Promise<VaultIdentity> {
       '# 学习库',
       '',
       '- 生词本.md、句子.md 与知识点.md 按记录分节；对话/ 下每个会话一份 Markdown。记录的 id、language、expression 与原句由扩展管理。',
-      '- 状态取值：saved = 已收藏，learning = 在学，known = 已掌握。',
+      '- 状态取值：saved = 已收藏，known = 已掌握；旧值 learning 按已收藏显示。',
       '- 修改“我的笔记”或状态会被扩展读回；改语言/表达等身份请通过扩展入口。',
       '- 知识点可修改 YAML 中的 title（JSON 字符串）和 body 标记之间的正文；来源、已存引文和 origin 用于独立恢复，请保留。共享知识点的所有浏览器均需支持本库格式。',
       '- `.peak-distance` 保存恢复数据、身份、路径索引及旧散文件备份；整个文件夹一起保留，请勿手改辅助数据。',
