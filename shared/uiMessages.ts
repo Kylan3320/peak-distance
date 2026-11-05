@@ -478,6 +478,7 @@ export const UI_MESSAGES: Record<string, readonly [string, string, string, strin
   '移除词形关联「{form}」': ['移除“{form}”的关联', '移除「{form}」的關聯', 'Unlink “{form}”', '„{form}“ nicht mehr verknüpfen', 'Dissocier « {form} »'],
   '语言筛选：{language}': ['筛选语言：{language}', '篩選語言：{language}', 'Language filter: {language}', 'Sprachfilter: {language}', 'Filtre de langue : {language}'],
   '{word} · {count} 次': ['{word} · {count} 次', '{word} · {count} 次', '{word} · {count} occurrences', '{word} · {count} Treffer', '{word} · {count} occurrences'],
+  '{count} 次': ['{count} 次', '{count} 次', '{count} occurrences', '{count} Treffer', '{count} occurrences'],
   '{expression} 学习状态': ['{expression}：学习状态', '{expression}：學習狀態', 'Learning status: {expression}', 'Lernstatus: {expression}', 'État d’apprentissage : {expression}'],
   '正在获取{language}译文…': ['正在读取{language}译文…', '正在讀取{language}譯文…', 'Loading {language} translation…', '{language}-Übersetzung wird geladen…', 'Chargement de la traduction en {language}…'],
   '已连接 · 待写入 {count} 项 · 上次写入 {time}': ['已连接 · 待同步 {count} 项 · 上次同步 {time}', '已連接 · 待同步 {count} 項 · 上次同步 {time}', 'Connected · {count} pending · Last sync {time}', 'Verbunden · {count} ausstehend · Letzter Abgleich {time}', 'Connecté · {count} en attente · Dernière synchronisation {time}'],

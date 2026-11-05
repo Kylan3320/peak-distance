@@ -41,7 +41,24 @@ const css = `
   .meta button {font-size:var(--pd-text-meta);padding:2px 7px} .meta button[data-playback] {min-height:28px;padding:2px 4px;border:0;background:transparent;color:var(--pd-muted);font-variant-numeric:tabular-nums} .meta button[data-playback]:hover {background:var(--pd-selected);color:var(--pd-blue)} .muted { color:var(--pd-muted); padding:12px; }
   .w { cursor:pointer; border-radius:3px; } .w:hover { background:var(--pd-selected); }
   .saved { border-bottom:2px solid var(--pd-blue); } .known { color:var(--pd-muted); }
-  .word { font-size:16px; } details { margin-top:8px; } summary { cursor:pointer; color:var(--pd-blue); }
+  .word-heading {display:flex;align-items:baseline;gap:8px;min-width:0}
+  button.word-action {min-width:0;max-width:100%;padding:2px 0;border:0;background:transparent;text-align:start;font-size:16px;font-weight:600;line-height:1.5;overflow-wrap:anywhere}
+  button.word-action:hover {background:transparent;color:var(--pd-blue)}
+  button.word-action.saved {border:0;text-decoration:underline;text-decoration-color:var(--pd-blue);text-decoration-thickness:1px;text-underline-offset:4px}
+  .word-count {flex:none;color:var(--pd-muted);font-size:12px}
+  .word-details {margin-top:4px}
+  .word-details summary {width:fit-content;cursor:pointer;color:var(--pd-muted);font-size:12px;padding:3px 0}
+  .word-details summary:hover {color:var(--pd-blue)}
+  .word-details .meta {align-items:baseline;margin-top:4px}
+  .word-details .occurrence {min-width:0;max-width:100%;padding:2px 4px;border:0;background:transparent;text-align:start;overflow-wrap:anywhere}
+  .word-details .occurrence:hover {background:var(--pd-selected)}
+  .saved-heading {display:flex;align-items:center;gap:8px;min-width:0}
+  .saved-heading .word-action {flex:1}
+  .saved-heading select {flex:none;max-width:45%;min-height:32px;padding:3px 6px;border:0;background:transparent;color:var(--pd-muted);font-size:12px}
+  .saved-heading select:hover {background:var(--pd-paper);color:var(--pd-ink)}
+  .saved-context {margin-top:3px;line-height:1.6;overflow-wrap:anywhere}
+  .saved-time {display:inline-flex;min-height:28px;align-items:center;color:var(--pd-muted);font-size:12px;font-variant-numeric:tabular-nums;text-decoration:none}
+  .saved-time:hover {color:var(--pd-blue);text-decoration:underline}
   ${readingIconStyles}
   .save-error {color:#b3261e;font-size:12px;flex-basis:100%}
   ::selection {background:var(--pd-selected);color:var(--pd-ink)}
@@ -190,13 +207,16 @@ export function createYoutubeWorkspace(actions: {
         if (!state.cues.length) empty(message(state.notice || '字幕尚未就绪'));
         for (const item of cueWords(state.cues, state.trackLang || undefined)) {
           const row = document.createElement('div'); row.className = 'row';
-          const word = button(row, message('{word} · {count} 次',{word:item.word,count:item.count}), () => { details.open = true; actions.lookup(item.word, item.positions[0]!, word); });
-          word.className = 'word'; word.dataset.word = item.word;
-          const details = document.createElement('details'), summary = document.createElement('summary'); setText(summary, message('字幕位置')); details.append(summary);
+          const heading = document.createElement('div'); heading.className = 'word-heading'; row.append(heading);
+          const word = button(heading, item.word, () => { details.open = true; actions.lookup(item.word, item.positions[0]!, word); });
+          word.className = 'word-action'; word.dataset.word = item.word;
+          setLocalizedAttribute(word, 'aria-label', message('{word} · {count} 次',{word:item.word,count:item.count}));
+          const count = document.createElement('span'); count.className = 'word-count'; count.setAttribute('aria-hidden','true'); setText(count, message('{count} 次',{count:item.count})); heading.append(count);
+          const details = document.createElement('details'), summary = document.createElement('summary'); details.className = 'word-details'; setText(summary, message('字幕位置')); details.append(summary);
           for (const i of item.positions) {
             const cue = state.cues[i]!, place = meta(details);
             button(place, fmtClock(cue.start), () => actions.seek(i)).dataset.playback = '';
-            const lookup = button(place, cue.text, () => actions.lookup(item.word, i, lookup)); lookup.dataset.word = item.word;
+            const lookup = button(place, cue.text, () => actions.lookup(item.word, i, lookup)); lookup.className = 'occurrence'; lookup.dataset.word = item.word;
           }
           row.append(details); body.append(row);
         }
@@ -207,12 +227,13 @@ export function createYoutubeWorkspace(actions: {
         for (const entry of state.entries) for (const c of entry.contexts.filter(c => c.video?.videoId === state.videoId)) {
           count++;
           const row = document.createElement('div'); row.className = 'row';
-          const expr = button(row, entry.expression, () => { const i = state.cues.findIndex(cue => cue.start === c.video?.startMs && cue.text === c.sentence); if (i >= 0) actions.lookup(entry.expression, i, expr); else actions.open('list'); }); expr.dataset.word = entry.expression;
+          const heading = document.createElement('div'); heading.className = 'saved-heading'; row.append(heading);
+          const expr = button(heading, entry.expression, () => { const i = state.cues.findIndex(cue => cue.start === c.video?.startMs && cue.text === c.sentence); if (i >= 0) actions.lookup(entry.expression, i, expr); else actions.open('list'); }); expr.className = 'word-action'; expr.dataset.word = entry.expression;
           const status = document.createElement('select'); setLocalizedAttribute(status, 'aria-label', message('{expression} 学习状态',{expression:entry.expression}));
           for (const [value, label] of [['saved',message('已收藏')],['known',message('已掌握')]] as const) { const option = document.createElement('option'); option.value = value!; setText(option,label!); status.append(option); }
-          status.value = visibleVocabStatus(entry.status); status.addEventListener('change', () => actions.status(entry.key, status.value)); row.append(status);
-          const sentence = document.createElement('div'); sentence.textContent = c.sentence; row.append(sentence);
-          const link = document.createElement('a'); link.href = c.url; link.textContent = fmtClock(c.video!.startMs); link.style.color = 'var(--pd-blue)';
+          status.value = visibleVocabStatus(entry.status); status.addEventListener('change', () => actions.status(entry.key, status.value)); heading.append(status);
+          const sentence = document.createElement('div'); sentence.className = 'saved-context'; sentence.textContent = c.sentence; row.append(sentence);
+          const link = document.createElement('a'); link.className = 'saved-time'; link.href = c.url; link.textContent = fmtClock(c.video!.startMs);
           link.dataset.playback = ''; link.addEventListener('click', e => { const i = state.cues.findIndex(cue => cue.start === c.video!.startMs); if (i >= 0) { e.preventDefault(); actions.seek(i); } });
           row.append(link); body.append(row);
         }
