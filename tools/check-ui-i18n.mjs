@@ -42,6 +42,44 @@ try {
   const panel=await context.newPage();
   await panel.goto(`chrome-extension://${id}/sidepanel.html#list`);
   await panel.waitForFunction(()=>!document.body.inert);
+  const search=panel.getByRole('searchbox');
+  assert.equal(await search.getAttribute('placeholder'),null);
+  await panel.locator('.library-tabs [data-view="knowledge"]').click();
+  assert.equal(await search.getAttribute('placeholder'),null);
+  await panel.locator('.library-tabs [data-view="sentences"]').click();
+  assert.equal(await search.getAttribute('placeholder'),null);
+  assert.equal(await panel.locator('#language-filter').isVisible(),false);
+  const sentenceRows=panel.locator('#sentences-list .entry');
+  const seedSentences=await options.evaluate(async()=>{
+    const video={videoId:'search-fixture',trackId:'en',trackKind:'manual',trackLang:'en',startMs:0};
+    return Promise.all([
+      chrome.runtime.sendMessage({type:'saveSentence',sentence:{video,title:'Search fixture',text:'The northern lights.',zh:'北极光。',endMs:1500}}),
+      chrome.runtime.sendMessage({type:'saveSentence',sentence:{video:{...video,startMs:2000},title:'Search fixture',text:'A clear night.',endMs:3500}}),
+    ]);
+  });
+  assert.ok(seedSentences.every(result=>result.ok));
+  await panel.waitForFunction(()=>document.querySelectorAll('#sentences-list .entry').length===2);
+  await panel.setViewportSize({width:320,height:790});
+  assert.ok(await panel.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth));
+  if(output)await panel.screenshot({path:path.join(output,'sentence-search.png')});
+  await panel.setViewportSize({width:1100,height:850});
+  for(const query of ['  NORTHERN  ','极光']) {
+    await search.fill(query);
+    await sentenceRows.filter({hasText:'A clear night.'}).waitFor({state:'hidden'});
+    assert.equal(await sentenceRows.locator('.sentence').innerText(),'The northern lights.');
+    await search.fill('');
+    await sentenceRows.filter({hasText:'A clear night.'}).waitFor();
+  }
+  await search.fill('not-a-match');
+  await options.locator('#displayLanguage').selectOption('en');
+  await panel.getByRole('searchbox',{name:'Search sentences'}).waitFor();
+  await panel.getByText('No matching sentences.',{exact:true}).waitFor();
+  await panel.locator('#sentences-list [data-i18n="清除搜索"]').click();
+  assert.equal(await search.inputValue(),'');
+  await panel.waitForFunction(()=>document.querySelectorAll('#sentences-list .entry').length===2);
+  await options.locator('#displayLanguage').selectOption('zh-Hans');
+  await panel.waitForFunction(()=>document.documentElement.lang==='zh-Hans');
+  await panel.locator('.library-tabs [data-view="list"]').click();
   await panel.locator('.entry-expand').click();
   await panel.getByRole('button',{name:'添加笔记',exact:true}).click();
   await options.locator('#ai-settings > summary').click();
