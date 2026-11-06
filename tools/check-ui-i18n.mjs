@@ -131,13 +131,13 @@ try {
   await options.locator('#key').fill('local-test-key');
   await options.locator('#save').click();
   await options.waitForFunction(async()=>!!(await chrome.storage.local.get('aiServices')).aiServices?.profiles?.deepseek?.apiKey);
-  await options.waitForFunction(()=>document.querySelector('#state')?.getAttribute('data-i18n')==='已保存并启用');
-  assert.equal(await options.locator('#ai-current').isVisible(),true);
+  await options.locator('#ai-current').filter({hasText:'deepseek-flash'}).waitFor();
+  assert.equal(await options.locator('#state').isVisible(),false);
   await options.locator('#ai-advanced summary').click();
   await options.locator('#ai-model').fill('changed-model');
   assert.equal(await options.locator('#state').getAttribute('data-i18n'),'尚未保存');
   await options.locator('#ai-model').fill('deepseek-flash');
-  assert.equal(await options.locator('#state').getAttribute('data-i18n'),'已配置');
+  assert.equal(await options.locator('#state').isVisible(),false);
   await panel.locator('[data-view="chat"]').click();
   assert.equal(await panel.locator('#chat-actions').isVisible(),false);
   for(const [index,locale] of Object.keys(headings).entries()) {

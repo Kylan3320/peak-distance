@@ -3,10 +3,10 @@ import { onAppearanceChange } from './appearance';
 import { AI_PRESETS, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiProfile, type AiProvider, type AiServices, type AiProtocol } from './aiConfig';
 import { TARGET_LANGUAGES, langDisplayName, primaryOfLang, type LanguageTag } from './languages';
 import { authorizeVaultInPage, pickVaultDirectoryInPage } from '@/lib/vault/fs';
-import { uiIcon } from './uiControls';
+import { iconButton, uiIcon } from './uiControls';
 import type { VaultFormatDiagnostic, VaultStatus } from './vault';
 import type { VaultConnectResult, VaultMutationResult } from './messages';
-import { DISPLAY_LANGUAGES, DISPLAY_LANGUAGE_NAMES, localize, onDisplayLanguageChange, getDisplayLanguage, t, message, setText, setLocalizedAttribute, languageLabel, type UiText } from './i18n';
+import { DISPLAY_LANGUAGES, DISPLAY_LANGUAGE_NAMES, localize, onDisplayLanguageChange, getDisplayLanguage, getDisplayLocale, t, message, setText, setLocalizedAttribute, languageLabel, type UiText } from './i18n';
 
 /** 理解语言候选：中文区分简繁，其余用主标签。 */
 const COMPREHENSION_OPTIONS: LanguageTag[] = [
@@ -19,17 +19,19 @@ export function mountSettings(root: HTMLElement) {
     <label class="settings-field"><span data-i18n="显示语言"></span><select id="displayLanguage"></select></label>
     <label class="settings-field"><span data-i18n="默认理解语言"></span><select id="defaultComprehensionLang"></select></label>
     <details class="settings-details"><summary data-i18n="单独设置"></summary>
-      <div id="lang-overrides" class="settings-status"></div>
-      <div class="language-rule"><label class="ai-field"><span data-i18n="原文语言"></span><select id="override-source"></select></label><label class="ai-field"><span data-i18n="默认理解语言"></span><select id="override-target"></select></label><button id="override-add" data-i18n="添加覆盖" disabled></button></div>
-    </details><div id="lang-state" class="settings-status" role="status"></div></section>
+      <div id="lang-overrides"></div>
+      <div class="language-rule"><label><span data-i18n="原文语言"></span><select id="override-source"></select></label><label><span data-i18n="默认理解语言"></span><select id="override-target"></select></label><button id="override-add" class="ui-icon-button" type="button" disabled>${uiIcon('add')}</button></div>
+      <div id="lang-state" class="settings-status err" role="status"></div>
+    </details></section>
     <section class="settings-section"><h2 data-i18n="查词设置"></h2>
     <label class="settings-field"><span data-i18n="词汇标记"></span><input id="markingEnabled" type="checkbox"></label>
     <label class="settings-field"><span data-i18n="首选词典"></span><select id="primaryDictionary"><option value="youdao" data-i18n="有道"></option><option value="cambridge" data-i18n="剑桥英汉"></option></select></label>
     <label class="settings-field"><span data-i18n="备用词典"></span><select id="backupDictionary"><option value="cambridge" data-i18n="剑桥英汉"></option><option value="youdao" data-i18n="有道"></option></select></label>
     <label class="settings-field"><span data-i18n="无词典结果时自动使用 AI 查词"></span><input id="aiLookupFallback" type="checkbox"></label>
     <details class="settings-details"><summary data-i18n="查询缓存"></summary>
-    <label class="settings-field"><span data-i18n="查询缓存上限"></span><span class="settings-number"><input id="cacheLimit" type="number" min="20" max="500" step="1"><small class="hint">20–500</small></span></label>
-    <button id="clear-query-cache" data-i18n="清除查询缓存"></button><p id="cache-state" class="settings-status" role="status"></p>
+    <label class="settings-field"><span data-i18n="查询缓存上限"></span><input id="cacheLimit" type="number" min="20" max="500" step="1" data-i18n-title="请检查输入范围" aria-describedby="cache-range"></label>
+    <span id="cache-range" class="ui-sr-only" data-i18n="请检查输入范围"></span>
+    <button id="clear-query-cache" class="settings-action" type="button"><span data-i18n="清除查询缓存"></span>${uiIcon('trash')}${uiIcon('check')}</button><div id="cache-state" class="settings-status err" role="status"></div><span id="cache-announcement" class="ui-sr-only" role="status"></span>
     </details></section>
     <section class="settings-section"><h2 data-i18n="字幕设置"></h2>
     <label class="settings-field"><span data-i18n="默认翻译方式"></span><select id="translationMode"><option value="regular" data-i18n="常规翻译"></option><option value="ai" data-i18n="AI 翻译（LLM）"></option></select></label>
@@ -37,10 +39,10 @@ export function mountSettings(root: HTMLElement) {
     <label class="settings-field"><span data-i18n="显示译文字幕"></span><input id="chineseVisible" type="checkbox"></label>
     <label class="settings-field"><span data-i18n="字幕字号"></span><select id="subtitleSize"><option value="small" data-i18n="小"></option><option value="standard" data-i18n="标准"></option><option value="large" data-i18n="大"></option></select></label></section>
     <section class="settings-section vault-section"><h2 data-i18n="学习库"></h2>
-    <div class="vault-overview"><div class="vault-summary"><span id="vault-label"></span><div id="vault-meta" class="hint" hidden><span id="vault-pending"></span><span id="vault-time"></span></div></div><div class="vault-tools"><button id="vault-connect" class="primary"><span id="vault-connect-label" data-i18n="连接学习文件夹"></span><span id="vault-folder-icon" hidden>${uiIcon('folder')}</span></button><button id="vault-flush" class="ui-icon-button" hidden>${uiIcon('sync')}</button><button id="vault-disconnect" class="ui-icon-button" hidden>${uiIcon('disconnect')}</button></div></div>
+    <div class="vault-overview"><div class="vault-summary"><span id="vault-label"></span><span id="vault-pending" class="hint" hidden></span><span id="vault-time" class="ui-sr-only"></span></div><div class="vault-tools"><button id="vault-connect" class="primary"><span id="vault-connect-label" data-i18n="连接学习文件夹"></span><span id="vault-folder-icon" hidden>${uiIcon('folder')}</span></button><button id="vault-flush" class="ui-icon-button" aria-describedby="vault-time" hidden>${uiIcon('sync')}</button><button id="vault-disconnect" class="ui-icon-button" hidden>${uiIcon('disconnect')}</button></div></div>
     <div id="vault-state" class="settings-status" role="status"></div>
     </section>
-    <details id="ai-settings" class="settings-section settings-details ai-section"><summary data-i18n="AI 服务"></summary>
+    <details id="ai-settings" class="settings-section settings-details settings-group ai-section"><summary data-i18n="AI 服务"></summary>
     <fieldset id="ai-fields"><div class="ai-form-row"><label for="ai-provider" data-i18n="服务商"></label><div class="ai-control"><select id="ai-provider" aria-describedby="ai-current"></select><p id="ai-current" class="hint" hidden></p></div></div>
     <div class="ai-form-row"><label for="key" data-i18n="API Key"></label><div class="ai-control"><div class="ai-key-control"><input id="key" class="settings-key" type="password" autocomplete="off" spellcheck="false"><button id="clear" class="ui-icon-button ui-danger" type="button" hidden>${uiIcon('trash')}</button></div></div></div>
     <details id="ai-advanced" class="settings-details"><summary data-i18n="高级设置"></summary>
@@ -48,9 +50,9 @@ export function mountSettings(root: HTMLElement) {
       <label class="ai-field"><span data-i18n="API 地址（Base URL）"></span><input id="ai-url" type="url" placeholder="https://api.example.com/v1" spellcheck="false"></label>
       <label class="ai-field"><span data-i18n="模型 ID"></span><input id="ai-model" type="text" spellcheck="false"></label>
     </details><div class="ai-footer"><button id="save" class="ui-icon-button" type="button">${uiIcon('save')}</button><div id="state" class="settings-status" role="status"></div></div></fieldset></details>
-    <details class="settings-section settings-details"><summary data-i18n="更多设置"></summary>
-    <label class="settings-field"><span data-i18n="常规翻译来源"></span><select id="regularTranslation"><option value="browser-native" data-i18n="浏览器内置翻译"></option><option value="google-gtx" data-i18n="Google 免费翻译"></option></select></label><button id="prepare-native" data-i18n="准备内置翻译"></button></details>
-    <p id="version" class="hint settings-version"></p>`;
+    <details class="settings-section settings-details settings-group"><summary data-i18n="翻译设置"></summary>
+    <label class="settings-field"><span data-i18n="常规翻译来源"></span><select id="regularTranslation"><option value="browser-native" data-i18n="浏览器内置翻译"></option><option value="google-gtx" data-i18n="Google 免费翻译"></option></select></label><button id="prepare-native" class="settings-action" type="button"><span data-i18n="准备内置翻译"></span>${uiIcon('external')}</button></details>
+    <details class="settings-section settings-details settings-group settings-about"><summary data-i18n="关于"></summary><div class="settings-field"><span data-i18n="版本"></span><span id="version" class="hint"></span></div></details>`;
   localize(root);
   const get = <T extends HTMLElement>(id:string) => root.querySelector<T>(`#${id}`)!;
   get('prepare-native').onclick = () => void browser.runtime.sendMessage({type:'prepareNativeTranslation', sourceLang:'en', targetLang:get<HTMLSelectElement>('defaultComprehensionLang').value});
@@ -59,10 +61,15 @@ export function mountSettings(root: HTMLElement) {
     section.open = true;
     if (reveal) section.scrollIntoView({block:'start'});
   };
-  const report = (id:string,key:string,ok:boolean|null) => {const el=get(id);el.setAttribute('data-i18n',key);el.textContent=t(key);el.className=`settings-status${ok===null?'':ok?' ok':' err'}`;el.hidden=id==='state'&&key==='已配置';if(id==='state'&&ok===false)showAi();};
+  const reportAi = (key: string, error = false) => {
+    const status = get('state');
+    setText(status, key ? message(key) : '');
+    status.classList.toggle('err', error);
+    if (error) showAi();
+  };
   const themeControl=get<HTMLSelectElement>('appearanceTheme');
   onAppearanceChange(theme=>{themeControl.value=theme;});
-  for(const [id,label] of [['vault-flush','立即同步'],['vault-disconnect','断开'],['clear','清除当前 Key'],['save','保存并使用']] as const) {
+  for(const [id,label] of [['override-add','添加覆盖'],['vault-flush','立即同步'],['vault-disconnect','断开'],['clear','清除当前 Key'],['save','保存并使用']] as const) {
     setLocalizedAttribute(get(id), 'title', message(label));
     setLocalizedAttribute(get(id), 'aria-label', message(label));
   }
@@ -70,13 +77,23 @@ export function mountSettings(root: HTMLElement) {
   display.add(new Option(t('跟随浏览器'), 'auto'));
   for (const language of DISPLAY_LANGUAGES) display.add(new Option(DISPLAY_LANGUAGE_NAMES[language], language));
   let services: AiServices = {active:'deepseek',profiles:{}};
-  get<HTMLButtonElement>('clear-query-cache').onclick = async () => {
-    const button = get<HTMLButtonElement>('clear-query-cache'); button.disabled = true;
+  const clearCache = get<HTMLButtonElement>('clear-query-cache');
+  let cacheConfirmation: ReturnType<typeof setTimeout>;
+  clearCache.onclick = async () => {
+    clearTimeout(cacheConfirmation);
+    clearCache.disabled = true;
+    clearCache.dataset.cleared = 'false';
+    setText(get('cache-state'), '');
+    setText(get('cache-announcement'), '');
     try {
       const result = await browser.runtime.sendMessage({type:'clearQueryCache'}) as {ok:boolean};
-      setText(get('cache-state'), message(result?.ok ? '查询缓存已清除' : '清除失败，请重试'));
+      if (result?.ok) {
+        clearCache.dataset.cleared = 'true';
+        setText(get('cache-announcement'), message('查询缓存已清除'));
+        cacheConfirmation = setTimeout(() => { clearCache.dataset.cleared = 'false'; }, 1600);
+      } else setText(get('cache-state'), message('清除失败，请重试'));
     } catch {setText(get('cache-state'), message('清除失败，请重试'));}
-    finally {button.disabled = false;}
+    finally {clearCache.disabled = false;}
   };
   let selected: AiProvider = 'deepseek';
   const provider = get<HTMLSelectElement>('ai-provider');
@@ -87,7 +104,7 @@ export function mountSettings(root: HTMLElement) {
     const saved=services.profiles[selected];let reusable=false;
     try{reusable=!!saved?.apiKey&&saved.protocol===get<HTMLSelectElement>('ai-protocol').value&&normalizeAiBaseUrl(saved.baseUrl)===normalizeAiBaseUrl(get<HTMLInputElement>('ai-url').value);}catch{/* incomplete URL */}
     get('clear').hidden=!saved?.apiKey;
-    get<HTMLInputElement>('key').placeholder=t(reusable?'已保存；留空保留当前 Key':saved?.apiKey?'地址或接口已变更，请填写对应 Key':'输入所选服务的 API Key');
+    setLocalizedAttribute(get('key'), 'placeholder', message(reusable?'已保存；留空保留当前 Key':saved?.apiKey?'地址或接口已变更，请填写对应 Key':'输入所选服务的 API Key'));
   }
   function draft(): AiProfile {
     const baseUrl=get<HTMLInputElement>('ai-url').value.trim();
@@ -106,9 +123,10 @@ export function mountSettings(root: HTMLElement) {
     const saved=services.profiles[selected]??defaultAiProfile(selected),current=draft();
     const changed=(['protocol','baseUrl','model','apiKey'] as const).some(key=>current[key]!==saved[key]);
     get('save').classList.toggle('is-pending',changed||selected!==services.active||!saved.apiKey);
-    if(changed)report('state','尚未保存',null);
-    else if(selected!==services.active)report('state','保存后切换至此服务',null);
-    else report('state',saved.apiKey?'已配置':'未配置',saved.apiKey?true:null);
+    if(changed)reportAi('尚未保存');
+    else if(!saved.apiKey)reportAi('未配置');
+    else if(selected!==services.active)reportAi('保存后切换至此服务');
+    else reportAi('');
   }
   function showProvider() {
     const pending=drafts.get(selected);
@@ -124,12 +142,14 @@ export function mountSettings(root: HTMLElement) {
   for(const id of ['key','ai-url','ai-model'])get(id).addEventListener('input',()=>{updateKeyControls();showAiState();});
   get('ai-protocol').addEventListener('change',()=>{updateKeyControls();showAiState();});
   let aiLoaded = false;
+  const savedSettings: Record<string, unknown> = {...DEFAULT_SETTINGS};
   async function load() {
     try {
       const stored=await browser.storage.local.get([...Object.keys(DEFAULT_SETTINGS),'deepseekApiKey','aiServices']);
       for(const [name,fallback] of Object.entries(DEFAULT_SETTINGS)) {
         if(name==='comprehensionOverrides')continue; // 对象值由覆盖编辑器单独处理
         const control=get<HTMLInputElement|HTMLSelectElement>(name),value=validSetting(name,stored[name])?stored[name]:fallback;
+        savedSettings[name] = value;
         if(control instanceof HTMLInputElement && control.type==='checkbox')control.checked=!!value;else control.value=String(value);
       }
       renderOverrides(validSetting('comprehensionOverrides',stored.comprehensionOverrides)?(stored.comprehensionOverrides as Record<string,string>):{});
@@ -141,7 +161,7 @@ export function mountSettings(root: HTMLElement) {
       } else if (JSON.stringify(next) !== JSON.stringify(services)) {
         services=next;showActiveAi();updateKeyControls();showAiState();
       }
-    } catch {report('state','设置读取失败，请重新打开设置重试',false);}
+    } catch {reportAi('设置读取失败，请重新打开设置重试',true);}
   }
   for(const name of Object.keys(DEFAULT_SETTINGS)) {
     if(name==='comprehensionOverrides')continue;
@@ -150,20 +170,27 @@ export function mountSettings(root: HTMLElement) {
     const caption=field.querySelector(':scope > span[data-i18n]');
     if(caption)setLocalizedAttribute(control,'aria-label',message(caption.getAttribute('data-i18n')!));
     const status=document.createElement('small');status.className='settings-field-state';status.setAttribute('role','status');field.append(status);
-    let noticeTimer:ReturnType<typeof setTimeout>;
-    const saved=(key:string,ok:boolean)=>{
-      clearTimeout(noticeTimer);setText(status,message(key));status.className=`settings-field-state ${ok?'ok':'err'}`;
-      if(ok)noticeTimer=setTimeout(()=>setText(status,''),1800);
+    const reportError = (key: string) => {
+      setText(status, key ? message(key) : '');
+      status.classList.toggle('err', !!key);
+      if (key) control.setAttribute('aria-invalid', 'true');
+      else control.removeAttribute('aria-invalid');
     };
+    const checkbox = control instanceof HTMLInputElement && control.type === 'checkbox' ? control : null;
+    let attempt = 0;
     control.addEventListener('change',async()=>{
-      const value=control instanceof HTMLInputElement&&control.type==='checkbox'?control.checked:name==='cacheLimit'?Number(control.value):control.value;
-      if(!validSetting(name,value)){saved('请检查输入范围',false);return;}
-      try{await browser.storage.local.set({[name]:value});saved('已保存',true);}catch{
-        if(name==='appearanceTheme'){
-          const theme=document.documentElement.dataset.pdTheme;
-          if(control.value===value)control.value=theme??DEFAULT_SETTINGS.appearanceTheme;
-        }
-        saved('保存失败，请重试',false);
+      const current = ++attempt;
+      const value = checkbox ? checkbox.checked : name === 'cacheLimit' ? Number(control.value) : control.value;
+      if (!validSetting(name, value)) { reportError('请检查输入范围'); return; }
+      reportError('');
+      try {
+        await browser.storage.local.set({[name]:value});
+        savedSettings[name] = value;
+      } catch {
+        if (current !== attempt) return;
+        if (checkbox) checkbox.checked = !!savedSettings[name];
+        else if (name !== 'cacheLimit') control.value = String(savedSettings[name]);
+        reportError('保存失败，请重试');
       }
     });
   }
@@ -192,34 +219,57 @@ export function mountSettings(root: HTMLElement) {
   get('override-source').addEventListener('change',updateRuleChoices);
   get('override-target').addEventListener('change',updateRuleChoices);
   let currentOverrides: Record<string,string> = {};
+  let ruleBusy = false;
+  async function changeRule(source: string, target?: string): Promise<Record<string,string> | null> {
+    if (ruleBusy) return null;
+    ruleBusy = true;
+    setText(get('lang-state'), '');
+    try {
+      const stored = await browser.storage.local.get('comprehensionOverrides');
+      const current = (stored.comprehensionOverrides ?? {}) as Record<string,string>;
+      const next = target === undefined ? {...current} : Object.fromEntries(Object.entries(current).map(([language, value]) => [primaryOfLang(language), value]));
+      if (target === undefined) delete next[source];
+      else next[source] = target;
+      if (!validSetting('comprehensionOverrides', next)) {
+        setText(get('lang-state'), message('覆盖无效'));
+        return null;
+      }
+      await browser.storage.local.set({comprehensionOverrides:next});
+      return next;
+    } catch {
+      setText(get('lang-state'), message('保存失败，请重试'));
+      return null;
+    } finally { ruleBusy = false; }
+  }
   function renderOverrides(overrides:Record<string,string>) {
     currentOverrides=overrides;
     const box=get('lang-overrides');box.replaceChildren();
-    const entries=Object.entries(overrides);
-    if(!entries.length){box.className='hint';box.textContent=t('尚未设置覆盖。');return;}
-    box.className='settings-status';
-    for(const [src,target] of entries){
-      const row=document.createElement('div');row.className='settings-actions';
+    for(const [src,target] of Object.entries(overrides)){
+      const row=document.createElement('div');row.className='language-rule-item';
       const label=document.createElement('span');label.textContent=`${langDisplayName(src)} → ${langDisplayName(target)}`;row.appendChild(label);
-      const remove=document.createElement('button');remove.textContent=t('移除');
+      const remove=iconButton('trash',message('移除'));remove.classList.add('ui-danger');
       remove.addEventListener('click',async()=>{
-        const stored=await browser.storage.local.get('comprehensionOverrides');
-        const next={...(stored.comprehensionOverrides as Record<string,string>)};
-        delete next[src];
-        await browser.storage.local.set({comprehensionOverrides:next});
-        renderOverrides(next);report('lang-state','已移除',true);
+        const next = await changeRule(src);
+        if (!next) return;
+        const focused = document.activeElement === remove;
+        renderOverrides(next);
+        if (focused) get('override-source').focus({preventScroll:true});
       });
       row.appendChild(remove);box.appendChild(row);
     }
   }
   get('override-add').addEventListener('click',async()=>{
-    const src=get<HTMLSelectElement>('override-source').value,target=get<HTMLSelectElement>('override-target').value;
-    if(!src||!target||primaryOfLang(src)===primaryOfLang(target)){report('lang-state','原文和译文不能是同一种语言。',false);return;}
-    const stored=await browser.storage.local.get('comprehensionOverrides');
-    const next={...Object.fromEntries(Object.entries(stored.comprehensionOverrides??{}).map(([language, target])=>[primaryOfLang(language),target])),[src]:target};
-    if(!validSetting('comprehensionOverrides',next)){report('lang-state','覆盖无效',false);return;}
-    await browser.storage.local.set({comprehensionOverrides:next});
-    renderOverrides(next);report('lang-state','已添加规则',true);
+    const source=get<HTMLSelectElement>('override-source'),target=get<HTMLSelectElement>('override-target');
+    const src = source.value, dest = target.value;
+    const next = await changeRule(src, dest);
+    if (!next) return;
+    renderOverrides(next);
+    if (source.value === src && target.value === dest) {
+      if (document.activeElement === get('override-add')) source.focus({preventScroll:true});
+      source.value = '';
+      target.value = get<HTMLSelectElement>('defaultComprehensionLang').value;
+      updateRuleChoices();
+    }
   });
 
   // ---- 学习库：连接 / 断开 / 立即同步 ----------------------------------------------
@@ -254,10 +304,13 @@ export function mountSettings(root: HTMLElement) {
       if(!s){showVaultNotice(vaultDiagnosticNotice()??message('状态读取失败'),true);return;}
       const reconnect=s.connected&&s.lastError==='no-permission';
       setText(get('vault-label'),message(reconnect?'需要重新连接':s.connected?'已连接':'未连接。'));
-      get('vault-meta').hidden=!s.connected;
-      const time=s.lastCommitAt?new Date(s.lastCommitAt).toLocaleTimeString():'—';
+      get('vault-pending').hidden=s.pendingCount===0;
       setText(get('vault-pending'),message('待同步 {count} 项',{count:s.pendingCount}));
-      setText(get('vault-time'),message('上次同步 {time}',{time}));
+      const lastSync=s.lastCommitAt ? message('上次同步 {time}',{
+        time:new Intl.DateTimeFormat(getDisplayLocale(),{dateStyle:'short',timeStyle:'short'}).format(s.lastCommitAt),
+      }) : null;
+      setText(get('vault-time'),lastSync??'');
+      setLocalizedAttribute(get('vault-flush'),'title',lastSync ? message('{source} · {text}',{source:message('立即同步'),text:lastSync}) : message('立即同步'));
       const connect=get<HTMLButtonElement>('vault-connect'),compact=s.connected&&!reconnect;
       connect.className=compact?'ui-icon-button':'primary';
       get('vault-connect-label').hidden=compact;
@@ -326,24 +379,24 @@ export function mountSettings(root: HTMLElement) {
   void syncOnActivity();
   get('save').addEventListener('click',async()=>{
     const profile=draft(),error=validateAiProfile(profile);
-    if(error){report('state',error,false);return;}
+    if(error){reportAi(error,true);return;}
     profile.baseUrl=normalizeAiBaseUrl(profile.baseUrl);
     const target=selected;get<HTMLFieldSetElement>('ai-fields').disabled=true;
     try {
       // Keep the permissions request in the click gesture, before storage awaits.
       const allowed=await browser.permissions.request({origins:[`${new URL(profile.baseUrl).origin}/*`]});
-      if(!allowed){report('state','未获得该 API 地址的访问权限，配置未更改。再次保存可重试。',false);return;}
+      if(!allowed){reportAi('未获得该 API 地址的访问权限，配置未更改。再次保存可重试。',true);return;}
       const latest=readAiServices(await browser.storage.local.get(['aiServices','deepseekApiKey']));
       const next:AiServices={active:target,profiles:{...latest.profiles,[target]:profile}};
       await browser.storage.local.set({aiServices:next});
       services=readAiServices(await browser.storage.local.get('aiServices'));
-      selected=services.active;drafts.delete(target);showProvider();report('state','已保存并启用',true);
-    } catch {report('state','保存失败，请重试；新地址需要允许浏览器访问',false);}
+      selected=services.active;drafts.delete(target);showProvider();
+    } catch {reportAi('保存失败，请重试；新地址需要允许浏览器访问',true);}
     finally {get<HTMLFieldSetElement>('ai-fields').disabled=false;}
   });
   get('clear').addEventListener('click',async()=>{
     const target=selected;get<HTMLFieldSetElement>('ai-fields').disabled=true;
-    try{const latest=readAiServices(await browser.storage.local.get(['aiServices','deepseekApiKey']));latest.profiles[target]={...latest.profiles[target]??defaultAiProfile(target),apiKey:''};await browser.storage.local.set({aiServices:latest});if(target==='deepseek')await browser.storage.local.remove('deepseekApiKey');services=readAiServices(await browser.storage.local.get('aiServices'));drafts.delete(target);showProvider();report('state','已清除所选服务的 Key',true);}catch{report('state','清除失败，请重试',false);}finally{get<HTMLFieldSetElement>('ai-fields').disabled=false;}
+    try{const latest=readAiServices(await browser.storage.local.get(['aiServices','deepseekApiKey']));latest.profiles[target]={...latest.profiles[target]??defaultAiProfile(target),apiKey:''};await browser.storage.local.set({aiServices:latest});if(target==='deepseek')await browser.storage.local.remove('deepseekApiKey');services=readAiServices(await browser.storage.local.get('aiServices'));drafts.delete(target);showProvider();}catch{reportAi('清除失败，请重试',true);}finally{get<HTMLFieldSetElement>('ai-fields').disabled=false;}
   });
   get('version').textContent=`v${browser.runtime.getManifest().version}`;
   onDisplayLanguageChange(()=>{
@@ -356,6 +409,7 @@ export function mountSettings(root: HTMLElement) {
     for(const option of provider.options) option.textContent=providerLabel(option.value as AiProvider);
     showActiveAi();
     updateKeyControls();renderOverrides(currentOverrides);
+    void refreshVault();
   });
   void load();return {refresh:load,showAi};
 }

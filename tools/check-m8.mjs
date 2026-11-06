@@ -89,12 +89,12 @@ try {
   await frame.getByRole('button',{name:'设置',exact:true}).click();
   await frame.locator('#ai-settings > summary').click();
   const pageCount=context.pages().length;
-  await frame.locator('#key').fill('m8-disposable-test-key');await frame.locator('#save').click();await frame.locator('#state').filter({hasText:'已保存'}).waitFor();
+  await frame.locator('#key').fill('m8-disposable-test-key');await frame.locator('#save').click();await frame.locator('#ai-current').waitFor();
   check('面板内设置不创建标签页',context.pages().length===pageCount);
   check('key 输入保存后清空',await frame.locator('#key').inputValue()==='');
   check('宿主无法读取扩展 iframe',await page.locator('#pd-floating-panel iframe').evaluate(el=>el.contentDocument===null));
   check('普通设置快照不含 key',!JSON.stringify(await send({type:'getSettings'})).includes('m8-disposable-test-key'));
-  await frame.locator('#markingEnabled').uncheck();await frame.locator('#markingEnabled').locator('..').locator('.settings-field-state.ok').filter({hasText:'已保存'}).waitFor();
+  await frame.locator('#markingEnabled').uncheck();await frame.waitForFunction(async()=> (await chrome.storage.local.get('markingEnabled')).markingEnabled===false);
   check('设置写入实际存储',(await send({type:'getSettings'})).settings.markingEnabled===false);
   await frame.locator('#workspace-back').click();
   await frame.getByRole('button',{name:'AI问答',exact:true}).click();

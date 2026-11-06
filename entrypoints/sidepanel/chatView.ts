@@ -617,10 +617,10 @@ function showCitationPanel(blockId: string, text: string, isVideo: boolean, loca
   const panel = document.getElementById('chat-cite-panel')!;
   panel.textContent = '';
   const head = el('div', 'cite-head');
-  const title = el('span', undefined, isVideo ? message('引用 {id}（已跳转）',{id:blockId}) : message('引用 {id}',{id:blockId}));
+  const title = el('span', undefined, message('引用 {id}',{id:blockId}));
   head.appendChild(title);
-  if (!isVideo) {
-    head.appendChild(el('span', 'cite-state', located ? message('已定位到原文') : message('页面已变化，显示保存的原文')));
+  if (!isVideo && !located) {
+    head.appendChild(el('span', 'cite-state', message('页面已变化，显示保存的原文')));
   }
   const close = el('button', 'cite-close', '×');
   close.addEventListener('click', () => {
@@ -748,8 +748,8 @@ function renderAttachment(): void {
 const historyList = el('div', 'chat-recent-list');
 const historyMeta = el('div', 'chat-history-meta');
 const historyTotal = el('span');
-const historyFeedback = el('span'); historyFeedback.setAttribute('role', 'status');
-historyMeta.append(historyTotal, historyFeedback);
+historyTotal.setAttribute('role', 'status');
+historyMeta.append(historyTotal);
 const historyRows = new Map<string, { item: HTMLElement; open: HTMLButtonElement; dispose():void }>();
 let historyRequest = 0;
 const clearButton = createDeleteButton({ buttonText: '清空', onDelete: () => void clearConversation() });
@@ -777,7 +777,6 @@ async function refreshHistory(): Promise<void> {
       });
       const remove = createDeleteButton({ onDelete: () => {
         remove.setDisabled(true); error.textContent = '';
-        historyFeedback.textContent = '';
         const current = chatId === c.chatId;
         const op = current ? ++operation : operation;
         void send<{ ok: boolean }>({ type: 'chatDelete', chatId: c.chatId }).then(async result => {
@@ -785,7 +784,6 @@ async function refreshHistory(): Promise<void> {
           historyRequest++;
           remove.dispose();item.remove(); historyRows.delete(c.chatId);
           setText(historyTotal, message('历史 · {count} 个对话',{count:historyRows.size}));
-          setText(historyFeedback, message('已删除一个对话'));
           if (current && op === operation) {
             const active = await send<ChatActiveResult>({ type: 'chatActive' });
             if (active?.ok && active.chat && op === operation) { noteSourceTab(active); await acceptRecord(active.chat); }
@@ -870,6 +868,17 @@ function updateStreamingMessage(msg: ChatMessageRecord): boolean {
     if (list) list.scrollTop = list.scrollHeight;
   }
   return true;
+}
+
+async function refreshKnowledgePending(state: HTMLElement) {
+  const { pendingKnowledge: id, pendingVault: vaultId } = state.dataset;
+  if (!id || !vaultId) return;
+  const result = await send<{ ok: boolean; pending: boolean }>({type:'knowledgeWritePending', id, vaultId});
+  if (result?.ok && !result.pending && state.dataset.pendingKnowledge === id && state.dataset.pendingVault === vaultId) {
+    delete state.dataset.pendingKnowledge;
+    delete state.dataset.pendingVault;
+    setText(state, '');
+  }
 }
 
 function renderMessages(): void {
@@ -967,16 +976,32 @@ function renderMessages(): void {
         const savedChatId = chatRecord.id, vaultId = chatRecord.vaultId ?? null;
         const save = iconButton('save',message('保存知识点'));
         const state = el('p', 'hint'); state.setAttribute('role', 'status');
+        const announcement = el('span', 'ui-sr-only'); announcement.setAttribute('role', 'status');
+        let confirmed: ReturnType<typeof setTimeout>;
         save.onclick = () => {
           if (tools.querySelector('.knowledge-editor')) return;
           knowledgeEditor(tools, content, async (title, body) => {
-            const result = await send<{ ok: boolean; existing?: boolean }>({ type: 'saveKnowledge', chatId: savedChatId, messageId: m.id, title, body, vaultId });
+            const result = await send<{ ok: boolean; record: {id:string}; existing: boolean }>({ type: 'saveKnowledge', chatId: savedChatId, messageId: m.id, title, body, vaultId });
             if (!result?.ok) return false;
-            setText(state, message(result.existing ? '已保存此回答，保留现有修改' : '已保存在本机，待写入学习库'));
+            delete state.dataset.pendingKnowledge;
+            delete state.dataset.pendingVault;
+            if (result.existing) setText(state, message('已保存此回答，保留现有修改'));
+            else if (vaultId) {
+              state.dataset.pendingKnowledge = result.record.id;
+              state.dataset.pendingVault = vaultId;
+              setText(state, message('已保存在本机，待写入学习库'));
+              void refreshKnowledgePending(state);
+            } else {
+              setText(state, '');
+              setText(announcement, message('已保存在本机'));
+            }
+            clearTimeout(confirmed);
+            save.innerHTML = uiIcon('check');
+            confirmed = setTimeout(() => { save.innerHTML = uiIcon('save'); setText(announcement, ''); }, 1600);
             return true;
           });
         };
-        tools.append(save, state);answerTools.append(tools);
+        tools.append(save, state, announcement);answerTools.append(tools);
       }
     }
     list.appendChild(item);
@@ -1112,6 +1137,10 @@ async function refreshAttachMenu(): Promise<void> {
 
 export function initChatView(d: ChatViewDeps): void {
   deps = d;
+  browser.runtime.onMessage.addListener((event: unknown) => {
+    if ((event as {type?: string})?.type !== 'vault-changed') return;
+    for (const state of document.querySelectorAll<HTMLElement>('#chat-list [data-pending-knowledge]')) void refreshKnowledgePending(state);
+  });
   for (const [id, label] of [['chat-stop','停止'],['chat-attachment-remove','移除材料']] as const) {
     const button = document.getElementById(id)!;
     button.innerHTML=uiIcon(id==='chat-stop'?'stop':'close');

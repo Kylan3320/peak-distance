@@ -334,8 +334,11 @@ function renderContextMeta(c: EntryView['contexts'][number]): HTMLElement {
     let noticeTimer: ReturnType<typeof setTimeout> | undefined;
     locate.onclick=async()=>{
       clearTimeout(noticeTimer);
-      setText(status,message(await locateSavedText(c.url,c.sentence)?'已定位到原文':'页面已变化，显示保存的原文'));
-      noticeTimer=setTimeout(()=>setText(status,''),4000);
+      setText(status,'');
+      if (!await locateSavedText(c.url,c.sentence)) {
+        setText(status,message('页面已变化，显示保存的原文'));
+        noticeTimer=setTimeout(()=>setText(status,''),4000);
+      }
     };
     meta.append(locate,status);
   }
@@ -1105,7 +1108,7 @@ function renderReview(): void {
     const back = iconButton(it.sourceType==='video'?'external':'locate',message('返回来源'));
     back.addEventListener('click', () => {
       if(it.sourceType==='video')window.open(it.url, '_blank', 'noopener');
-      else void locateSavedText(it.url,it.sentence).then(found=>feedback(message(found?'已定位到原文':'页面已变化，显示保存的原文'),true));
+      else void locateSavedText(it.url,it.sentence).then(found=>feedback(found ? '' : message('页面已变化，显示保存的原文'),!found));
     });
     actions.appendChild(back);
   }

@@ -796,6 +796,15 @@ export async function listKnowledgeState(): Promise<{ records: KnowledgeRecord[]
 }
 export async function listKnowledge(): Promise<KnowledgeRecord[]> {return (await listKnowledgeState()).records;}
 
+export async function isKnowledgeWritePending(id: string, owner: string): Promise<boolean> {
+  return withDb(async db => {
+    const tx = db.transaction(VAULT_QUEUE, 'readonly');
+    const key = await px(tx.objectStore(VAULT_QUEUE).getKey(`${owner}:knowledge:${id}`));
+    await txDone(tx);
+    return key !== undefined;
+  });
+}
+
 export async function saveAnswerKnowledge(chatId: string, messageId: string, title: string, body: string, owner: string | null): Promise<{ record: KnowledgeRecord; existing: boolean }> {
   return writeKnowledge(['knowledge', CHATS, VAULT, VAULT_QUEUE], async tx => {
     await assertKnowledgeOwner(tx, owner);

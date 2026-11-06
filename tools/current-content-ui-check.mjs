@@ -66,8 +66,9 @@ try {
   await panel.getByRole('heading',{name:'Article A',exact:true}).waitFor();
   await panel.locator('#web-selection .entry-expand').first().click();
   await panel.getByRole('button',{name:'定位原句',exact:true}).first().click();
-  await panel.getByText('已找到原文。',{exact:true}).first().waitFor();
-  await panel.getByText('已找到原文。',{exact:true}).first().waitFor({state:'hidden'});
+  await web.waitForFunction(()=>document.getAnimations().some(animation=>animation.id==='pd-source-highlight'));
+  assert.equal(await panel.getByText('已找到原文。',{exact:true}).count(),0);
+  await web.waitForFunction(()=>!document.getAnimations().some(animation=>animation.id==='pd-source-highlight'));
   await panel.locator('#views [data-view="list"]').click();
   await other.bringToFront();await panel.locator('#views [data-view="subs"]').click();
   await panel.getByRole('heading',{name:'Article B',exact:true}).waitFor();
@@ -183,7 +184,8 @@ try {
   assert.equal(await editor.locator('textarea').inputValue(),'Edited independent body [p1]');
   await panel.evaluate(()=>{chrome.runtime.sendMessage=originalSend;});
   await editor.getByRole('button',{name:'保存知识点',exact:true}).click();
-  await panel.getByText('已保存在本机，待写入学习库',{exact:true}).waitFor();
+  await editor.waitFor({state:'hidden'});
+  assert.equal(await panel.locator('.knowledge-save > .hint').textContent(),'');
   assert.equal((await send({type:'listKnowledge'})).records[0].source.url,a);
   await panel.locator('.knowledge-save > button').click();await editor.locator('textarea').fill('Do not replace edited knowledge');await editor.locator('button[type="submit"]').click();
   await panel.getByText('已保存此回答，保留现有修改',{exact:true}).waitFor();assert.equal((await send({type:'listKnowledge'})).records[0].body,'Edited independent body [p1]');
@@ -374,7 +376,7 @@ try {
       const savedMeaning=await target.locator('.entry-preview').innerText();
       assert.ok(savedMeaning.trim());assert.ok((await target.innerText()).includes('一般释义参考'));
       await target.getByRole('button',{name:'定位原句',exact:true}).first().click();
-      await target.getByText('已找到原文。',{exact:true}).first().waitFor();
+      await bbc.waitForFunction(()=>document.getAnimations().some(animation=>animation.id==='pd-source-highlight'));
       const sentence=await target.locator(':scope > .sentence').innerText();
       await filterArticle('en');
       await panel.getByRole('button',{name:'复习本篇',exact:true}).click();await panel.getByRole('button',{name:'显示单词',exact:true}).click();
@@ -394,7 +396,8 @@ try {
       },{actual,block});
       await send({type:'chatSelect',chatId:'bbc-existing-answer'});await panel.locator('#views [data-view="chat"]').click();
       await panel.locator('.knowledge-save > button').click();await panel.locator('.knowledge-editor button[type="submit"]').click();
-      await panel.getByText('已保存在本机，待写入学习库',{exact:true}).waitFor();
+      await panel.locator('.knowledge-editor').waitFor({state:'hidden'});
+      assert.equal(await panel.locator('.knowledge-save > .hint').textContent(),'');
       await send({type:'chatDelete',chatId:'bbc-existing-answer'});
       await panel.locator('#views [data-view="subs"]').click();await panel.locator('.article-tools [data-category="knowledge"]').click();
       // Knowledge keeps its own language scope; the vocabulary language is restored only for vocabulary.

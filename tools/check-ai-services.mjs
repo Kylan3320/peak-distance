@@ -37,8 +37,9 @@ try {
   });
   await page.goto(`chrome-extension://${id}/sidepanel.html#settings`);
   await page.waitForFunction(()=>document.body&&!document.body.inert);
-  await page.locator('#state').filter({hasText:'已配置'}).waitFor();
-  check('旧 DeepSeek Key 无需重填',await page.locator('#key').inputValue()===''&&(await page.locator('#key').getAttribute('placeholder')).includes('已保存'));
+  await page.locator('#ai-settings > summary').click();
+  await page.locator('#ai-current').waitFor();
+  check('旧 DeepSeek Key 无需重填',await page.locator('#key').inputValue()===''&&(await page.locator('#key').getAttribute('data-i18n-placeholder'))==='已保存；留空保留当前 Key');
   const send=m=>page.evaluate(m=>chrome.runtime.sendMessage(m),m);
   const snap={source:'web',expression:'with',sentence:'Stay with me.',url:'https://example.com',title:'Fixture'};
   for(const provider of ['deepseek','openai','anthropic','gemini','glm','kimi']){
@@ -46,14 +47,16 @@ try {
     await page.locator('#ai-provider').selectOption(provider);
     check(`${provider} 预设无需展开高级设置`,!await page.locator('#ai-model').isVisible());
     if(provider!=='deepseek')await page.locator('#key').fill('fixture-'+provider);
-    await page.locator('#save').click();await page.locator('#state').filter({hasText:'已保存并启用'}).waitFor();
+    await page.locator('#save').click();
+    await page.waitForFunction(async provider=>(await chrome.storage.local.get('aiServices')).aiServices?.active===provider,provider);
+    await page.locator('#state').waitFor({state:'hidden'});
     const state=await worker.evaluate(async()=> (await chrome.storage.local.get('aiServices')).aiServices);
     check(`${provider} 选择加 Key 完成持久化`,state.active===provider&&!!state.profiles[provider].baseUrl&&!!state.profiles[provider].model&&!!state.profiles[provider].apiKey);
     const explanation=await send({type:'explainContext',snapshot:snap,requestId:provider});
     check(`${provider} 解释使用对应服务与来源`,explanation.ok&&explanation.provider===provider&&explanation.model===state.profiles[provider].model);
     const translated=await send({type:'translateCues',mode:'ai',videoId:'fixture',trackId:'en',items:[{id:9,text:'Stay with me.'}],requestId:provider+'-translation'});
     check(`${provider} AI 翻译保留字幕 ID`,translated.ok&&translated.translations[0]?.id===9);
-    await page.getByRole('button',{name:'AI 问答',exact:true}).click();
+    await page.locator('#views [data-view="chat"]').click();
     await page.locator('#chat-input').fill('hello '+provider);await page.locator('#chat-send').click();
     await page.locator('#chat-list .msg.user').last().filter({hasText:'hello '+provider}).waitFor();
     await page.waitForFunction(()=>{const m=document.querySelectorAll('#chat-list .msg.assistant');return m.length&&m[m.length-1].querySelector('.state.done');});
@@ -67,15 +70,15 @@ try {
   }));check('服务切换不会串用其他服务的 Key',requestChecks);
   await page.locator('#ai-provider').selectOption('custom');
   await page.locator('#ai-url').fill('https://compatible.example/v1');await page.locator('#ai-model').fill('custom-model');await page.locator('#key').fill('fixture-custom');
-  await page.evaluate(()=>window.__allowPermission=false);await page.locator('#save').click();await page.locator('#state').filter({hasText:'配置未更改'}).waitFor();
+  await page.evaluate(()=>window.__allowPermission=false);await page.locator('#save').click();await page.locator('#state[data-i18n="未获得该 API 地址的访问权限，配置未更改。再次保存可重试。"]').waitFor();
   check('拒绝权限保留旧服务和输入',await page.locator('#key').inputValue()==='fixture-custom'&&await worker.evaluate(async()=> (await chrome.storage.local.get('aiServices')).aiServices.active)==='kimi');
-  await page.evaluate(()=>window.__allowPermission=true);await page.locator('#save').click();await page.locator('#state').filter({hasText:'已保存并启用'}).waitFor();
+  await page.evaluate(()=>window.__allowPermission=true);await page.locator('#save').click();await page.locator('#ai-current').filter({hasText:'custom-model'}).waitFor();
   check('自定义服务按所选域请求权限',await page.evaluate(()=>window.__origins.at(-1)==='https://compatible.example/*'));
   await page.locator('#ai-advanced summary').click(); // custom stays expanded after save; collapse for default view
   for(const width of [400,800]){await page.setViewportSize({width,height:1000});await page.locator('#ai-provider').selectOption('glm');await page.locator('#ai-provider').scrollIntoViewIfNeeded();await page.screenshot({path:join(output,`settings-${width}.png`)});}
   await page.locator('#ai-provider').selectOption('custom');await page.locator('#ai-url').fill('https://different.example/v1');await page.locator('#save').click();
-  await page.locator('#state').filter({hasText:'API Key'}).waitFor();check('更改地址必须重新填写对应 Key',true);
-  await page.locator('#ai-provider').selectOption('deepseek');await page.locator('#clear').click();await page.locator('#state').filter({hasText:'已清除'}).waitFor();
+  await page.locator('#state[data-i18n="请填写有效的 API Key"]').waitFor();check('更改地址必须重新填写对应 Key',true);
+  await page.locator('#ai-provider').selectOption('deepseek');await page.locator('#clear').click();await page.locator('#state[data-i18n="未配置"]').waitFor();
   check('清除旧服务 Key 不从 legacy 字段复活',await worker.evaluate(async()=> (await chrome.storage.local.get('aiServices')).aiServices.profiles.deepseek.apiKey===''));
   check('普通设置不向内容脚本返回任何服务凭据',!JSON.stringify(await send({type:'getSettings'})).includes('fixture-'));
   check('无页面脚本异常',!errors.length);
