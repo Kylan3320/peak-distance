@@ -18,19 +18,19 @@ h1 {font-size:var(--pd-text-title);line-height:1.4;margin:0 0 16px} h2 {font-siz
 .hint {color:var(--pd-muted);font-size:13px}
 .settings-page {max-width:768px;margin:32px auto;padding:0 24px}
 #settings-body {max-width:720px;margin-inline:auto}
-.settings-section {padding:0;margin:0 0 32px}
-.settings-section h2 {font:600 15px/1.5 var(--pd-font-ui);margin:0 0 8px}
-.settings-field {display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;min-height:40px;margin:4px 0;font-size:var(--pd-text-body)}
+.settings-section {padding:0;margin:0 0 28px}
+.settings-section h2 {font:600 14px/1.5 var(--pd-font-ui);margin:0 0 6px}
+.settings-field {display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;min-height:36px;margin:2px 0;font-size:var(--pd-text-body)}
 .settings-field > span:first-child {flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 .settings-field select {field-sizing:content;min-width:0;max-width:100%;margin-inline-start:auto}
 .settings-field input[type=number] {width:86px}
 .settings-field select,.ai-field select {border:0;background:transparent;padding:4px 8px;font-size:var(--pd-text-body)}
-.settings-field select:hover,.ai-field select:hover {background:var(--pd-nav)}
+.settings-field select:hover,.ai-field select:hover {background:var(--pd-hover)}
 .settings-field-state {flex-basis:100%;text-align:end;font-size:12px;line-height:1.4;color:var(--pd-muted)}
 .settings-field-state.err {color:var(--pd-danger)}.settings-field-state.ok {color:var(--pd-success)}
 .settings-field-state:empty {display:none}
-.settings-field input[type=checkbox] {appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--pd-control-line);border-radius:12px;background:var(--pd-nav);padding:2px;cursor:pointer}
-.settings-field input[type=checkbox]::before {content:'';display:block;width:14px;height:14px;border-radius:50%;background:var(--pd-muted)}
+.settings-field input[type=checkbox] {appearance:none;width:30px;height:18px;margin:0;border:1px solid var(--pd-control-line);border-radius:12px;background:var(--pd-nav);padding:2px;cursor:pointer}
+.settings-field input[type=checkbox]::before {content:'';display:block;width:12px;height:12px;border-radius:50%;background:var(--pd-muted)}
 .settings-field input[type=checkbox]:checked {border-color:var(--pd-blue);background:var(--pd-blue)}
 .settings-field input[type=checkbox]:checked::before {margin-inline-start:auto;background:white}
 @media(max-width:480px){.settings-page {margin-block:24px;padding-inline:16px}}
@@ -47,8 +47,8 @@ h1 {font-size:var(--pd-text-title);line-height:1.4;margin:0 0 16px} h2 {font-siz
 @media(prefers-reduced-motion:reduce){.settings-details[open] > :not(summary){animation:none}}
 .settings-actions {display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
 .settings-status {color:var(--pd-muted);font-size:12px;margin-top:8px}.settings-status:empty {display:none} .settings-status.err {color:var(--pd-danger)} .settings-status.ok {color:var(--pd-success)}
-.settings-key {width:100%} .settings-heading {display:flex;align-items:center;gap:8px;max-width:720px;margin:0 auto 24px} .settings-heading h1 {font-size:20px;margin:0}
-.ai-section > summary {display:flex;align-items:center;justify-content:space-between;font:600 15px/1.5 var(--pd-font-ui);color:var(--pd-ink);margin-bottom:8px}
+.settings-key {width:100%} .settings-heading {display:flex;align-items:center;gap:8px;max-width:720px;margin:0 auto 24px} .settings-heading h1 {font-size:var(--pd-text-title);margin:0}
+.ai-section > summary {display:flex;align-items:center;justify-content:space-between;font:600 14px/1.5 var(--pd-font-ui);color:var(--pd-ink);margin-bottom:6px}
 .ai-section > summary::before {order:1;margin:0 6px;flex:none}
 #ai-fields {border:0;margin:0;padding:0;min-width:0}
 .ai-field {display:flex;flex-direction:column;gap:6px;margin:14px 0}
@@ -69,7 +69,7 @@ h1 {font-size:var(--pd-text-title);line-height:1.4;margin:0 0 16px} h2 {font-siz
 .ai-form-row > label {font-size:var(--pd-text-body)}
 .ai-control {min-width:0}
 #ai-provider {width:100%;border:0;background:transparent;padding:6px 0;font-size:var(--pd-text-body)}
-#ai-provider:hover {background:var(--pd-nav)}
+#ai-provider:hover {background:var(--pd-hover)}
 #ai-current {font-size:12px;margin:4px 0 0;overflow-wrap:anywhere}
 .ai-key-control {display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:center;gap:4px}
 .ai-section #ai-advanced {margin-top:0}

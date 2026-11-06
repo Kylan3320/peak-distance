@@ -90,13 +90,11 @@
             </div>
           </details>
           <button id="chat-settings" class="chat-tool" hidden data-i18n="AI 设置">AI 设置</button>
-          <button id="chat-send" type="button" data-i18n-aria-label="发送" aria-label="发送" data-i18n-title="Enter 发送，Shift + Enter 换行" title="Enter 发送，Shift + Enter 换行"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M4 10l6-6 6 6"/></svg></button>
-          <button id="chat-stop" class="ui-icon-button" type="button" hidden></button>
+          <span id="chat-count" hidden></span>
+          <button id="chat-send" class="chat-submit" type="button" disabled data-i18n-aria-label="发送" aria-label="发送" data-i18n-title="Enter 发送，Shift + Enter 换行" title="Enter 发送，Shift + Enter 换行"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+          <button id="chat-stop" class="chat-submit" type="button" hidden></button>
         </div>
-        <div id="chat-input-meta">
-          <span id="chat-meta-error" role="status" hidden></span>
-          <span id="chat-count"></span>
-        </div>
+        <div id="chat-meta-error" role="status" hidden></div>
       </div>
     </main>
 

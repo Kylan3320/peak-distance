@@ -93,12 +93,16 @@ try {
   await panel.locator('#chat-attachment-chip').click();
   assert.equal(await panel.locator('#chat-attachment-focus').isVisible(), false);
   await panel.screenshot({ path: join(output, 'chat-with-selection.png') });
+  assert.equal(await panel.locator('#chat-send').isDisabled(), true);
   await input.fill('解释一下这段话，并提炼重点');
+  const sendSlot = await panel.locator('#chat-send').boundingBox();
   await panel.locator('#chat-send').click();
   await panel.waitForFunction(() => document.querySelector('#chat-list .msg.user .q')?.textContent === '解释一下这段话，并提炼重点');
   assert.equal(await panel.locator('#chat-list .chat-hint').count(), 0);
   assert.equal(await input.inputValue(), '');
   assert.equal(await panel.locator('#chat-stop').isVisible(), true);
+  const stopSlot = await panel.locator('#chat-stop').boundingBox();
+  assert.deepEqual(stopSlot,sendSlot,'The stop square occupies the send arrow’s slot before the first token');
   assert.equal(await panel.locator('#chat-starters button').count(), 0);
   const first = (await send({ type: 'chatActive' })).chat;
   assert.ok(first.id);

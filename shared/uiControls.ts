@@ -18,7 +18,7 @@ const paths = {
   next:'<path d="m9 6 6 6-6 6"/>',
   shuffle:'<path d="M3 6h3c4 0 5 12 10 12h5m-3-3 3 3-3 3M3 18h3c4 0 5-12 10-12h5m-3-3 3 3-3 3"/>',
   reveal:'<path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
-  stop:'<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  stop:'<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none"/>',
   copy:'<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/>',
   search:'<circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 5 5"/>',
   trash:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',

@@ -46,7 +46,7 @@ const css = `
   .w { cursor:pointer; border-radius:3px; } .w:hover { background:var(--pd-selected); }
   .saved { border-bottom:2px solid var(--pd-blue); } .known { border-bottom:1px dotted var(--pd-blue); }
   .word-heading {display:flex;align-items:baseline;gap:8px;min-width:0}
-  button.word-action {min-width:0;max-width:100%;padding:2px 0;border:0;background:transparent;text-align:start;font:600 24px/1.35 var(--pd-font-reading);overflow-wrap:anywhere}
+  button.word-action {min-width:0;max-width:100%;padding:2px 0;border:0;background:transparent;text-align:start;font:400 22px/1.35 var(--pd-font-reading);overflow-wrap:anywhere}
   button.word-action:hover {background:transparent;color:var(--pd-blue)}
   button.word-action.saved {border:0;text-decoration:underline;text-decoration-color:var(--pd-blue);text-decoration-thickness:1px;text-underline-offset:4px}
   .word-count {flex:none;color:var(--pd-muted);font-size:12px}

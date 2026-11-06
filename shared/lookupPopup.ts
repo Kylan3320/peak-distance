@@ -174,7 +174,7 @@ export function createLookupPopup(opts: {
         .compact .ctx, .compact .sub { display: none; }
         .compact .feedback:empty { display: none; }
         .card.dragging { user-select: none; }
-        .expr { font:600 24px/1.35 var(--pd-font-reading); margin: 0 0 10px; word-break: break-word;
+        .expr { font:400 22px/1.35 var(--pd-font-reading); margin: 0 0 10px; word-break: break-word;
                 cursor: grab; touch-action: none; }
         .ctx { color: var(--pd-muted); font-size: 13px; margin: 4px 0 8px;
                display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
