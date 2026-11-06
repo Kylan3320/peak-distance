@@ -33,6 +33,7 @@ const paths = {
   locate:'<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
   check:'<path d="m5 12 4 4L19 6"/>',
   close:'<path d="m6 6 12 12M6 18 18 6"/>',
+  add:'<path d="M12 5v14M5 12h14"/>',
   review:'<path d="M12 7v14M3 3h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5v15h-5a4 4 0 0 0-4 3 4 4 0 0 0-4-3H3z"/><path d="m15 10 2 2 3-4"/>',
   lookup:'<path d="M12 6a5 5 0 0 0-4-2H3v15h5a5 5 0 0 1 4 2 5 5 0 0 1 4-2h5V4h-5a5 5 0 0 0-4 2Zm0 0v15M6 8h3M6 12h3M15 8h3M15 12h3"/>',
   translate:'<path d="m5 8 6 6m-7 0 6-6 2-3H2m5-3v3m8 13 3-8 3 8m-5-3h4"/>',

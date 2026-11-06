@@ -68,6 +68,7 @@ export type BgcRequest =
   | { type: 'listSentences' }
   | { type: 'listKnowledge' }
   | { type: 'saveKnowledge'; chatId: string; messageId: string; title: string; body: string; vaultId: string | null }
+  | { type: 'knowledgeWritePending'; id: string; vaultId: string }
   | { type: 'updateKnowledge'; id: string; title: string; body: string; vaultId: string | null }
   | { type: 'deleteKnowledge'; id: string; vaultId: string | null }
   | { type: 'deleteSentence'; id: string }

@@ -43,6 +43,7 @@ try {
  const draggedBox=await popup().locator('.card').boundingBox();
  await popup().locator('#pin').click();await web.locator('#outside').click();assert.equal(await popup().count(),1);assert.equal(await web.locator('body').getAttribute('data-clicked'),'yes');
  await popup().locator('#save').click();await popup().locator('#view:not([hidden])').waitFor();
+ assert.equal(await popup().locator('#save-state').textContent(),'');
  const saved=(await send({type:'listKnowledge'})).records[0];assert.equal(saved.origin.type,'translation');assert.equal(saved.body,'US policy\nCafé!');
  await popup().locator('#close').click();assert.equal(await popup().count(),0);assert.equal(await worker.evaluate(()=>queries[0].signal.aborted),false);
  await worker.evaluate(()=>queries[0].reply('美国政策\n咖啡！'));

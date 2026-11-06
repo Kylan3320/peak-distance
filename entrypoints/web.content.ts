@@ -295,6 +295,7 @@ export default defineContentScript({
 
     // 网页引用定位：找包含保存原文前缀的文本块（通用块检测，覆盖 div 结构
     // 站点），取文本最短的命中（最内层块），滚动 + 短暂高亮
+    let sourceHighlight: Animation | undefined;
     function locateSavedText(text: string): boolean {
       const prefix = text.replace(/\s+/g, ' ').trim().slice(0, 48).toLowerCase();
       if (!prefix) return false;
@@ -317,13 +318,12 @@ export default defineContentScript({
         }
       }
       if (!best) return false;
-      best.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      const prev = (best as HTMLElement).style.boxShadow;
-      (best as HTMLElement).style.transition = 'box-shadow .3s';
-      (best as HTMLElement).style.boxShadow = '0 0 0 3px rgba(26,115,232,.65)';
-      setTimeout(() => {
-        (best as HTMLElement).style.boxShadow = prev;
-      }, 2400);
+      const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      best.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'instant' : 'smooth' });
+      sourceHighlight?.cancel();
+      const focus = {outline:'2px solid #508c80', outlineOffset:'3px'};
+      sourceHighlight = best.animate(reduceMotion ? [focus, focus] : [focus, {...focus, offset:.8}, {...focus, outlineColor:'transparent'}], 1800);
+      sourceHighlight.id = 'pd-source-highlight';
       return true;
     }
 

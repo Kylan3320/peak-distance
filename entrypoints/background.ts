@@ -1,5 +1,5 @@
 import { lookupOnline, type LookupRequestContext } from '@/lib/lookupService';
-import { listKnowledgeState, saveAnswerKnowledge, updateKnowledge, deleteKnowledge, translationKnowledgeState } from '@/lib/db';
+import { listKnowledgeState, isKnowledgeWritePending, saveAnswerKnowledge, updateKnowledge, deleteKnowledge, translationKnowledgeState } from '@/lib/db';
 import { handlePanelMessage, openPanel, startNativePanel, initPanelLifecycle } from '@/lib/panelService';
 import { handleSelectionCandidateMessage, initSelectionCandidateStore } from '@/lib/selectionCandidates';
 import { selectionError } from '@/shared/panel';
@@ -309,6 +309,11 @@ async function handle(
     case 'listKnowledge': {
       if (!sender.url?.startsWith(browser.runtime.getURL(''))) return bad('forbidden-sender');
       return { ok: true, ...await listKnowledgeState() };
+    }
+    case 'knowledgeWritePending': {
+      if (!sender.url?.startsWith(browser.runtime.getURL(''))) return bad('forbidden-sender');
+      if (typeof m.id !== 'string' || typeof m.vaultId !== 'string') return bad('bad-payload');
+      return { ok: true, pending: await isKnowledgeWritePending(m.id, m.vaultId) };
     }
     case 'saveKnowledge':
     case 'updateKnowledge':
