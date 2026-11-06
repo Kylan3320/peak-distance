@@ -10,7 +10,7 @@
 
 上一项[侧栏学习句：本地断句与来源定位](specs/subtitle-sentence-units.md) 已复验；已登录 YouTube 等待验项继续保留下方，不因 UI 规格完成而关闭。
 
-当前公开发布版为 [v0.72.0](https://github.com/Kylan3320/peak-distance/releases/tag/v0.72.0)。发布后的主线改动见 Git。
+当前公开发布版为 [v0.72.1](https://github.com/Kylan3320/peak-distance/releases/tag/v0.72.1)。发布后的主线改动见 Git。
 
 ## 未完成项
 
