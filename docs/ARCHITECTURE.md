@@ -2,6 +2,12 @@
 
 桌面 Chrome / Edge、Manifest V3，单扩展工程；WXT + TypeScript + DOM/CSS。本文维护模块职责与技术约束；精确版本、类型、格式与权限以代码和配置为准，完成状态及已知实现缺口见 [ROADMAP](ROADMAP.md)。
 
+## 外观主题（已确认目标，待实现）
+
+[整体前端改造规格](specs/ui-refresh.md)定义本轮范围，视觉规则归 [design.md](../design.md)。保持单工程与现有 DOM/CSS 实现，复用设置存储、消息通知及共用 tokens／控件；简约和经典不分叉页面或业务逻辑。
+
+主题是本浏览器设置，不进入 IndexedDB 学习记录或共享文件格式。扩展页面应用于自己的根节点，注入界面应用于自身 Shadow Host／作用域；浮动外壳和 iframe 内容保持一致，宿主正文仅允许扩展词汇标记更新自身样式。设置通知中的纯主题变化只更新外观，不进入查询、字幕获取／翻译或内容重建路径。读取主题不阻塞原文展示和关闭操作，切换保留正在进行的状态。
+
 ## 多语言与本地学习库边界
 
 - 语言与共享范围按 [M11 spec](specs/m11-multilingual-local-vault.md)，集合文档及同步修订按 [学习库集合与同步](specs/vault-collections-sync.md)。
