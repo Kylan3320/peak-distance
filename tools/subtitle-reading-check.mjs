@@ -57,7 +57,7 @@ const browser=await chromium.launch({executablePath:process.env.BLC_CHROME||'C:/
 try {
   const page=await browser.newPage({viewport:{width:800,height:700}});page.setDefaultTimeout(8000);
   await page.setContent('<div id="mount" style="height:500px;width:380px"></div>');
-  await page.evaluate(()=>{window.browser={runtime:{getURL:()=>''}};});
+  await page.evaluate(()=>{window.browser={runtime:{getURL:()=>'',onMessage:{addListener(){}},sendMessage:async()=>({ok:true,settings:{appearanceTheme:'minimal'}})}};});
   await page.addScriptTag({content:componentCode});
   await page.evaluate(()=>{
     const cues=Array.from({length:35},(_,i)=>({start:i*3000,dur:3000,lastOff:i*3000,text:`This is learning sentence number ${i}.`})).map((cue,i)=>({...cue,from:i*50,to:i*50+cue.text.length}));
@@ -113,8 +113,8 @@ try {
   await card.getByText('保存失败，请重试。',{exact:true}).waitFor();
   await page.evaluate(()=>{window.lookupFail=false;});
   await card.getByRole('button',{name:'收藏',exact:true}).evaluate(el=>{el.click();el.click();});
-  await card.getByRole('button',{name:'已收藏',exact:true}).waitFor();
-  check('lookup repeated click commits once and success uses bookmark state',await page.evaluate(()=>window.lookupCalls===2)&&await card.getByRole('button',{name:'已收藏',exact:true}).isDisabled());
+  await card.locator('.learning-status').waitFor();
+  check('lookup repeated click commits once and success uses bookmark state',await page.evaluate(()=>window.lookupCalls===2)&&await card.locator('.learning-status').getAttribute('aria-label')==='learning · 已收藏');
   check('lookup has no green save-success line',!(await card.locator('#blc-feedback').textContent()).trim());
   await page.screenshot({path:resolve(output,'lookup-saved.png')});
   console.log(`${results.length} focused runtime checks passed.`);
@@ -271,6 +271,10 @@ try {
   });
   await frame.locator('#panel-selection-actions').waitFor();
   await control.waitForFunction(async tabId=>(await chrome.runtime.sendMessage({type:'selectionCandidateGet',tabId}))?.candidate?.text==="binary. Everything's",tabId);
+  const floatingTheme=async theme=>{
+    await frame.waitForFunction(theme=>document.documentElement.dataset.pdTheme===theme&&document.querySelector('#blc-learning-panel').dataset.pdTheme===theme,theme);
+    await page.waitForFunction(theme=>document.querySelector('#pd-floating-panel').dataset.pdTheme===theme&&document.querySelector('#blc-subs').dataset.pdTheme===theme,theme);
+  };
   const readingPreserved=()=>frame.evaluate(()=>{
     const range=window.readingBody.getRootNode().getSelection().getRangeAt(0);
     return window.readingRows.every((row,i)=>row===window.readingBody.children[i])&&
@@ -301,7 +305,10 @@ try {
   await page.waitForFunction(()=>window.readingRecaptured);
   check('same-content acquisition keeps the list generation and reading state',
     (await getState()).generation===state.generation&&await readingPreserved());
-  await frame.locator('.brand-name').click();
+  await control.evaluate(()=>chrome.storage.local.set({appearanceTheme:'classic'}));
+  await floatingTheme('classic');
+  check('changing appearance preserves subtitle selection, row identity and reading position',await readingPreserved());
+  await frame.locator('#workspace-title').click();
   await frame.locator('#panel-selection-actions').waitFor({state:'detached'});
   await frame.evaluate(()=>getSelection().removeAllRanges());
   await body.evaluate(el=>el.scrollTop=0);
@@ -331,6 +338,11 @@ try {
   check('AP pauses once at the shared interval end and holds its explicitly selected row and player fragment',
     await videoTime()<2.4&&await playerEn.textContent()===playerLine&&(await getState()).currentIndex===1);
   await play();await page.waitForFunction(()=>!document.querySelector('video').paused&&document.querySelector('video').currentTime>2.3);
+  const beforeTheme=await getState();
+  await control.evaluate(()=>chrome.storage.local.set({appearanceTheme:'minimal'}));
+  await floatingTheme('minimal');
+  check('changing appearance leaves playback active and retains the subtitle generation',
+    !await page.evaluate(()=>document.querySelector('video').paused)&&(await getState()).generation===beforeTheme.generation);
   await waitPause(4);
   check('AP continues into the cross-fragment sentence and holds its final short fragment',
     await videoTime()<4.4&&await playerEn.textContent()==='because of that.'&&

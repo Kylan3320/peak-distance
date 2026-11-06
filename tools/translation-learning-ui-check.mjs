@@ -7,7 +7,7 @@ import { mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join,resolve } from 'node:path';
 const profile=await mkdtemp(join(tmpdir(),'pd-translation-ui-'));
-const context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,viewport:{width:1050,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
+const context=await chromium.launchPersistentContext(profile,{...(process.env.BLC_CHROME?{executablePath:process.env.BLC_CHROME}:{channel:'chromium'}),headless:true,viewport:{width:1050,height:850},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
 context.setDefaultTimeout(10000);
 async function until(test){const deadline=Date.now()+8000;while(!await test()){assert.ok(Date.now()<deadline,'Timed out waiting for expected translation state');await new Promise(done=>setTimeout(done,25));}}
 const errors=[];context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));
@@ -121,7 +121,8 @@ try {
 
  // Source popup implementation with deliberately reordered settings, to exercise UI identity before network startup.
  const popupBundle=(await build({stdin:{contents:"export { createTranslationPopup } from './shared/translationPopup'; export {setDisplayLanguage} from './shared/i18n';",resolveDir:process.cwd()},bundle:true,write:false,platform:'browser',format:'iife',loader:{'.css':'text'},globalName:'PopupTest'})).outputFiles[0].text;
- const lifecycle=await context.newPage();await lifecycle.goto('https://example.com/lifecycle');await lifecycle.addScriptTag({content:popupBundle});
+ const lifecycle=await context.newPage();await lifecycle.goto('https://example.com/lifecycle');await lifecycle.evaluate(()=>{window.browser={runtime:{getURL:()=>'',onMessage:{addListener(){}},sendMessage:async()=>({ok:true,settings:{appearanceTheme:'minimal'}})}};});
+ await lifecycle.addScriptTag({content:popupBundle});
  await lifecycle.evaluate(()=>{
   globalThis.pendingSettings=[];globalThis.popupCalls=[];
   globalThis.testPopup=PopupTest.createTranslationPopup(message=>{

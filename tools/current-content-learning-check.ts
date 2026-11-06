@@ -122,6 +122,7 @@ try {
   const mount = document.querySelector<HTMLElement>('main')!;
   let viewEntries:EntryView[]=[];
   let reviewed:ArticleLearningSnapshot|undefined;
+  let displayedTitle: string | undefined;
   const article = createArticleLearning(mount, {
     send: async <T>(request: unknown): Promise<T> => {
       await gate;
@@ -131,7 +132,7 @@ try {
     },
     entry: () => document.createElement('article'),
     review: state => { reviewed=state; },
-    translate: () => {}, changed: () => {},
+    translate: () => {}, title: source => {displayedTitle=source?.title;}, changed: () => {},
   });
   const otherSource = { ...source, sourceKey: 'web:https://example.com/B', title: 'B', url: 'https://example.com/B' };
   await article.update(source, null);
@@ -141,7 +142,7 @@ try {
   const editor = document.createElement('form'); editor.className = 'knowledge-editor'; mount.append(editor);
   await article.update(otherSource, null);
   assert.equal(article.snapshot().source?.sourceKey, source.sourceKey);
-  assert.equal(mount.querySelector('h1')!.textContent, 'A');
+  assert.equal(displayedTitle, 'A');
   mount.querySelector<HTMLButtonElement>('[data-i18n-aria-label="复习本篇"]')!.click();
   assert.equal(reviewed?.source?.sourceKey,source.sourceKey);
   editor.remove();
@@ -152,7 +153,7 @@ try {
   focused = null;
   await article.update(otherSource, null);
   assert.equal(article.snapshot().source?.sourceKey, otherSource.sourceKey);
-  assert.equal(mount.querySelector('h1')!.textContent, 'B');
+  assert.equal(displayedTitle, 'B');
 
   const pinned: ArticleLearningSnapshot = { source, category: 'vocab', language: 'all', pinned: true };
   article.restore(pinned);
@@ -167,7 +168,7 @@ try {
   article.restore(pinned); release(); await pending;
   assert.deepEqual(article.snapshot(), pinned, 'a delayed response must not overwrite an explicitly restored article');
   await article.update(otherSource, null);
-  assert.equal(mount.querySelector('h1')!.textContent, 'A');
+  assert.equal(displayedTitle, 'A');
 } finally {
   Object.defineProperty(selectPrototype, 'value', selectValueDescriptor);
   if (documentDescriptor) Object.defineProperty(globalThis, 'document', documentDescriptor);

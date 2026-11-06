@@ -1,3 +1,6 @@
+import { brandTokens } from './brand';
+import { uiIcon } from './uiControls';
+import { applyAppearance } from './appearance';
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 // 页面外壳只负责定位，设置与工作区运行在扩展源 iframe 内。
 import type { PanelFrameState } from './panel';
@@ -70,9 +73,10 @@ export function initFloatingPanel() {
   const show = async (view?:string) => {
     if(!host) {
       host = document.createElement('aside'); host.id = 'pd-floating-panel';
+      applyAppearance(host);
       host.style.cssText = 'position:fixed;width:min(400px,calc(100vw - 24px));height:min(720px,calc(100dvh - 32px));z-index:2147483645;';
       const root = host.attachShadow({mode:'open'});
-      root.innerHTML = `<style>:host{color-scheme:light}[hidden]{display:none!important}.shell{height:100%;display:flex;flex-direction:column;overflow:hidden;border:1px solid #ddd9cf;border-radius:12px;background:#f7f4ec;box-shadow:0 12px 40px #0003}.drag{border:0;background:#e9e6df;color:#59636b;height:16px;flex:none;cursor:move;touch-action:none;font:12px/12px system-ui}.drag:focus-visible,.retry:focus-visible{outline:2px solid #1a5fc4;outline-offset:-2px}.status{display:flex;align-items:center;gap:12px;flex:none;padding:12px;color:#59636b;font:13px/1.6 system-ui}.status-text{flex:1}.retry{font:inherit;cursor:pointer;padding:6px 10px;color:#1a5fc4;background:#fffdfa;border:1px solid #ddd9cf;border-radius:6px}iframe{border:0;width:100%;flex:1;min-height:0;background:#f7f4ec}</style><div class="shell"><button class="drag" data-i18n-aria-label="拖动面板，方向键移动" aria-label="${tr("拖动面板，方向键移动")}">⋯</button><div class="status" role="status" hidden><span class="status-text"></span><button class="retry" hidden data-i18n="重试">${tr("重试")}</button></div><iframe data-i18n-title="Peak Distance 学习面板" title="${tr("Peak Distance 学习面板")}" allow="clipboard-write"></iframe></div>`;
+      root.innerHTML = `<style>${brandTokens}[hidden]{display:none!important}.shell{height:100%;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--pd-line);border-radius:12px;background:var(--pd-paper);box-shadow:var(--pd-shadow)}.drag{border:0;background:var(--pd-nav);color:var(--pd-muted);height:16px;flex:none;cursor:move;touch-action:none;font:12px/12px system-ui}.drag:focus-visible,.retry:focus-visible{outline:2px solid var(--pd-blue);outline-offset:-2px}.status{display:flex;align-items:center;gap:12px;flex:none;padding:12px;color:var(--pd-muted);font:13px/1.6 system-ui}.status-text{flex:1}.retry{font:inherit;cursor:pointer;padding:6px 10px;color:var(--pd-blue);background:var(--pd-surface);border:1px solid var(--pd-control-line);border-radius:6px}iframe{border:0;width:100%;flex:1;min-height:0;background:var(--pd-paper)}.drag svg{width:16px;height:12px;fill:none;stroke:currentColor;stroke-width:1.6}</style><div class="shell"><button class="drag" data-i18n-aria-label="拖动面板，方向键移动" aria-label="${tr("拖动面板，方向键移动")}">${uiIcon("more")}</button><div class="status" role="status" hidden><span class="status-text"></span><button class="retry" hidden data-i18n="重试">${tr("重试")}</button></div><iframe data-i18n-title="Peak Distance 学习面板" title="${tr("Peak Distance 学习面板")}" allow="clipboard-write"></iframe></div>`;
       const frame = root.querySelector('iframe')!;
       localize(root);
       frame.addEventListener('load',()=>{frameEpoch++;frameLoaded=true;expectReady();void probe('load');});

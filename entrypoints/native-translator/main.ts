@@ -1,3 +1,4 @@
+import { applyAppearance } from '@/shared/appearance';
 import { translateNativeText, prepareNativeTranslation } from '@/lib/nativeTranslator';
 import { brandTokens, brandControls } from '@/shared/brand';
 import { TARGET_LANGUAGES } from '@/shared/languages';
@@ -5,11 +6,13 @@ import { initDisplayLanguage, getDisplayLocale, localize, languageLabel, message
 Object.assign(window, {translateNativeText});
 
 if (window === window.top) {
+  applyAppearance(document.documentElement);
   await initDisplayLanguage();
   document.head.insertAdjacentHTML('beforeend', `<style>${brandTokens}${brandControls}
-    body{margin:0;background:var(--pd-paper);color:var(--pd-ink);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif}
-    main{max-width:480px;padding:32px 20px;margin:auto}h1{font-size:18px;font-weight:600;margin:0 0 12px}
-    p{color:var(--pd-muted)}form{display:flex;gap:16px;margin:24px 0}label{flex:1;color:var(--pd-muted);font-size:12px}select{display:block;width:100%;margin-top:4px}
+    :root{--pd-paper-tile:url('/brand/paper-tile.png')}
+    body{margin:0;background-color:var(--pd-paper);background-image:var(--pd-texture);background-position:center;background-size:620px;color:var(--pd-ink);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif}
+    main{max-width:752px;padding:32px 16px;margin:auto}h1{font:600 20px/1.4 var(--pd-font-heading);margin:0 0 12px}
+    p{color:var(--pd-muted)}form{display:flex;flex-wrap:wrap;gap:16px;margin:24px 0}label{flex:1 1 140px;min-width:0;color:var(--pd-muted);font-size:12px}select{display:inline-flex;width:100%;margin-top:4px;background:var(--pd-surface);color:var(--pd-ink);border:1px solid var(--pd-control-line);border-radius:6px;padding:4px 8px}
     button{font-size:14px}#state{white-space:pre-wrap;overflow-wrap:anywhere}
   </style>`);
   document.body.innerHTML = `<main><h1 data-i18n="准备内置翻译"></h1><p data-i18n="首次使用需要下载语言模型。准备完成后可关闭此页，回到原文重试。"></p><form><label><span data-i18n="原文语言"></span><select id="source"></select></label><label><span data-i18n="目标语言"></span><select id="target"></select></label></form><button id="prepare" data-i18n="准备内置翻译"></button><button id="cancel" data-i18n="取消" hidden></button><p id="state" role="status"></p></main>`;

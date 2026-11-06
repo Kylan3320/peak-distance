@@ -14,7 +14,7 @@ const extension = !process.env.PEAK_DISTANCE_UI_EXTENSION && process.env.PEAK_DI
 const output = resolve('.upstream/chat-interactions');
 await mkdir(output, { recursive: true });
 const context = await chromium.launchPersistentContext(profile, {
-  channel: 'chromium', headless: true, viewport: { width: 440, height: 850 },
+  ...(process.env.BLC_CHROME?{executablePath:process.env.BLC_CHROME}:{channel:'chromium'}), headless: true, viewport: { width: 440, height: 850 },
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
 });
 context.setDefaultTimeout(8000);
@@ -96,7 +96,7 @@ try {
   await input.fill('解释一下这段话，并提炼重点');
   await panel.locator('#chat-send').click();
   await panel.waitForFunction(() => document.querySelector('#chat-list .msg.user .q')?.textContent === '解释一下这段话，并提炼重点');
-  assert.equal(await panel.locator('.chat-welcome').count(), 0);
+  assert.equal(await panel.locator('#chat-list .chat-hint').count(), 0);
   assert.equal(await input.inputValue(), '');
   assert.equal(await panel.locator('#chat-stop').isVisible(), true);
   assert.equal(await panel.locator('#chat-starters button').count(), 0);
@@ -104,9 +104,13 @@ try {
   assert.ok(first.id);
   assert.equal(first.messages.length, 2);
   assert.equal(first.editId, attached.chat.editId);
-  console.log('PASS boot visibility race: first send exits welcome, clears submitted input and displays the question/answer placeholder');
+  console.log('PASS boot visibility race: first send clears submitted input and displays the question/answer placeholder');
 
   await waitForRequests(1);
+  await control.evaluate(()=>chrome.storage.local.set({appearanceTheme:'classic'}));
+  await panel.waitForFunction(()=>document.documentElement.dataset.pdTheme==='classic');
+  assert.equal(await panel.locator('#chat-stop').isVisible(),true);
+  assert.equal(await panel.locator('#chat-attachment').isVisible(),true);
   await input.fill('下一问草稿');
   await input.press('Enter');
   assert.equal(await input.inputValue(), '下一问草稿');
@@ -144,11 +148,11 @@ try {
   const afterRemove = await worker.evaluate(() => globalThis.chatRequests.at(-1));
   assert.ok(!JSON.stringify(afterRemove).includes(selectedText));
   await panel.locator('#chat-head [data-i18n-aria-label="新对话"]').click();
-  await panel.locator('.chat-welcome').waitFor();
+  await panel.waitForFunction(()=>!document.querySelector('#chat-list').children.length);
   await panel.locator('#chat-head [data-i18n-aria-label="历史"]').click();
   await panel.locator('.chat-recent-row .chat-tool').click();
   await panel.waitForFunction(() => document.querySelectorAll('#chat-list .msg.user').length === 2);
-  assert.equal(await panel.locator('.chat-welcome').count(), 0);
+  assert.equal(await panel.locator('#chat-list .chat-hint').count(), 0);
   assert.equal((await send({ type: 'chatActive' })).chat.id, first.id);
   await panel.locator('.cite').first().click();
   assert.ok((await panel.locator('#chat-cite-panel').innerText()).includes(selectedText));
@@ -216,12 +220,18 @@ try {
     assert.ok((await input.boundingBox()).height <= 48);
     assert.ok(await panel.locator('#chat-list').evaluate(element => element.clientHeight) >= listHeight - 1);
     assert.ok(listHeight >= height * .5, 'Conversation retains at least half of the viewport');
-    if (width < 560) assert.ok((await panel.locator('.app-header').boundingBox()).height <= 100, 'Narrow header stays compact');
+    if (width < 560) assert.ok((await panel.locator('.workspace-bar').boundingBox()).height <= 100, 'Narrow header stays compact');
     assert.equal(await panel.locator('#chat-starters button').count(), 0, 'Starter prompts disappear after the first question');
     await resize.evaluate(element => element.blur());
     await panel.screenshot({ path: join(output, `chat-${width}.png`) });
     console.log(`PASS ${width}×${height}: compact header, outer top edge and keyboard resize, conversation space restored`);
   }
+  await input.fill('Stop the in-flight answer');
+  await input.press('Enter');
+  await waitForRequests(turns+1);
+  await panel.locator('#chat-stop').click();
+  await panel.locator('#chat-list .state.stopped').last().waitFor();
+  assert.equal(await panel.locator('#chat-send').isVisible(),true);
   assert.deepEqual(errors, []);
   console.log('PASS narrow/wide rendered conversation; no browser script errors; all AI requests used disposable test data');
 } finally {

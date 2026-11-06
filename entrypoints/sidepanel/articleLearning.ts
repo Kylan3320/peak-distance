@@ -6,7 +6,7 @@ import type { KnowledgeRecord } from '@/shared/knowledge';
 import { message, setText, languageLabel, setLocalizedAttribute, type UiText } from '@/shared/i18n';
 import type { SelectionSnapshot } from '@/shared/panel';
 import { knowledgeRow } from './knowledgeView';
-import { iconButton, uiIcon } from '@/shared/uiControls';
+import { choiceMenu, iconButton } from '@/shared/uiControls';
 
 export type LearningCategory = 'vocab' | 'knowledge';
 export interface ArticleLearningSnapshot { source: SourceDescriptor | null; category: LearningCategory; language: string; pinned: boolean }
@@ -27,6 +27,7 @@ export function createArticleLearning(mount: HTMLElement, actions: {
   entry: (entry: EntryView, vaultId: string | null) => HTMLElement;
   review: (state: ArticleLearningSnapshot) => void;
   translate: (snapshot: SelectionSnapshot) => void;
+  title: (source: SourceDescriptor | null) => void;
   changed: () => void;
 }) {
   let state: ArticleLearningSnapshot = { source: null, category: 'vocab', language: 'all', pinned: false };
@@ -41,20 +42,23 @@ export function createArticleLearning(mount: HTMLElement, actions: {
     if (version !== generation) return;
     if(vocab?.ok&&knowledge?.ok&&vocab.vaultId!==knowledge.vaultId)return;
     const next = JSON.stringify([captured, selection, vocab, knowledge]);
-    if (next === signature) return;
+    if (next === signature) { actions.title(state.source); return; }
     // Keep an open editor and unsaved notes intact during polling; mutations refresh after completion.
     if (mount.querySelector('.knowledge-editor,.note-editor') || [...mount.querySelectorAll('textarea')].some(t => t === document.activeElement)) return;
+    const sameSource = state.source?.sourceKey === captured.source?.sourceKey;
+    const expanded = new Set(sameSource ? [...mount.querySelectorAll<HTMLElement>('.entry:has(.entry-expand[aria-expanded=true])')].map(row=>row.dataset.key) : []);
+    const knowledgeExpanded = new Set(sameSource ? [...mount.querySelectorAll<HTMLDetailsElement>('.knowledge-row[open]')].map(row=>row.dataset.id) : []);
+    const selectionExpanded = sameSource && !!mount.querySelector('.selection-area details[open]');
+    const filterFocused = sameSource && !!document.activeElement?.closest('.article-filter');
     state = captured;
     signature = next; mount.replaceChildren();
-    const heading = document.createElement('h1'); heading.textContent = captured.source?.title || ''; if (!heading.textContent) setText(heading, message('当前内容')); mount.append(heading);
-    if (!captured.source) { const empty = document.createElement('p'); setText(empty, message('请打开文章或 X 帖子查看本篇学习记录')); mount.append(empty); return; }
-    const sourceLink = document.createElement('a'); sourceLink.className = 'source article-source';
-    sourceLink.textContent = new URL(captured.source.url).hostname; sourceLink.href = captured.source.url;
-    sourceLink.title = captured.source.url; sourceLink.setAttribute('aria-label',captured.source.url);
-    sourceLink.target = '_blank'; sourceLink.rel = 'noopener'; sourceLink.insertAdjacentHTML('beforeend',uiIcon('external')); mount.append(sourceLink);
+    actions.title(captured.source);
+    if (!captured.source) {
+      const empty = document.createElement('p'); setText(empty, message('请打开文章或 X 帖子查看本篇学习记录')); mount.append(empty); return;
+    }
     if (selection && articleSource(selection.url, selection.title)?.sourceKey === captured.source.sourceKey) {
       const temporary = document.createElement('section'); temporary.className = 'selection-area';
-      const details = document.createElement('details');
+      const details = document.createElement('details'); details.open = selectionExpanded;
       const label = document.createElement('summary'); setText(label, message('最近选区'));
       const full = document.createElement('p'); full.className = 'selection-full'; full.textContent = selection.text;
       details.append(label,full);
@@ -62,7 +66,9 @@ export function createArticleLearning(mount: HTMLElement, actions: {
       const translate = iconButton('translate',message('翻译选区')); translate.onclick = () => actions.translate(selection);
       temporary.append(details,translate,preview); mount.append(temporary);
     }
-    if (!vocab?.ok || !knowledge?.ok) { const error = document.createElement('p'); setText(error, message('加载失败，请重试')); mount.append(error); signature = ''; return; }
+    if (!vocab?.ok || !knowledge?.ok) { const error = document.createElement('p'); setText(error, message('加载失败，请重试')); const retry = document.createElement('button'); setText(retry,message('重试'));
+      retry.onclick = () => { signature=''; void update(source,selection); };
+      mount.append(error,retry); signature = ''; return; }
     const allEntries = scopeEntries(vocab.entries, { sourceKey: captured.source.sourceKey });
     const allKnowledge = knowledge.records.filter(k => k.source.sourceKey === captured.source!.sourceKey);
     const entries = scopeEntries(allEntries, { language: captured.language === 'all' ? undefined : captured.language });
@@ -75,20 +81,32 @@ export function createArticleLearning(mount: HTMLElement, actions: {
       b.append(caption,counter); b.setAttribute('aria-pressed', String(captured.category === category));
       b.onclick = () => { state.category = category; signature = ''; void update(source, selection); actions.changed(); }; toolbar.append(b);
     }
-    const language = document.createElement('select'); setLocalizedAttribute(language, 'aria-label', message('原文语言'));
-    const langs = new Set(captured.category === 'vocab' ? allEntries.map(e => effectiveEntryLanguage(e) ?? 'und') : allKnowledge.map(k => k.language));
-    if (captured.language !== 'all') langs.add(captured.language);
-    for (const lang of ['all', ...[...langs].sort()]) { const option = document.createElement('option'); option.value = lang; setText(option, lang === 'all' ? message('全部语言') : languageLabel(lang)); language.append(option); }
-    language.value = captured.language; language.hidden = !langs.size;
-    language.onchange = () => { state.language = language.value; signature = ''; void update(source, selection); actions.changed(); }; toolbar.append(language);
+    const languageCounts = new Map<string,number>();
+    const languages = captured.category==='vocab' ? allEntries.map(entry=>effectiveEntryLanguage(entry) ?? 'und') : allKnowledge.map(record=>record.language);
+    for (const language of languages) languageCounts.set(language,(languageCounts.get(language) ?? 0)+1);
+    if (captured.language!=='all'&&!languageCounts.has(captured.language)) languageCounts.set(captured.language,0);
+    const language = choiceMenu('globe',captured.language==='all' ? message('语言筛选') : message('语言筛选：{language}',{language:languageLabel(captured.language)}),[
+      {value:'all',label:message('全部语言'),count:languages.length},
+      ...[...languageCounts.keys()].sort().map(value=>({value,label:languageLabel(value),count:languageCounts.get(value)})),
+    ],captured.language,value=>{state.language=value;signature='';void update(source,selection);actions.changed();});
+    language.wrap.classList.add('article-filter');
+    language.trigger.setAttribute('aria-pressed',String(captured.language!=='all'));
+    language.wrap.hidden = !languageCounts.size;
+    toolbar.append(language.wrap);
     const review = iconButton('review',message('复习本篇'));
     review.hidden = captured.category === 'vocab' ? !buildReviewQueue(entries).length : !records.length;
     review.onclick = () => actions.review(structuredClone(captured)); toolbar.append(review); mount.append(toolbar);
+    if(filterFocused&&!language.wrap.hidden)language.trigger.focus({preventScroll:true});
     if(notice?.sourceKey===captured.source.sourceKey){const feedback=document.createElement('p');feedback.className='hint';feedback.setAttribute('role','status');setText(feedback,notice.text);mount.append(feedback);}
-    if (captured.category === 'vocab') for (const entry of entries) mount.append(actions.entry(entry,knowledge.vaultId));
-    else for (const record of records) mount.append(knowledgeRow(record, knowledge.vaultId, actions.send, () => {
-      signature = ''; void update(source, selection);
-    }));
+    if (captured.category === 'vocab') for (const entry of entries) {
+      const row = actions.entry(entry,knowledge.vaultId);
+      if (expanded.has(entry.key)) row.querySelector<HTMLButtonElement>('.entry-expand')?.click();
+      mount.append(row);
+    } else for (const record of records) {
+      const row = knowledgeRow(record,knowledge.vaultId,actions.send,()=>{signature='';void update(source,selection);});
+      row.open = knowledgeExpanded.has(record.id);
+      mount.append(row);
+    }
     if (!(captured.category === 'vocab' ? entries.length : records.length)) {
       const empty = document.createElement('div'); empty.className = 'article-empty';
       const text = document.createElement('p');

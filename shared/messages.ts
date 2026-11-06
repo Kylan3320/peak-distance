@@ -109,7 +109,7 @@ export type BgcRequest =
   | { type: 'vaultStatus' }
   | { type: 'vaultFlush' } // 立即尝试提交待写入队列并读回
   | { type: 'vaultSync' } // 只读回（打开面板/焦点恢复触发）
-  | { type: 'openSettings' }
+  | { type: 'openSettings'; ai?: boolean }
   // ---- 选区候选（选区查词 spec） ----
   | SelectionCandidateSetMessage
   | SelectionCandidateGetMessage;
@@ -210,6 +210,7 @@ export type BroadcastEvent =
   | { type: 'vocab-changed' }
   | { type: 'sentences-changed' }
   | { type: 'settings-changed' }
+  | { type: 'theme-changed'; theme: Settings['appearanceTheme'] }
   /** 学习库状态变化：连接／断开、写入回执、读回变更（UI 刷新写入状态） */
   | { type: 'vault-changed' };
 

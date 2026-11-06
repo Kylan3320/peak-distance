@@ -1,3 +1,4 @@
+import { initAppearance } from '@/shared/appearance';
 import { t as tr, localize, onDisplayLanguageChange, initDisplayLanguage , message, setText, setLocalizedAttribute, type UiText } from '@/shared/i18n';
 // 通用网页 / X 选词 content script（M1 + M3 标记 + M5 问答入口）。
 // 跳过 YouTube（M2 脚本负责字幕与页面正文）、输入框 / contenteditable /
@@ -34,6 +35,7 @@ export default defineContentScript({
   runAt: 'document_idle',
   async main() {
     if (document.contentType === 'application/pdf') return;
+    initAppearance();
     await initDisplayLanguage();
     // 注入标记：供自动化断言 content script 已就绪（与 M0 徽标 data-blc-* 同一做法）
     document.documentElement.setAttribute('data-blc-web', '1');

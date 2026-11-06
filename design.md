@@ -1,6 +1,6 @@
 # Peak Distance 设计规范
 
-本文维护已确认的全插件设计目标。2026-11-06 确认的新方案尚待实现，进度见 [ROADMAP](docs/ROADMAP.md)，本轮范围与验收见 [整体前端改造规格](docs/specs/ui-refresh.md)。产品行为见 [PRD](docs/PRD.md)，文案与本地化见 [ui-copy](docs/ui-copy.md)、[ui-i18n](docs/specs/ui-i18n.md)。现有代码不代表这些目标已交付。
+本文维护全插件的视觉与控件规范。交付状态见 [ROADMAP](docs/ROADMAP.md)，本轮范围与验收见 [整体前端改造规格](docs/specs/ui-refresh.md)。产品行为见 [PRD](docs/PRD.md)，文案与本地化见 [ui-copy](docs/ui-copy.md)、[ui-i18n](docs/specs/ui-i18n.md)。
 
 ## 设计方向与主题
 

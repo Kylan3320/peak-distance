@@ -8,7 +8,14 @@ import {
   primaryOfLang,
 } from './languages';
 
+export type AppearanceTheme = 'minimal' | 'classic';
+
+export function appearanceTheme(value: unknown): AppearanceTheme {
+  return value === 'classic' ? 'classic' : 'minimal';
+}
+
 export interface Settings {
+  appearanceTheme: AppearanceTheme;
   displayLanguage: DisplayLanguage;
   markingEnabled: boolean;
   primaryDictionary: DictionarySource;
@@ -28,6 +35,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  appearanceTheme: 'minimal',
   displayLanguage: 'auto',
   markingEnabled: true, primaryDictionary: 'youdao', backupDictionary: 'cambridge',
   regularTranslation: 'browser-native', translationMode: 'regular',
@@ -62,6 +70,7 @@ function validOverrides(v: unknown): boolean {
 }
 
 export function validSetting(name: string, value: unknown): boolean {
+  if (name === 'appearanceTheme') return value === 'minimal' || value === 'classic';
   if (name === 'displayLanguage') return isDisplayLanguage(value);
   if (name === 'subtitleSize') return ['small', 'standard', 'large'].includes(String(value));
   if (['markingEnabled', 'bilingualEnabled', 'chineseVisible', 'aiLookupFallback'].includes(name)) return typeof value === 'boolean';

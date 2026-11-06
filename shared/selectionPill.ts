@@ -1,3 +1,4 @@
+import { applyAppearance } from './appearance';
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 // 选区浮条（选区查词 spec 的单层入口）：普通网页 / X 与 YouTube 页面正文共用。
 // 分类表驱动按钮：word=查词+添加到对话；phrase=查词+翻译+添加到对话；
@@ -131,6 +132,7 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     if (!host) {
       host = document.createElement('div');
       host.id = PILL_ID;
+      applyAppearance(host);
       // 挂在文档最前：置于页面 AX 树开头，避免被大页面的元素截断隐藏
       document.documentElement.prepend(host);
       const root = host.attachShadow({ mode: 'open' });
@@ -190,7 +192,8 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     const { width, height } = host.getBoundingClientRect();
     const x = Math.max(8, Math.min(r ? r.left : vw / 2, vw - width - 8));
     const below = r ? r.bottom + 6 : vh / 2;
-    const y = Math.max(8, below + height <= vh - 8 ? below : (r?.top ?? vh) - height - 6);
+    const preferredY = below + height <= vh - 8 ? below : (r?.top ?? vh) - height - 6;
+    const y = Math.max(8, Math.min(preferredY, vh - height - 8));
     host.style.left = `${Math.round(x)}px`;
     host.style.top = `${Math.round(y)}px`;
     host.style.zIndex = '2147483646';

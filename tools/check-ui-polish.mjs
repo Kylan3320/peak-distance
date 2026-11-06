@@ -1,7 +1,7 @@
 // Focused visual/interaction check: actual extension chat and built lookup UI with controlled responses.
 import { extensionPath as extension } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import assert from 'node:assert/strict';
@@ -48,93 +48,95 @@ try {
   });
   await panel.goto(`chrome-extension://${id}/sidepanel.html`);
   await panel.waitForFunction(() => document.body && !document.body.inert);
-  await panel.getByRole('button', { name: 'AI 问答', exact: true }).click();
-  await panel.locator('.chat-welcome').waitFor();
-  check('会话尚未返回时欢迎文字仍显示', await panel.evaluate(() => window.__heldChatReads > 0) && await panel.locator('.chat-welcome-title').innerText().then(text => text.includes('从一句话')));
-  check('欢迎文字左侧品牌图标加载成功', await panel.locator('.chat-welcome-title img').evaluate(image => image.complete && image.naturalWidth > 0));
+  await panel.getByRole('button', { name: 'AI问答', exact: true }).click();
+  await panel.locator('#chat-list .chat-hint').waitFor();
+  check('读取失败保留贴底输入区及重试入口', await panel.evaluate(() => window.__heldChatReads > 0) && await panel.locator('#chat-input').isVisible());
   await panel.evaluate(() => { window.__holdChat = false; });
-  await panel.waitForFunction(() => window.__liveChatReads > 0);
+  await panel.locator('#chat-list .chat-hint button').click();
+  await panel.waitForFunction(() => window.__liveChatReads > 0 && !document.querySelector('#chat-list').children.length);
   for (const width of [1200, 400, 320, 1000]) {
     await panel.setViewportSize({ width, height: width === 320 ? 700 : width === 1000 ? 1250 : 900 });
     await panel.screenshot({ path: join(output, `chat-empty-${width}.png`) });
     check(`空态 ${width}px：输入框与发送按钮完整可见`, await panel.locator('#chat-send').isVisible() && await panel.locator('#chat-input').evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; }));
-    check(`空态 ${width}px：输入区贴底、欢迎文字居中`, await panel.evaluate(() => {
-      const composer = document.querySelector('#chat-input-row').getBoundingClientRect();
-      const list = document.querySelector('#chat-list').getBoundingClientRect();
-      const welcome = document.querySelector('.chat-welcome').getBoundingClientRect();
-      return innerHeight - composer.bottom <= 20 && Math.abs((welcome.top + welcome.bottom) / 2 - (list.top + list.bottom) / 2) <= 5;
-    }));
+    check(`空态 ${width}px：输入区贴底`, await panel.locator('#chat-input-row').evaluate(el=>innerHeight-el.getBoundingClientRect().bottom<=20));
   }
   await panel.locator('#chat-attachments summary').click();
-  check('附加菜单展示三个现有入口', await panel.locator('.chat-attachment-menu button:visible').count() === 3);
+  await panel.locator('#chat-attach-video').waitFor({state:'hidden'});
+  check('附加菜单按来源展示页面和选区入口', await panel.locator('.chat-attachment-menu button:visible').count() === 2);
   await panel.locator('#chat-attachments summary').press('Escape');
   check('Escape 收起菜单并恢复焦点', await panel.locator('#chat-attachments').evaluate(el => !el.open && document.activeElement === el.querySelector('summary')));
   await panel.locator('#open-settings').click();
   await panel.locator('#view-settings').waitFor({ state: 'visible' });
   await panel.screenshot({ path: join(output, 'settings-back.png') });
-  await panel.locator('#settings-back').click();
+  await panel.locator('#workspace-back').click();
   await panel.locator('#chat-input').fill('“get straight to the point” 是什么意思？可以举个例子吗？');
   await panel.locator('#chat-input').press('Control+Enter');
   await panel.locator('#chat-stop').waitFor({ state: 'visible' });
-  await panel.locator('#chat-list .state.done').waitFor();
+  await panel.locator('#chat-list .state.done').waitFor({state:'attached'});
   check('快捷键发送与流式回答完成', await panel.locator('#chat-list .a-text').innerText().then(text => text.includes('直奔主题')));
   for (const width of [1200, 400, 320]) {
     await panel.setViewportSize({ width, height: 900 });
     await panel.screenshot({ path: join(output, `chat-answer-${width}.png`) });
     check(`对话 ${width}px：正文与输入区无横向溢出`, await panel.locator('#view-chat').evaluate(el => el.scrollWidth <= el.clientWidth && document.querySelector('#chat-list').scrollWidth <= document.querySelector('#chat-list').clientWidth));
   }
-  await panel.getByRole('button', { name: '保留解释', exact: true }).click();
+  await panel.locator('[data-i18n-aria-label="保留解释"]').click();
   await panel.locator('#chat-head [data-i18n-aria-label="只看本对话已标记回答"]').click();
   check('保留筛选仍显示已保留回答', await panel.locator('#chat-list .msg.assistant').count() === 1);
   await panel.locator('#chat-head [data-i18n-aria-label="历史"]').click();
   await panel.locator('.chat-recent-row').first().waitFor();
   await panel.screenshot({ path: join(output, 'chat-history-320.png') });
-  check('历史会话操作可达', await panel.getByRole('button', { name: '删除', exact: true }).first().isVisible());
+  check('历史会话操作可达', await panel.locator('.chat-recent-row .native-delete-main').first().isVisible());
 
-  // Page-world runtime fixture exercises the shipped content-script and actual paper asset.
-  const page = await context.newPage();
-  await page.route('https://ui-fixture.invalid/brand/**', route => route.fulfill({ contentType: 'image/png', body: readFileSync(join(extension, 'brand', 'paper-tile.png')) }));
-  await page.setViewportSize({ width: 800, height: 800 });
-  await page.setContent('<html><body style="margin:40px;background:#e7e4db;text-shadow:0 0 2px #000"><p id="text">She is comfortable with people.</p></body></html>');
-  await page.evaluate(() => {
-    window.__lookups = [];
-    window.browser = { runtime: {
-      id: 'ui-fixture', getURL: path => 'https://ui-fixture.invalid' + path,
-      onMessage: { addListener() {} },
-      sendMessage(m, cb) {
-        if (m.type === 'lookup') {
-          window.__lookups.push(m.source ?? 'default');
-          cb({ ok: true, result: { kind: 'dictionary', entry: { source: m.source || 'youdao', expression: m.snapshot.expression, headword: 'with', phonetic: 'wɪð; wɪθ', url: 'https://dict.youdao.com/w/with/', senses: [{ partOfSpeech: 'prep.', definition: '和……在一起；与……一同', example: 'He’s more comfortable with plants than with people.', exampleTranslation: '比起与人相处，他和植物待在一起更自在。' }, { partOfSpeech: 'prep.', definition: '使用；借助' }] } } });
-        } else if (m.type === 'getSettings') cb({ ok: true, settings: { markingEnabled: false } });
-        else if (m.type === 'vocabIndex') cb({ ok: true, items: [] });
-        else if (m.type === 'getEntry') cb({ ok: true, entry: null });
-        else if (m.type === 'save') cb({ ok: true, status: 'saved', contextId: 1, appended: true });
-        else cb({ ok: true });
-      },
-    }};
+  // Use the shipped web content script with controlled dictionary responses.
+  await worker.evaluate(()=>{
+    globalThis.lookups=[];
+    globalThis.fetch=async url=>{
+      const host=new URL(url).hostname;
+      if(host==='dict.youdao.com') {
+        lookups.push('youdao');
+        return Response.json({
+          ec:{word:[{'return-phrase':{l:{i:'comfortable'}},trs:[{tr:[{l:{i:['adj. 舒适的；自在的']}}]}]}]},
+          blng_sents_part:{'sentence-pair':[{sentence:'She is comfortable with people.','sentence-translation':'她和别人相处很自在。'}]},
+        });
+      }
+      if(host==='dictionary.cambridge.org'){
+        lookups.push('cambridge');
+        const response=new Response('<div class="entry-body"><div class="entry-body__el"><span class="headword">comfortable</span><div class="def-block"><span class="trans dtrans">舒适的</span><div class="eg"><span class="deg">A comfortable chair.</span></div></div><div class="def-block"><span class="trans dtrans">自在的</span></div></div></div>');
+        Object.defineProperty(response,'url',{value:String(url)});
+        return response;
+      }
+      throw Error('Unexpected request: '+url);
+    };
   });
-  await page.addScriptTag({ content: readFileSync(join(extension, 'content-scripts', 'web.js'), 'utf8') });
+  await context.route('https://example.com/ui-polish',route=>route.fulfill({
+    contentType:'text/html',
+    body:'<!doctype html><html lang="en"><body style="margin:40px;background:#e7e4db;text-shadow:0 0 2px #000"><p id="text">She is comfortable with people.</p></body></html>',
+  }));
+  const page = await context.newPage();
+  await page.setViewportSize({width:800,height:800});
+  await page.goto('https://example.com/ui-polish');
+  await page.locator('html[data-blc-web="1"]').waitFor();
   await page.locator('#text').evaluate(el => {
-    const range = document.createRange(); const start = el.firstChild.textContent.indexOf('with');
-    range.setStart(el.firstChild, start); range.setEnd(el.firstChild, start + 4);
+    const range = document.createRange(); const start = el.firstChild.textContent.indexOf('comfortable');
+    range.setStart(el.firstChild, start); range.setEnd(el.firstChild, start + 11);
     getSelection().removeAllRanges(); getSelection().addRange(range); document.dispatchEvent(new Event('selectionchange'));
   });
   await page.getByRole('button', { name: '查词', exact: true }).click();
-  await page.locator('#blc-lookup-popup .example').waitFor();
+  await page.locator('#blc-lookup-popup .example').first().waitFor();
   for (const width of [800, 320]) {
     await page.setViewportSize({ width, height: 800 });
     await page.screenshot({ path: join(output, `lookup-${width}.png`) });
     check(`词卡 ${width}px：不溢出且不继承阴影`, await page.locator('#blc-lookup-popup .card').evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && el.scrollWidth <= el.clientWidth && getComputedStyle(el).textShadow === 'none'; }));
   }
   await page.getByRole('combobox', { name: '词典', exact: true }).selectOption('cambridge');
-  check('字典下拉仍切换真实查询参数', await page.evaluate(() => window.__lookups.at(-1) === 'cambridge'));
+  check('字典下拉仍切换真实查询参数', await worker.evaluate(() => lookups.at(-1) === 'cambridge'));
   await page.locator('#blc-lookup-popup summary').click();
   await page.locator('#blc-lookup-popup input[type=radio]').nth(1).check();
   check('展开和选择其他义项可用', await page.locator('#blc-lookup-popup input[type=radio]').nth(1).isChecked());
-  check('来源链接保留地址和打开方式', await page.getByRole('link', { name: '查看原文' }).getAttribute('target') === '_blank');
-  await page.getByRole('button', { name: '保存', exact: true }).click();
-  await page.locator('#blc-feedback').filter({ hasText: '已保存' }).waitFor();
-  check('新词卡保存反馈可见', true);
+  check('来源链接保留地址和打开方式', await page.getByRole('link', { name: '词典原页' }).getAttribute('target') === '_blank');
+  await page.getByRole('button', { name: '收藏', exact: true }).click();
+  await page.locator('#blc-lookup-popup .learning-status').waitFor();
+  check('新词卡显示实心书签状态', true);
   check('无页面脚本异常', !errors.length);
 } finally {
   writeFileSync(join(output, 'results.json'), JSON.stringify({ results, errors }, null, 2));

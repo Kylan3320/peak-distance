@@ -160,7 +160,7 @@ try {
   check('删除后迟到补写不复活记录', late.filled === false && !(await send({ type: 'getEntry', key: 'late' })).entry);
 
   await panel.locator('[data-view="chat"]').click();
-  await panel.waitForFunction(() => document.querySelector('#chat-head .chat-title'));
+  await panel.waitForFunction(() => document.querySelector('#view-chat:not([hidden])') && document.querySelector('#workspace-title')?.textContent);
   let active = await send({ type: 'chatActive', windowId: await panel.evaluate(async () => (await chrome.windows.getCurrent()).id) });
   let id = active.chat.id;
   const historyBefore = (await send({type:"chatRecent"})).chats.length;

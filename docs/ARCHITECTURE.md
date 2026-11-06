@@ -2,7 +2,7 @@
 
 桌面 Chrome / Edge、Manifest V3，单扩展工程；WXT + TypeScript + DOM/CSS。本文维护模块职责与技术约束；精确版本、类型、格式与权限以代码和配置为准，完成状态及已知实现缺口见 [ROADMAP](ROADMAP.md)。
 
-## 外观主题（已确认目标，待实现）
+## 外观主题
 
 [整体前端改造规格](specs/ui-refresh.md)定义本轮范围，视觉规则归 [design.md](../design.md)。保持单工程与现有 DOM/CSS 实现，复用设置存储、消息通知及共用 tokens／控件；简约和经典不分叉页面或业务逻辑。
 

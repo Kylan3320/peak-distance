@@ -1,4 +1,4 @@
-import { iconButton, actionMenu } from '@/shared/uiControls';
+import { iconButton, actionMenu, uiIcon } from '@/shared/uiControls';
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, materialLabel, scopeLabel, type UiText } from '@/shared/i18n';
 import { knowledgeFromAnswer } from '@/shared/knowledge';
 import { knowledgeEditor } from './knowledgeView';
@@ -40,6 +40,8 @@ import { panelTransportFailure } from '@/shared/panel';
 export interface ChatViewDeps {
   getActiveView(): string;
   switchView(view: string): void;
+  openAiSettings(): void;
+  title(value: string | UiText): void;
 }
 
 interface ChatScope {
@@ -109,6 +111,7 @@ let deps: ChatViewDeps | null = null;
 
 let chatWindowId = -1;
 let chatId = '';
+let restoreState: 'loading' | 'ready' | 'error' = 'loading';
 let historyOpen = false;
 const generating = new Set<string>();
 let sending: string | null = null;
@@ -138,9 +141,12 @@ export function snapshotChat():ChatViewSnapshot {const list=document.getElementB
 export function setChatActive(active:boolean) {panelActive=active;if(!active)operation++;}
 export async function restoreChat(snapshot?:ChatViewSnapshot) {
   const op = ++operation;
+  restoreState='loading';
+  renderChat();
   const r=await send<ChatActiveResult>({type:'chatActive'});
   if(op !== operation || !panelActive) return;
-  if(!r?.ok||!r.chat)return;
+  restoreState=r?.ok?'ready':'error';
+  if(!r?.ok||!r.chat){renderChat();return;}
   noteSourceTab(r);
   await acceptRecord(r.chat,false);
   (document.getElementById('chat-input') as HTMLTextAreaElement).value=r.chat.draft??'';
@@ -446,7 +452,12 @@ async function newConversation(): Promise<void> {
 
 function renderGenerationState(): void {
   const tab = document.querySelector('[data-view="chat"]');
-  if (tab) setText(tab, generating.size ? message('AI 问答 · 生成中') : message('AI 问答'));
+  if (tab) {
+    const label = generating.size ? message('AI 问答 · 生成中') : message('AI 问答');
+    setLocalizedAttribute(tab,'title',label);
+    setLocalizedAttribute(tab,'aria-label',label);
+    tab.toggleAttribute('data-generating',!!generating.size);
+  }
 }
 
 // ---- 发送 / 停止 / 重试 ----------------------------------------------------------
@@ -643,13 +654,13 @@ function renderHead(): void {
   const top = head.scrollTop;
   head.textContent = '';
   const row = el('div', 'chat-meta');
-  row.appendChild(el('span', 'chat-title', chatRecord?.title==='新对话'&&!chatRecord.messages.length ? message('新对话') : chatRecord?.title ?? message('新对话')));
+  deps?.title(chatRecord?.title==='新对话'&&!chatRecord.messages.length ? message('空白对话标题') : chatRecord?.title ?? message('空白对话标题'));
   const create = iconButton('new', message('新对话'));
   create.onclick = () => void newConversation();
   const history = iconButton('history', message('历史'));
   history.onclick = () => { historyOpen = !historyOpen; renderChat(); };
   history.setAttribute('aria-expanded', String(historyOpen));
-  const marked = iconButton('bookmark', message('只看本对话已标记回答'));
+  const marked = iconButton(retainedOnly?'saved':'bookmark', message('只看本对话已标记回答'));
   marked.onclick = () => { retainedOnly = !retainedOnly; renderChat(); };
   marked.setAttribute('aria-pressed', String(retainedOnly));
   const actions = actionMenu(); actions.wrap.id = 'chat-actions';
@@ -867,26 +878,21 @@ function renderMessages(): void {
   const knowledgeTools = new Map([...list.querySelectorAll<HTMLElement>('.knowledge-save')].map(node => [node.dataset.origin, node]));
   list.textContent = '';
   document.getElementById('view-chat')!.classList.toggle('is-empty', !chatRecord?.messages.length);
-  // 附加成功 / 带入引用后的聚焦：空态（欢迎页）也必须消费
+  // 附加成功 / 带入引用后的聚焦：空白对话也必须消费
   if (pendingAskFocus) {
     pendingAskFocus = false;
     (document.getElementById('chat-input') as HTMLTextAreaElement)?.focus();
   }
   const msgs = chatRecord?.messages ?? [];
   if (!msgs.length) {
-    const welcome = el('div', 'chat-welcome');
-    const title = el('h1', 'chat-welcome-title');
-    const mark = el('span', 'brand-mark');
-    const image = el('img'); image.src = '/brand/peak-mark-crop.png'; image.alt = '';
-    mark.setAttribute('aria-hidden', 'true'); mark.appendChild(image);
-    const sentence = el('span', 'chat-welcome-sentence');
-    const copy = el('span', 'chat-welcome-copy');
-    copy.appendChild(el('span', 'chat-welcome-text', message('读懂更多。')));
-    sentence.append(el('span', 'chat-welcome-prefix', message('从一句话，')), copy);
-    title.setAttribute('aria-label', sentence.textContent!);
-    title.append(mark, sentence);
-    welcome.appendChild(title);
-    list.appendChild(welcome);
+    if (restoreState === 'loading') {
+      const loading=el('p','chat-hint',message('正在读取对话…'));
+      loading.setAttribute('role','status');list.append(loading);
+    } else if (restoreState === 'error') {
+      const error=el('div','chat-hint',message('加载失败，请重试'));
+      const retry=el('button',undefined,message('重试'));retry.onclick=()=>void restoreChat();
+      error.append(retry);list.append(error);
+    }
     return;
   }
   const items: ChatMessageRecord[] = [];
@@ -927,12 +933,17 @@ function renderMessages(): void {
         retry.addEventListener('click', () => doRetry(m.turnId));
         headRow.appendChild(retry);
       }
+      item.appendChild(headRow);
+      const body = el('div', 'a-text');
+      renderAnswerText(body, m);
+      if (m.state === 'streaming' && !m.text) {
+        body.appendChild(el('span', 'pending', '……'));
+      }
+      item.appendChild(body);
+      const answerTools=el('div','answer-tools');
       if (m.state === 'done' || m.state === 'stopped') {
-        const retain = el(
-          'button',
-          m.retained ? 'mini on' : 'mini',
-          m.retained ? message('取消保留') : message('保留解释'),
-        );
+        const retain = iconButton(m.retained?'saved':'bookmark',m.retained ? message('取消保留') : message('保留解释'));
+        retain.setAttribute('aria-pressed',String(!!m.retained));
         retain.addEventListener('click', async () => {
           if (!chatId) return;
           await send({
@@ -944,23 +955,17 @@ function renderMessages(): void {
           m.retained = !m.retained;
           renderMessages();
         });
-        headRow.appendChild(retain);
+        answerTools.append(retain);
       }
-      item.appendChild(headRow);
-      const body = el('div', 'a-text');
-      renderAnswerText(body, m);
-      if (m.state === 'streaming' && !m.text) {
-        body.appendChild(el('span', 'pending', '……'));
-      }
-      item.appendChild(body);
+      item.append(answerTools);
       const content = chatRecord && knowledgeFromAnswer(chatRecord, m.id);
       if (content && chatRecord) {
         const origin=`${chatRecord.id}:${m.id}`;
         const previous=knowledgeTools.get(origin);
-        if(previous){item.append(previous);list.appendChild(item);continue;}
+        if(previous){answerTools.append(previous);list.appendChild(item);continue;}
         const tools=el('div','knowledge-save');tools.dataset.origin=origin;
         const savedChatId = chatRecord.id, vaultId = chatRecord.vaultId ?? null;
-        const save = el('button', 'mini', message('保存知识点'));
+        const save = iconButton('save',message('保存知识点'));
         const state = el('p', 'hint'); state.setAttribute('role', 'status');
         save.onclick = () => {
           if (tools.querySelector('.knowledge-editor')) return;
@@ -971,7 +976,7 @@ function renderMessages(): void {
             return true;
           });
         };
-        tools.append(save, state);item.append(tools);
+        tools.append(save, state);answerTools.append(tools);
       }
     }
     list.appendChild(item);
@@ -992,10 +997,7 @@ function renderInputState(): void {
   const sendBtn = document.getElementById('chat-send') as HTMLButtonElement | null;
   const stopBtn = document.getElementById('chat-stop') as HTMLButtonElement | null;
   const starters = document.getElementById('chat-starters')!;
-  const inputRow = document.getElementById('chat-input-row')!;
   if (!input || !sendBtn || !stopBtn) return;
-  const hasChat = true;
-  inputRow.hidden = !hasChat;
   starters.textContent = '';
   if (latestSnapshot() && !chatRecord?.messages.length) {
     for (const promptKey of ['解释这句','梳理观点','举例说明']) {
@@ -1111,10 +1113,12 @@ async function refreshAttachMenu(): Promise<void> {
 
 export function initChatView(d: ChatViewDeps): void {
   deps = d;
-  const chatView = document.getElementById('view-chat')!;
-  const syncWelcomeVisibility = () => chatView.toggleAttribute('data-document-hidden', document.visibilityState === 'hidden');
-  document.addEventListener('visibilitychange', syncWelcomeVisibility);
-  syncWelcomeVisibility();
+  for (const [id, label] of [['chat-stop','停止'],['chat-attachment-remove','移除材料']] as const) {
+    const button = document.getElementById(id)!;
+    button.innerHTML=uiIcon(id==='chat-stop'?'stop':'close');
+    setLocalizedAttribute(button,'title',message(label));
+    setLocalizedAttribute(button,'aria-label',message(label));
+  }
   const attachments = document.getElementById('chat-attachments') as HTMLDetailsElement;
   attachments.addEventListener('toggle', () => { if (attachments.open) void refreshAttachMenu(); });
   for (const kind of ['page', 'selection', 'video'] as const) document.getElementById(`chat-attach-${kind}`)?.addEventListener('click', () => { attachments.open = false; void attachMaterial(kind); });
@@ -1132,7 +1136,7 @@ export function initChatView(d: ChatViewDeps): void {
     if (r?.ok && op === operation) { chatQuote = null; chatSegmentIndex = 0; attachmentExpanded = false; resetCitePanel(); await acceptRecord(r.chat); }
     else if (op === operation) inlineError(message('移除失败，请重试'));
   });
-  document.getElementById('chat-settings')?.addEventListener('click', () => deps?.switchView('settings'));
+  document.getElementById('chat-settings')?.addEventListener('click', () => deps?.openAiSettings());
   void browser.windows.getCurrent().then(w => {
     chatWindowId = w.id ?? -1;
     connectPort();

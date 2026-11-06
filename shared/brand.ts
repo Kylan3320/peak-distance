@@ -1,6 +1,8 @@
 import tokens from './tokens.css?inline';
 import controls from './controls.css?inline';
-export const brandTokens = tokens;
+export const brandTokens = `${tokens}
+  :host { --pd-paper-tile: url('${browser.runtime.getURL('/brand/paper-tile.png')}'); }
+`;
 export const sharedControls = controls;
 export const brandControls = `
   ${controls}

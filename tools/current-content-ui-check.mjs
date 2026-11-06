@@ -28,6 +28,11 @@ try {
   await save('known','Known in A.',a);await send({type:'setStatus',key:'en::known',status:'known'});
   await save('bank','Banque française.',a,'fr','French meaning');
   const panel=await context.newPage();await panel.goto(`${base}/sidepanel.html#subs`);await panel.waitForFunction(()=>!document.body.inert);
+  const filterArticle=async value=>{
+    const filter=panel.locator('.article-filter');
+    await filter.locator('.ui-icon-button').click();
+    await filter.locator(`button[value="${value}"]`).click();
+  };
   await web.bringToFront();
   await panel.getByRole('heading',{name:'Article A',exact:true}).waitFor();
   assert.equal(await panel.locator('#web-selection .entry').count(),3);
@@ -43,6 +48,11 @@ try {
   await panel.getByRole('button',{name:'显示释义',exact:true}).click();
   assert.ok((await panel.locator('#review-body').innerText()).includes('A meaning'));
   assert.ok(!(await panel.locator('#review-body').innerText()).includes('B meaning'));
+  await control.locator('#appearanceTheme').selectOption('classic');
+  await panel.waitForFunction(()=>document.documentElement.dataset.pdTheme==='classic');
+  assert.equal(await panel.locator('.review-reveal .word').innerText(),'bank');
+  assert.ok((await panel.locator('.review-annotation').innerText()).includes('A meaning'));
+  await control.locator('#appearanceTheme').selectOption('minimal');
   const other=await context.newPage();await other.goto(b);await other.locator('html[data-blc-web="1"]').waitFor();await other.bringToFront();
   await save('bank','Another bank in A.',a);
   await panel.waitForFunction(()=>document.querySelector('#review-body .sentence')?.textContent.includes('Another'));
@@ -52,8 +62,9 @@ try {
   await panel.locator('#review-body').getByText('尚无解释',{exact:true}).waitFor();
   await panel.reload();await panel.waitForFunction(()=>!document.body.inert);
   await panel.locator('#review-body').getByText('尚无解释',{exact:true}).waitFor();
-  await panel.getByRole('button',{name:'退出复习',exact:true}).click();
+  await panel.getByRole('button',{name:'返回当前内容',exact:true}).click();
   await panel.getByRole('heading',{name:'Article A',exact:true}).waitFor();
+  await panel.locator('#web-selection .entry-expand').first().click();
   await panel.getByRole('button',{name:'定位原句',exact:true}).first().click();
   await panel.getByText('已找到原文。',{exact:true}).first().waitFor();
   await panel.getByText('已找到原文。',{exact:true}).first().waitFor({state:'hidden'});
@@ -75,7 +86,7 @@ try {
     assert.equal(await row.locator('.entry-preview').innerText(),result.kind==='dictionary'?result.entry.senses[1].definition:result.text);
     assert.ok((await row.innerText()).includes('一般释义参考'));
   }
-  await panel.locator('.article-tools select').selectOption('en');
+  await filterArticle('en');
   await panel.getByRole('button',{name:'复习本篇',exact:true}).click();
   const jump=panel.getByRole('combobox',{name:'跳转题目',exact:true});
   await jump.selectOption('1');
@@ -91,10 +102,10 @@ try {
   assert.ok(await panel.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth));
   await panel.screenshot({path:join(output,'vocab-review-390.png'),fullPage:true});
   await panel.setViewportSize({width:1000,height:850});
-  await panel.locator('#review-body button[data-i18n="返回来源"]').click();
+  await panel.locator('#review-body button[data-i18n-aria-label="返回来源"]').click();
   await panel.locator('#panel-feedback').waitFor({state:'visible'});
   await panel.locator('#panel-feedback').waitFor({state:'hidden'});
-  await panel.locator('#review-body button[data-i18n="返回来源"]').click();
+  await panel.locator('#review-body button[data-i18n-aria-label="返回来源"]').click();
   await panel.locator('#panel-feedback').waitFor({state:'visible'});
   await panel.getByRole('button',{name:'下一条',exact:true}).click();
   assert.equal(await panel.locator('.review-reveal .word').count(),0);
@@ -111,9 +122,9 @@ try {
   assert.equal(await panel.locator('.review-reveal .word').count(),0);
   const restoredOrder=await panel.evaluate(async()=>{const {windowId}=await chrome.runtime.sendMessage({type:'panelContext'});return (await chrome.storage.session.get(`panel-state:${windowId}`))[`panel-state:${windowId}`];});
   assert.deepEqual(restoredOrder.reviewQueue.map(item=>item.key),order.reviewQueue.map(item=>item.key));
-  await panel.getByRole('button',{name:'退出复习',exact:true}).click();
+  await panel.getByRole('button',{name:'返回当前内容',exact:true}).click();
   assert.equal(await panel.locator('#panel-feedback').isVisible(),false);
-  await panel.locator('.article-tools select').selectOption('all');
+  await filterArticle('all');
   console.log('PASS result-only dictionary/translation/AI references, independent reveal/reload, previous/jump/shuffle navigation and temporary location feedback');
 
   await worker.evaluate(()=>{
@@ -138,7 +149,7 @@ try {
   await web.locator('#blc-lookup-pill #lookup').click();
   await worker.evaluate(()=>savedLookupStarted);
   await web.locator('#blc-lookup-popup .act.save').click();
-  await web.locator('#blc-lookup-popup [data-i18n="关闭"]').click();
+  await web.locator('#blc-lookup-popup [data-i18n-aria-label="关闭"]').click();
   await worker.evaluate(()=>finishSavedLookup());
   await panel.waitForFunction(()=>document.querySelector('.entry[data-key="en::river"] .entry-preview')?.textContent==='河流');
   await send({type:'deleteEntry',key:'en::river'});
@@ -164,7 +175,7 @@ try {
   assert.equal(await editor.locator('textarea').inputValue(),'Edited independent body [p1]');
   await control.evaluate(()=>chrome.storage.local.set({displayLanguage:'zh-Hans'}));await panel.waitForFunction(()=>document.documentElement.lang==='zh-Hans');
   // A retain toggle rebuilds messages; the open editor must keep its unsaved input.
-  await panel.locator('[data-i18n="保留解释"]').click();
+  await panel.locator('[data-i18n-aria-label="保留解释"]').click();
   assert.equal(await editor.getByRole('textbox',{name:'知识点正文'}).inputValue(),'Edited independent body [p1]');
   await panel.evaluate(()=>{globalThis.originalSend=chrome.runtime.sendMessage;chrome.runtime.sendMessage=function(...args){if(args[0]?.type==='saveKnowledge'){args[1]({ok:false,error:'io'});return;}return originalSend.apply(this,args);};});
   await editor.getByRole('button',{name:'保存知识点',exact:true}).click();
@@ -191,7 +202,7 @@ try {
   await other.bringToFront();
   await panel.waitForFunction(()=>articlePolls>=2);
   await panel.evaluate(()=>{chrome.runtime.sendMessage=articleSend;});
-  assert.equal(await panel.locator('#web-selection h1').innerText(),'Article A');
+  assert.equal(await panel.locator('#workspace-title').innerText(),'Article A');
   await panel.getByRole('button',{name:'复习本篇',exact:true}).click();
   await panel.getByRole('button',{name:'显示答案',exact:true}).click();
   await panel.locator('#review-body').getByText('Edited independent body [p1]',{exact:true}).waitFor();
@@ -250,7 +261,7 @@ try {
   await floating.getByRole('button',{name:'返回当前内容',exact:true}).focus();
   await floating.getByRole('button',{name:'返回当前内容',exact:true}).press('Enter');
   await floating.getByRole('heading',{name:'Article A',exact:true}).waitFor();
-  assert.equal(await floating.locator('.article-tools button[aria-pressed="true"] [data-i18n]').innerText(),'知识点');
+  assert.equal(await floating.locator('.article-tools button[data-category][aria-pressed="true"] [data-i18n]').innerText(),'知识点');
   // Resume the standalone fixed test surface through the same panel transfer event.
   const {windowId}=await floating.evaluate(()=>chrome.runtime.sendMessage({type:'panelContext'}));
   await control.evaluate(async windowId=>{await chrome.storage.session.remove(`panel-host:${windowId}`);await chrome.runtime.sendMessage({type:'pd-panel-view',windowId,mode:'fixed'});},windowId);
@@ -267,9 +278,20 @@ try {
   console.log('PASS production UI: save/edit existing answer after navigation, retain semantics and editor preservation, delete original chat, independent body/citation, knowledge review/reload/repeat/return/delete, narrow layout and zero network requests');
 
   await send({type:'setSetting',name:'chineseVisible',value:false});
-  await context.route('https://www.youtube.com/watch?v=abcdefghijk',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><html><title>Scoped video</title><div id="movie_player" style="width:640px;height:360px"><video></video><div class="ytp-chrome-bottom"><div class="ytp-right-controls"></div></div></div><script>
-  addEventListener('message',e=>{const m=e.data;if(m?.source==='blc-content'&&m.type==='config')postMessage({source:'blc-inject',type:'cues',nonce:m.nonce,videoId:'abcdefghijk',trackId:'https://www.youtube.com/api/timedtext?v=abcdefghijk&lang=en',trackLang:'en',trackKind:'manual',seen:1,cues:[{start:0,dur:3000,lastOff:0,text:'A video-word in this video.'},{start:3000,dur:3000,lastOff:0,text:'Next subtitle.'}]},'*');});
-  </script></html>`}));
+  await context.route('https://www.youtube.com/api/timedtext?*',route=>route.fulfill({json:{events:[
+    {tStartMs:0,dDurationMs:3000,segs:[{utf8:'A video-word in this video.'}]},
+    {tStartMs:3000,dDurationMs:3000,segs:[{utf8:'Next subtitle.'}]},
+  ]}}));
+  await context.route('https://www.youtube.com/watch?v=abcdefghijk',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><title>Scoped video</title>
+    <style>#movie_player{position:relative;width:640px;height:360px}.ytp-chrome-bottom{position:absolute;right:16px;bottom:16px;height:40px}.ytp-right-controls{display:flex;height:100%}</style>
+    <div id="movie_player"><video></video><div class="ytp-chrome-bottom"><div class="ytp-right-controls"><button class="ytp-subtitles-button" aria-pressed="true">CC</button></div></div></div><script>
+    const url='https://www.youtube.com/api/timedtext?v=abcdefghijk&lang=en';
+    const track={languageCode:'en',baseUrl:url,name:'English'};
+    const player=document.getElementById('movie_player');
+    player.getOption=(module,key)=>key==='tracklist'?[track]:track;
+    player.setOption=()=>{};player.loadModule=()=>{};
+    addEventListener('message',e=>{if(e.data?.source==='blc-content'&&e.data.type==='config')fetch(url);});
+  </script>`}));
   const videoPage=await context.newPage();await videoPage.goto('https://www.youtube.com/watch?v=abcdefghijk');
   await videoPage.locator('#blc-subs .en').waitFor();
   const videoRef={videoId:'abcdefghijk',trackId:'en-track',trackKind:'manual',trackLang:'en',startMs:0};
@@ -278,20 +300,51 @@ try {
   }
   await videoPage.bringToFront();await panel.locator('#views [data-view="list"]').click();await panel.locator('#views [data-view="subs"]').click();
   await panel.locator('#blc-learning-panel [data-tab="saved"]').click();
-  await panel.locator('#blc-learning-panel [data-i18n="复习"]').click();
-  await panel.locator('#review-body [data-i18n="显示单词"]').click();
+  await panel.locator('#blc-learning-panel [data-i18n-aria-label="复习"]').click();
+  await panel.locator('#review-body [data-i18n-aria-label="显示单词"]').click();
   assert.ok(!(await panel.locator('#review-body').innerText()).includes('Video A meaning'));
-  await panel.locator('#review-body [data-i18n="显示释义"]').click();
+  await panel.locator('#review-body [data-i18n-aria-label="显示释义"]').click();
   assert.ok((await panel.locator('#review-body').innerText()).includes('Video A meaning'));
   assert.ok(!(await panel.locator('#review-body').innerText()).includes('Video B meaning'));
-  await other.bringToFront();await panel.locator('#review-body [data-i18n="下一条"]').click();await panel.locator('[data-i18n="再来一轮"]').click();
-  await panel.locator('#review-body [data-i18n="显示单词"]').click();
-  await panel.locator('#review-body [data-i18n="显示释义"]').click();assert.ok((await panel.locator('#review-body').innerText()).includes('Video A meaning'));
-  await panel.locator('#review-body [data-i18n="退出复习"]').click();
-  await panel.locator('#blc-learning-panel [data-tab="saved"][class="active"]').waitFor();
+  await other.bringToFront();await panel.locator('#review-body [data-i18n-aria-label="下一条"]').click();await panel.locator('[data-i18n="再来一轮"]').click();
+  await panel.locator('#review-body [data-i18n-aria-label="显示单词"]').click();
+  await panel.locator('#review-body [data-i18n-aria-label="显示释义"]').click();assert.ok((await panel.locator('#review-body').innerText()).includes('Video A meaning'));
+  await panel.locator('#workspace-back').click();
+  await panel.locator('#blc-learning-panel [data-tab="saved"].active').waitFor();
   assert.ok((await panel.locator('#blc-learning-panel .body').innerText()).includes('A video-word in this video.'));
   await panel.screenshot({path:join(output,'video-review-return.png'),fullPage:true});
   console.log('PASS controlled video: saved vocabulary review fixes video/language; repeat after a tab switch keeps A context and returns to the saved tab');
+
+  await panel.locator('#blc-learning-panel [data-tab="subs"]').click();
+  await panel.locator('#blc-learning-panel').getByRole('button',{name:'收藏句子',exact:true}).first().click();
+  await panel.locator('#views [data-view="list"]').click();
+  await panel.locator('.library-tabs [data-view="sentences"]').click();
+  await panel.locator('#sentences-list').getByRole('button',{name:'取消收藏',exact:true}).click();
+  await panel.waitForFunction(()=>!document.querySelector('#sentences-list .entry'));
+  assert.equal((await send({type:'listSentences'})).sentences.length,0);
+  console.log('PASS sentence saved from the subtitle row and removed through the global sentence list');
+
+  await videoPage.bringToFront();
+  await videoPage.locator('#movie_player').evaluate(player=>{player.style.background='#f5f5f5';return player.requestFullscreen();});
+  await videoPage.waitForFunction(()=>document.fullscreenElement?.id==='movie_player');
+  await videoPage.locator('#blc-subs-switch #learning').click();
+  await videoPage.locator('#blc-subs-switch #panel').click();
+  await videoPage.waitForFunction(()=>document.fullscreenElement?.contains(document.getElementById('pd-floating-panel')));
+  const fullscreenFrame=videoPage.frameLocator('#pd-floating-panel iframe');
+  await fullscreenFrame.locator('#blc-learning-panel .en').first().waitFor();
+  await control.evaluate(()=>chrome.storage.local.set({appearanceTheme:'classic'}));
+  await videoPage.locator('#pd-floating-panel[data-pd-theme=classic]').waitFor();
+  await fullscreenFrame.locator('html[data-pd-theme=classic]').waitFor();
+  await fullscreenFrame.locator('#panel-mode').click();
+  assert.equal(await videoPage.evaluate(()=>!!document.fullscreenElement),true);
+  assert.match(await videoPage.locator('#blc-subs .en').evaluate(el=>getComputedStyle(el).backgroundColor),/0.72/);
+  await videoPage.screenshot({path:join(output,'fullscreen-classic.png')});
+  await videoPage.locator('#movie_player').evaluate(player=>{player.style.background='#151719';});
+  assert.match(await videoPage.locator('#blc-subs .en').evaluate(el=>getComputedStyle(el).backgroundColor),/0.72/);
+  await fullscreenFrame.locator('#panel-close').click();
+  assert.equal(await videoPage.evaluate(()=>!!document.fullscreenElement),true);
+  await videoPage.evaluate(()=>document.exitFullscreen());
+  console.log('PASS actual browser fullscreen: floating workspace and iframe switch together; mode and close controls preserve fullscreen');
 
   if(process.argv.includes('--bbc')) {
     const bbc=await context.newPage(),url='https://www.bbc.co.uk/learningenglish/english/features/office-english/260817';
@@ -312,7 +365,7 @@ try {
       });
       await bbc.locator('#blc-lookup-pill #lookup').click();
       await bbc.locator('#blc-lookup-popup .act.save').click();
-      await bbc.locator('#blc-lookup-popup [data-i18n="关闭"]').click();
+      await bbc.locator('#blc-lookup-popup [data-i18n-aria-label="关闭"]').click();
       await bbc.bringToFront();await panel.locator('#views [data-view="list"]').click();await panel.locator('#views [data-view="subs"]').click();
       await panel.getByRole('heading',{name:evidence.title,exact:true}).waitFor();
       await panel.locator('.article-tools [data-category="vocab"]').click();
@@ -323,14 +376,14 @@ try {
       await target.getByRole('button',{name:'定位原句',exact:true}).first().click();
       await target.getByText('已找到原文。',{exact:true}).first().waitFor();
       const sentence=await target.locator(':scope > .sentence').innerText();
-      await panel.locator('.article-tools select').selectOption('en');
+      await filterArticle('en');
       await panel.getByRole('button',{name:'复习本篇',exact:true}).click();await panel.getByRole('button',{name:'显示单词',exact:true}).click();
       assert.equal(await panel.locator('.review-annotation .definition').count(),0);
       await panel.getByRole('button',{name:'显示释义',exact:true}).click();
       assert.equal(await panel.locator('.review-annotation .definition').innerText(),savedMeaning);
       assert.ok((await panel.locator('#review-body').innerText()).includes('targets'));assert.ok(sentence.includes('targets'));
       await panel.screenshot({path:join(output,'bbc-vocab-review.png'),fullPage:true});
-      await panel.getByRole('button',{name:'退出复习',exact:true}).click();
+      await panel.getByRole('button',{name:'返回当前内容',exact:true}).click();
       const actual=await control.evaluate(async()=>{const tab=(await chrome.tabs.query({active:true,currentWindow:true}))[0];return {info:await chrome.tabs.sendMessage(tab.id,{type:'blc-chat-source'}),material:(await chrome.tabs.sendMessage(tab.id,{type:'blc-chat-material'})).material};});
       assert.ok(actual.material?.blocks.length);
       const block=actual.material.blocks.find(b=>b.text.includes('targets'))??actual.material.blocks[0];
@@ -345,7 +398,7 @@ try {
       await send({type:'chatDelete',chatId:'bbc-existing-answer'});
       await panel.locator('#views [data-view="subs"]').click();await panel.locator('.article-tools [data-category="knowledge"]').click();
       // Knowledge keeps its own language scope; the vocabulary language is restored only for vocabulary.
-      await panel.locator('.article-tools select').selectOption('all');
+      await filterArticle('all');
       await panel.locator('.knowledge-row summary').click();assert.equal(await panel.locator('.knowledge-row blockquote').innerText(),`[${block.id}] ${block.text}`);
       await panel.screenshot({path:join(output,'bbc-independent-knowledge.png'),fullPage:true});
       await panel.getByRole('button',{name:'复习本篇',exact:true}).click();await panel.getByRole('button',{name:'显示答案',exact:true}).click();

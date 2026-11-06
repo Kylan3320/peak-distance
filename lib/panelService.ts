@@ -73,13 +73,13 @@ export function startNativePanel(message: unknown, sender: Sender): Promise<bool
   return browser.sidePanel.open({windowId:sender.tab.windowId}).then(()=>true,()=>false);
 }
 
-export async function openPanel(tabId: number, windowId: number, view?: PanelView, forceMode?: PanelMode, nativeOpen?:Promise<boolean>) {
+export async function openPanel(tabId: number, windowId: number, view?: PanelView, forceMode?: PanelMode, nativeOpen?:Promise<boolean>, settingsAi = false) {
   const info = await tabMessage(tabId, {type:'pd-panel-status'});
   const stored = await browser.storage.local.get('panelMode');
   const mode = info?.fullscreen ? 'floating' : forceMode ?? (stored.panelMode === 'floating' ? 'floating' : 'fixed');
   if (view) {
     const key = panelStateKey(windowId), data = (await browser.storage.session.get(key))[key] ?? {};
-    await browser.storage.session.set({[key]:{...data,view}});
+    await browser.storage.session.set({[key]:{...data,view,settingsAi}});
   }
   if (mode === 'floating') {
     const result = await tabMessage(tabId, {type:'pd-panel-show',view});
@@ -106,7 +106,7 @@ export async function openPanel(tabId: number, windowId: number, view?: PanelVie
 }
 
 export async function handlePanelMessage(message: unknown, sender: Sender, nativeOpen?:Promise<boolean>): Promise<unknown | undefined> {
-  const m = message as {type?:string;view?:unknown;mode?:unknown;snapshot?:unknown;nativeOpened?:boolean;fullscreen?:boolean;at?:number;stage?:string;hostId?:string};
+  const m = message as {type?:string;view?:unknown;mode?:unknown;snapshot?:unknown;nativeOpened?:boolean;fullscreen?:boolean;at?:number;stage?:string;hostId?:string;settingsAi?:boolean};
   if (!m?.type || !['panelContext','panelReady','panelFrameStatus','panelFrameRetry','panelFullscreen','panelOpen','panelClose','panelHostClosed','panelOutsideClick','panelSwitch','selectionSnapshot','getSelectionSnapshot'].includes(m.type)) return undefined;
   const tab = sender.tab ?? (await browser.tabs.query({active:true,currentWindow:true}))[0];
   if (typeof tab?.id !== 'number' || typeof tab.windowId !== 'number') return {ok:false,error:'找不到当前页面'};
@@ -175,5 +175,5 @@ export async function handlePanelMessage(message: unknown, sender: Sender, nativ
     if (result.ok) await browser.storage.local.set({panelMode:m.mode});
     return result;
   }
-  return openPanel(tabId,windowId,isPanelView(m.view) ? m.view : undefined,undefined,nativeOpen);
+  return openPanel(tabId,windowId,isPanelView(m.view) ? m.view : undefined,undefined,nativeOpen,m.view==='settings'&&m.settingsAi===true);
 }

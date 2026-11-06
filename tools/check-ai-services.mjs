@@ -42,6 +42,7 @@ try {
   const send=m=>page.evaluate(m=>chrome.runtime.sendMessage(m),m);
   const snap={source:'web',expression:'with',sentence:'Stay with me.',url:'https://example.com',title:'Fixture'};
   for(const provider of ['deepseek','openai','anthropic','gemini','glm','kimi']){
+    if (!await page.locator('#ai-fields').isVisible()) await page.locator('#ai-settings > summary').click();
     await page.locator('#ai-provider').selectOption(provider);
     check(`${provider} 预设无需展开高级设置`,!await page.locator('#ai-model').isVisible());
     if(provider!=='deepseek')await page.locator('#key').fill('fixture-'+provider);
