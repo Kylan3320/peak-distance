@@ -29,7 +29,6 @@ body {--content-inset:16px;display:grid;grid-template-columns:52px minmax(0,1fr)
 .search-icon {display:flex;margin-inline-start:8px;color:var(--pd-muted)}
 .search-icon svg {width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round}
 #search {flex:1;min-width:0;border:0;background:transparent;padding:4px 8px;color:inherit}
-#search::placeholder {color:var(--pd-muted)}
 #search:focus-visible {outline:none}
 
 main {min-height:0;min-width:0;overflow:auto;padding:16px var(--content-inset);flex:1;overscroll-behavior:contain}

@@ -123,6 +123,8 @@ let wordTimer:ReturnType<typeof setTimeout>|undefined;
 let closeTimer:ReturnType<typeof setTimeout>|undefined;
 let lookupTarget='';
 const currentMain=()=>document.getElementById('view-'+currentView);
+const searchInput = document.querySelector<HTMLInputElement>('#search')!;
+let listGeneration = 0;
 let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
 const feedback=(text:string|UiText, transient=false)=>{
   clearTimeout(feedbackTimer);
@@ -170,15 +172,13 @@ function switchView(view: string): void {
     tab.setAttribute('aria-pressed',String(selected));
   }
   currentMain()?.scrollTo(0,savedScroll[view]??0);
-  document.getElementById('search-combo')!.style.display = ['list','knowledge'].includes(view) ? '' : 'none';
-  setLocalizedAttribute(document.getElementById('search')!, 'placeholder', message(view === 'knowledge' ? '搜索知识点标题或正文…' : '搜索表达…'));
-  setLocalizedAttribute(document.getElementById('search')!, 'aria-label', message(view === 'knowledge' ? '搜索知识点标题或正文…' : '搜索表达'));
+  document.getElementById('language-filter')!.hidden = view === 'sentences';
+  setLocalizedAttribute(searchInput, 'aria-label', message(view === 'sentences' ? '搜索句子' : view === 'knowledge' ? '搜索知识点标题或正文' : '搜索表达'));
   // 侧栏各视图共用同一连接；显式停止或窗口关闭才停止生成
   if (view === 'chat') chatViewEnter();
-  if (view === 'list' || view === 'knowledge') void refresh();
+  if (['list','sentences','knowledge'].includes(view)) void refresh();
   if (view === 'sentences') (libraryReview as HTMLButtonElement).disabled=false;
   if (view === 'subs') pollSubs();
-  if (view === 'sentences') void refreshSentences();
   if (view === 'review') {if(reviewQueue.length||knowledgeQueue.length){renderReview();void refreshReviewQueue();}else void startReview();}
   if (view === 'settings')void settingsView.refresh();
   void persistPanel();
@@ -264,13 +264,31 @@ document.addEventListener('scroll',()=>{
 
 
 async function refreshSentences(): Promise<void> {
+  const generation = ++listGeneration;
   const r = await send<{ ok:boolean; sentences:SavedSentence[] }>({ type:'listSentences' });
-  if (currentView !== 'sentences') return;
+  if (currentView !== 'sentences' || generation !== listGeneration) return;
   const body = document.getElementById('sentences-list')!;
   if (!r?.ok) { body.querySelector('.list-retry')?.remove();body.prepend(retryRow(refreshSentences));return; }
   body.replaceChildren();
-  if (!r.sentences.length) body.append(el('p', 'empty', message('还没有收藏的字幕句子')));
-  for (const saved of r.sentences) {
+  const query = searchInput.value.trim().toLocaleLowerCase();
+  const sentences = query ? r.sentences.filter(({ text, zh }) =>
+    text.toLocaleLowerCase().includes(query) || zh?.toLocaleLowerCase().includes(query),
+  ) : r.sentences;
+  if (!sentences.length) {
+    const empty = el('div', 'empty');
+    empty.append(el('span', undefined, message(query ? '没有匹配的句子' : '还没有收藏的字幕句子')));
+    if (query) {
+      const clear = el('button', undefined, message('清除搜索'));
+      clear.onclick = () => {
+        searchInput.value = '';
+        searchInput.focus();
+        void refreshSentences();
+      };
+      empty.append(clear);
+    }
+    body.append(empty);
+  }
+  for (const saved of sentences) {
     const card = el('article', 'entry'); card.append(el('p', 'sentence', saved.text));
     if (saved.zh) card.append(el('p', 'definition', saved.zh));
     const meta = el('div', 'meta');
@@ -501,9 +519,9 @@ function retryRow(retry: () => void): HTMLElement {
   return row;
 }
 
-let listGeneration = 0;
 async function refresh(): Promise<void> {
   if (currentView === 'knowledge') return refreshKnowledge();
+  if (currentView === 'sentences') return refreshSentences();
   const generation = ++listGeneration;
   const list = document.getElementById('list')!;
   const q = (document.getElementById('search') as HTMLInputElement).value;
@@ -584,7 +602,7 @@ async function refreshKnowledge(): Promise<void> {
   }
 }
 
-document.getElementById('search')!.addEventListener('input', () => void refresh());
+searchInput.addEventListener('input', () => void refresh());
 
 // ---- 语言筛选 -------------------------------------------------------------------
 
