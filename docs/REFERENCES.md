@@ -33,6 +33,10 @@
 - [peak-icon.png](../public/brand/peak-icon.png)：为深色工具栏可见度新增的扩展图标，paper-tile 纸纹底 + 墨灰山形，`#DDD9CF` 轻边框圆角。
 - [peak-mark-crop.png](../public/brand/peak-mark-crop.png)：peak-mark 按可见山形（alpha>16 边界加 6px 余量）裁掉四周透明留白与淡晕影的副本；品牌区与问答空态以 `object-fit:contain` 使用，替代原先按 64px 负偏移硬裁导致峰体两侧被切的 CSS。
 
+## 2026-11-06 整体前端确认稿
+
+[五张确认稿](specs/ui-refresh.md#确认稿)由本地 Codex 会话中的内置 ImageGen 基于用户提供的旧方案生成，用户确认后原样复制到 `design/ui-refresh/`，未复制第三方产品图片。用于布局和视觉参考，不参与扩展运行，不作为新功能或图片内文字的权威来源。当前素材用途以 [design.md](../design.md#素材)为准；上方山峰／山海的使用位置是旧版来源记录。
+
 ## 已移植：yt-dual-subs
 
 commit：[5657c8a18ca30c84b5d4662bca58e3e9214ffdff](https://github.com/Gythiro/yt-dual-subs/commit/5657c8a18ca30c84b5d4662bca58e3e9214ffdff)；本地参考副本 `.upstream/yt-dual-subs` 不入库。

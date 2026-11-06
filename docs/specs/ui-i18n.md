@@ -1,6 +1,6 @@
 # Peak Distance 界面规范
 
-本文维护界面语言、设置与控件状态规则；交付与检查状态见 [ROADMAP](../ROADMAP.md)。文案及设置分组沿用 2026-10-12 确认的方案。
+本文维护界面语言、设置与控件状态规则；交付与检查状态见 [ROADMAP](../ROADMAP.md)。整体外观改造以 [design.md](../../design.md) 和[当前规格](ui-refresh.md)为准，以下本地化与状态保持规则继续适用。
 
 ## 设置分组
 
@@ -22,12 +22,13 @@
 ## 控件与状态
 
 - 设置中的语言规则编辑器初始不预选原文语言，规则内原文与解释语言不能相同；规则使用主语言标签保存。选区翻译卡的语言控件按[翻译学习规格](translation-learning.md)执行。
-- 图标操作的提示、可访问名称与状态跟随显示语言。
+- 图标操作的提示、可访问名称与状态跟随显示语言；提示在悬停及键盘聚焦时可见。学习状态和语言筛选的名称包含当前状态／范围，图标不带常驻说明文字。
 - 开关标签、提示和操作结果使用当前显示语言。切换显示语言保留未保存的 AI 配置草稿。
 - 保留输入、选项、展开状态、音视频播放与滚动位置；语言切换不发起 AI 请求。
 - 当前服务与模型取已保存配置。文件共享的连接、同步和错误状态使用当前显示语言。
+- 外观主题的简约／经典名称接入同一五语言目录；主题不改变显示语言或理解语言，切换保留未保存表单与任务状态。主题默认和持久化规则见 [PRD](../PRD.md#工作区与设置)。
 
 ## 验证
 
 - `npm run check-i18n`：语言匹配、目录完整性、AI 提示、数据与控件状态保持。
-- `npm run check-ui-i18n`：先运行 `npm run build`，默认检查 `.output/chrome-mv3`。用 `PEAK_DISTANCE_UI_EXTENSION` 可指定其他构建目录。使用 Playwright Chromium，也可用 `BLC_CHROME` 指定已安装的 Edge。AI 响应使用测试数据。
+- `npm run check-ui-i18n`：先运行 `npm run build`，默认构建目录按 [extension-path](../../tools/extension-path.mjs) 读取。用 `PEAK_DISTANCE_UI_EXTENSION` 可指定其他构建目录。使用 Playwright Chromium，也可用 `BLC_CHROME` 指定已安装的 Edge。AI 响应使用测试数据。
