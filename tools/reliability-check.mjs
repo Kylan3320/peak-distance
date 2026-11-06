@@ -209,7 +209,7 @@ try {
   const marker=await build({absWorkingDir:root,stdin:{contents:"export {createMarker} from './shared/marker';",resolveDir:root},bundle:true,write:false,format:'iife',globalName:'MarkerCheck'});
   await page.addScriptTag({content:marker.outputFiles[0].text});
   const marked=await page.evaluate(async()=>{
-    globalThis.browser={runtime:{onMessage:{addListener(){}}}};
+    globalThis.browser={runtime:{onMessage:{addListener(){}},sendMessage:async()=>({ok:true,settings:{appearanceTheme:'minimal'}})}};
     const main=document.querySelector('main');
     main.replaceChildren(...Array.from({length:10},()=>Object.assign(document.createElement('p'),{textContent:Array(400).fill('fit').join(' ')})));
     const marker=MarkerCheck.createMarker({isOwnUi:()=>false,send:async m=>m.type==='getSettings'?{ok:true,settings:{markingEnabled:true}}:{ok:true,items:[{key:'en::fit',language:'en',expression:'fit',status:'learning',forms:[]}]}});
