@@ -1,126 +1,53 @@
-<p align="center">
-  <img src="assets/readme/hero-en.png" width="100%" alt="Peak Distance: understand a new language, keep the context. Look up words, save sentences and review them across the web, X and YouTube.">
-</p>
+<h1 align="center">Peak Distance</h1>
 
-# Peak Distance
+<p align="center"><a href="https://github.com/Kylan3320/peak-distance/releases/latest">Download</a> · <a href="#quick-start">Quick start</a> · <a href="#docs">Docs</a> · <a href="README.md">简体中文</a></p>
 
-**Every word you look up stays with its sentence.**
+![Peak Distance cover on graph paper. The browser extension rises from the bottom edge with one saved sentence in view.](assets/readme/hero-en.jpg)
 
-Peak Distance is a browser extension for language learning. While reading web pages, scrolling X or watching YouTube, you can look up words, translate, and save the expressions you want to remember together with the sentence they appeared in. When you review, you return to where each one came from; your learning records can also be saved as local files and organized further in note apps like Obsidian.
+I built Peak Distance for my own language learning. When I run into an expression on a webpage, on X, or on YouTube, I can save it with its original sentence and source. Next time I open my vocabulary list, I can pick up from that sentence.
 
-It supports many languages beyond English. You choose the language used for translations and explanations, then filter your vocabulary book by language.
+## From lookup to review
 
-The interface supports Simplified Chinese, Traditional Chinese, English, German and French, or follows your browser. Choose **Settings → Languages → Display language**. AI chat answers use the active display language; definitions and translations use the separate **Explanation language** setting.
+Select **slow down** on a webpage, look it up, and hit the bookmark. Choose **Review in context** in your vocabulary list and try to recall the expression in the same sentence.
 
-[中文](README.md) · [Download](https://github.com/Kylan3320/peak-distance/releases/latest) · [Installation](#installation) · [Usage](#usage) · [Privacy & Services](#privacy--services) · [License](#license)
+[![Two screenshots of the extension. The lookup card shows slow down, its source sentence, and a filled bookmark. The review panel shows the same sentence with the expression blanked out.](assets/readme/demo-en.png)](assets/readme/demo-en.png)
 
-## Installation
+On YouTube, you can also read bilingual captions, save a whole sentence, and replay it. The vocabulary list keeps your languages together, with filters for language and search for original sentences and translations.
 
-Requires desktop **Chrome 142 or newer**. The current release is [v0.72.0](https://github.com/Kylan3320/peak-distance/releases/tag/v0.72.0).
+## Quick start
 
-This README describes main-branch features, which may be newer than the release above. Download installable packages from Releases.
+The current release is [v0.72.0](https://github.com/Kylan3320/peak-distance/releases/tag/v0.72.0). Desktop Chrome requires version 142 or newer.
 
-1. Download the package whose name ends with `-chrome.zip` from [Releases](https://github.com/Kylan3320/peak-distance/releases/latest) and unzip it into a fixed folder.
-2. Type `chrome://extensions` in Chrome's address bar and turn on **Developer mode** (开发者模式) in the top-right corner.
-3. Click **Load unpacked** (加载已解压的扩展程序) and select the folder that contains `manifest.json`.
+1. Download and extract the `-chrome.zip` from the [latest release](https://github.com/Kylan3320/peak-distance/releases/latest).
+2. Open `chrome://extensions` (or `edge://extensions` in Edge) and turn on **Developer mode**.
+3. Choose **Load unpacked**, then select the folder that contains `manifest.json`.
 
-No Node.js and no commands needed. After installing, pin Peak Distance to the toolbar and refresh open pages to start selecting words. Keep the unzipped folder — the extension still reads from it at runtime.
+Refresh a webpage and select a word to try it. To update, extract the new files into the original install folder and click **Reload** on the extensions page.
+
+## Where your notes live
+
+Records stay in your browser by default. To work with them in Obsidian, connect a local folder under **Settings → Shared files**. Words, sentences, and notes can be written to Markdown. Chrome and Edge on the same computer can use the same folder. [Learning vault docs](docs/specs/vault-collections-sync.md)
+
+<details>
+<summary>AI chat and online services</summary>
+
+Regular lookups and translations work without an API key. To ask questions about a passage, set up your own provider and key under **Settings → AI services**. Online lookups and translations send the text needed for the query to the chosen service. AI chat sends your question and the material you attach. The key stays in the current browser.
+
+</details>
+
+## Docs
+
+| Where | What you'll find |
+| --- | --- |
+| [Product](docs/PRD.md) | Features and supported use cases |
+| [Development](docs/ARCHITECTURE.md) | Code entry points and modules |
+| [Roadmap](docs/ROADMAP.md) | Progress, known issues, and releases |
 
 <details>
 <summary>Build from source</summary>
 
-Prepare Node.js 22.12 or newer and npm. After downloading the source, run in the project directory:
-
-```sh
-npm ci
-npm run build
-```
-
-To test a source build, load `.output/build/chrome-mv3` in a separate browser profile. Keep your everyday extension in its original installation folder. During development you can use `npm run dev`. For ordinary changes, select checks based on the affected scope and risk. For releases, follow ROADMAP's release instructions. When browser regression checks are needed, run `npx playwright-core install chromium` before the first run. After rebuilding, reload the test extension and refresh the target pages.
-
-See the repository's [ARCHITECTURE](https://github.com/Kylan3320/peak-distance/blob/main/docs/ARCHITECTURE.md) for code entry points and [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md) for tasks, known defects and Git/release conventions (both in Chinese). `npm run zip:source` archives the current HEAD using `.gitattributes`; release assets include only the extension package. Source is available from the matching version tag.
+With Node.js 22.12 or newer, run `npm ci` and `npm run build`. Load `.output/build/chrome-mv3` in a separate browser profile.
 
 </details>
-
-## Usage
-
-### Reading the web: look up words, keep the sentence
-
-Select a word or phrase and click **Look up** (查词); select a sentence or paragraph and click **Translate** (翻译). When you save an expression, its original sentence and source are kept too.
-
-Move or pin the translation card, then use its bookmark button to save the original and translation as an independent knowledge record. You can save while translation is pending; the result fills in when ready. Find, edit or delete records in the vocabulary book’s **Knowledge** category. Web excerpts also appear in **Current content**, with review scoped to the article and language.
-
-For example, reading “She is comfortable **with** people.” and saving **with** means later reviews still show this sentence — you are not left recalling an isolated word.
-
-The **Add to chat** (加入对话) bubble next to the selection brings content into the AI chat. Words and phrases are attached together with their sentence; for a sentence or paragraph, the selected text itself is attached. Your existing draft is never replaced, and no AI request is made until you click send.
-
-### Watching videos: keep the original, replay line by line
-
-Open a YouTube video with subtitles and read the bilingual subtitles below the player. The extension follows the video's current original-caption track; the language of the translation is up to your settings.
-
-Hover a word in the subtitles to see its meaning and pause playback; click to expand the word card. You can also drag to select phrases and save full sentences. Selections in the player subtitles and in the learning panel's subtitle list can both be added to the chat.
-
-**Subtitles → Original language** (字幕设置 → 原文语言) at the bottom of the player selects among the tracks the video provides; you can also switch via YouTube's native **Settings → Subtitles/CC**. The same menu adjusts the translation mode, translation display and font size. With **Pause after each line** on, the video pauses at the end of each subtitle line; the learning panel also offers previous, replay and next for repeating a passage.
-
-### Learning different languages: pick explanations you understand
-
-In **Settings → Languages** (设置 → 语言设置), choose the default **Explanation language** — the language you want translations and word explanations in. You can also set a language pair individually, for example understanding English via Chinese, or Japanese via English.
-
-Expressions from web pages and videos go into the same vocabulary book (生词本). The language filter at the top of the vocabulary book shows records for one language at a time, where you can adjust the **Saved / Known** (已收藏／已掌握) status or start sentence review.
-
-Different language pairs have different lookup sources. English to Chinese prefers online dictionaries; other combinations may use regular translations. Word cards show their source; when a language cannot be determined it is marked **Unconfirmed** (待确认) instead of assuming everything is English.
-
-### Keeping it local: your learning records in your own folder
-
-In **Settings → Shared files** (设置 → 文件共享), click **Choose folder** (选择位置) and pick a local directory. Vocabulary, sentences, notes, language preferences and your saved chat history are stored as Markdown — plain note files any text editor can open. You can also pick a folder inside an Obsidian vault.
-
-When you change an entry's status or **My notes** (我的笔记) in Obsidian, the extension reads those changes back. Chrome and Edge on the same computer can connect to the same directory and share learning records; conflicting edits to the same field of a vocabulary or sentence record keep both versions and report a conflict.
-
-Words are kept in `生词本.md` (vocabulary) and sentences in `句子.md` (sentences), independent knowledge records in `知识点.md`, one section per record; AI chats are still saved per conversation. Recovery data such as full definitions and video positions lives in the `.peak-distance` helper directory, which also keeps a backup when migrating older scattered files. Please keep the whole learning folder.
-
-After updating the extension on both browsers, connect the same folder in each and click **Sync now** (立即同步). Syncing writes local changes first, then reads back what the other browser wrote; switching back to a browser also reads the shared files. Insufficient permissions, corrupted files and conflicts are reported clearly; uncommitted content stays on the machine where it was made.
-
-Translation excerpts and independent knowledge records sync through the vault. Update all browsers connected to the same vault together. See the repository's [ROADMAP](https://github.com/Kylan3320/peak-distance/blob/main/docs/ROADMAP.md) for details and repair status (in Chinese).
-
-The extension works without connecting a folder — records stay in the browser extension. Disconnecting the vault never deletes existing files, and API keys and AI service settings are never written into it.
-
-### Using AI: ask with the original text attached
-
-In **Settings → AI services** (设置 → AI 服务), pick a provider, enter your API key and click **Save and use** (保存启用). Presets include DeepSeek, OpenAI, Anthropic, Gemini, Zhipu GLM and Kimi; other compatible services can be configured in advanced settings with their address, model and API format.
-
-Ask questions directly, or attach a page, a selection or subtitles. Attached material is shown above the input box — click to view it in full, and removing it keeps your typed question. **Ask about this** (继续提问) in a word card brings in the expression and its sentence first; you decide whether to send.
-
-**Regular lookups and translations need no API key.** Configuring a key never switches translation to AI automatically. If you also enable **Use AI when needed** (查词补充), an AI explanation is attempted only when you actively look a word up, no applicable dictionary or a clear no-result applies, and AI is configured. Hover previews never trigger it, and neither do dictionary network failures.
-
-## Privacy & Services
-
-- Learning records are stored in the browser extension by default, or shared through a local folder when a learning vault is connected. The extension has no accounts and no built-in cloud sync.
-- API keys and AI service settings stay in the current browser and are never written into the Markdown vault. Another browser sharing the same vault configures its own AI services.
-- Online lookups and translations send the needed text to the corresponding service; AI requests send your question and attached material. Availability, model access and costs depend on your configuration and provider.
-- Sentence review reads existing records and never issues AI requests.
-
-## FAQ
-
-**Is unsent content kept forever?**
-
-No. Input, material and citations survive switching between the docked sidebar and the floating panel; closing the panel or switching conversations discards unsent content. A new conversation enters history only after its first send, and temporary input is never written to the learning vault.
-
-**Why do some lookups return no definition or translation?**
-
-Dictionary coverage differs by language, and translation services can be affected by network or rate limits. Retry, switch sources, or use AI when needed. A failed lookup never prevents saving the expression and its sentence.
-
-**Are videos without subtitles supported?**
-
-The extension relies on YouTube's existing subtitles. It does not capture audio or generate subtitles for videos without them. Shorts, live streams and Netflix are not supported yet.
-
-**How do I update?**
-
-Unzip the new package into the original installation folder, replacing the files in place. Click **Reload** for the existing Peak Distance entry in Chrome at `chrome://extensions` and in Edge at `edge://extensions`. Confirm the version in each browser, refresh the pages using the extension, and check that your existing learning records and settings are readable. Uninstalling the extension deletes its local browser data.
-
-**Why is there no lookup entry after installing?**
-
-Refresh the page first, then check that the extension's **Site access** (网站访问) allows the current site.
-
-## License
 
 [MIT](LICENSE)
