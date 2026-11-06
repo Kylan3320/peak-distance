@@ -994,10 +994,8 @@ function updateClearAction(): void {
 
 function renderInputState(): void {
   const input = document.getElementById('chat-input') as HTMLTextAreaElement | null;
-  const sendBtn = document.getElementById('chat-send') as HTMLButtonElement | null;
-  const stopBtn = document.getElementById('chat-stop') as HTMLButtonElement | null;
   const starters = document.getElementById('chat-starters')!;
-  if (!input || !sendBtn || !stopBtn) return;
+  if (!input) return;
   starters.textContent = '';
   if (latestSnapshot() && !chatRecord?.messages.length) {
     for (const promptKey of ['解释这句','梳理观点','举例说明']) {
@@ -1013,9 +1011,9 @@ function renderInputState(): void {
       starters.appendChild(b);
     }
   }
-  const streaming = chatRecord?.messages.some((m) => m.state === 'streaming');
-  sendBtn.hidden = !!streaming;
-  stopBtn.hidden = !streaming;
+  const streaming = !!chatRecord?.messages.some(m => m.state === 'streaming');
+  document.getElementById('chat-send')!.hidden = streaming;
+  document.getElementById('chat-stop')!.hidden = !streaming;
   updateCount();
   updateClearAction();
 }
@@ -1024,6 +1022,7 @@ function updateCount(): void {
   const input = document.getElementById('chat-input') as HTMLTextAreaElement | null;
   const count = document.getElementById('chat-count');
   if (!input || !count) return;
+  (document.getElementById('chat-send') as HTMLButtonElement).disabled = !input.value.trim();
   const n = input.value.length;
   count.hidden = n === 0;
   setText(count, n > CHAT_QUESTION_MAX_CHARS ? message('{count} / {limit}（超限）',{count:n,limit:CHAT_QUESTION_MAX_CHARS}) : n ? `${n} / ${CHAT_QUESTION_MAX_CHARS}` : message('Enter 发送，Shift + Enter 换行'));

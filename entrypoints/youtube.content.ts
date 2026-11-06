@@ -498,7 +498,7 @@ export default defineContentScript({
           label:has(select) {display:grid;grid-template-columns:minmax(0,1fr);gap:4px} #menu select {width:100%;min-width:0}
           .menu-actions {display:flex;justify-content:flex-end;gap:4px;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--pd-line)}
           #menu .menu-actions button {border:0;background:transparent}
-          .menu-actions svg {width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+          .menu-actions svg {width:var(--pd-icon-size);height:var(--pd-icon-size);flex:none;fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
           #menu #panel {color:var(--pd-blue);background:var(--pd-selected);border-color:transparent}
           #menu .menu-actions button:hover {background:var(--pd-selected);border-color:var(--pd-mist);color:var(--pd-blue)}
           #menu .menu-actions button:active {background:var(--pd-selected)}
