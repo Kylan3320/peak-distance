@@ -2,6 +2,7 @@ import { t as tr, localize, onDisplayLanguageChange, setDisplayLanguage , messag
 import { initFloatingPanel } from '@/shared/floatingPanel';
 import { createTranslationPopup } from '@/shared/translationPopup';
 import { shadowSelection, classifyRangeIn, clampRangeToElement } from '@/shared/selection';
+import { applyAppearance, initAppearance } from '@/shared/appearance';
 import { brandTokens, brandControls, sharedControls, CHAT_ADD_ICON } from '@/shared/brand';
 import selectionActionStyles from '@/shared/selectionActions.css?inline';
 import { uiIcon } from '@/shared/uiControls';
@@ -73,6 +74,7 @@ export default defineContentScript({
   matches: ['https://www.youtube.com/*'],
   runAt: 'document_idle',
   main() {
+    initAppearance();
     onDisplayLanguageChange(()=>{
       for(const id of [SUBS_ID,SWITCH_ID,'pd-phrase-actions']) {const root=document.getElementById(id)?.shadowRoot;if(root)localize(root);}
     });
@@ -483,27 +485,28 @@ export default defineContentScript({
       let host = document.getElementById(SWITCH_ID);
       if (!host) {
         host = document.createElement('div'); host.id = SWITCH_ID;
+        applyAppearance(host);
         const root = host.attachShadow({ mode: 'open' });
         root.innerHTML = `<style>
-          :host { position:relative; display:inline-flex; vertical-align:top; height:100%; align-items:center; font:14px/1.5 system-ui; color:#eee; text-shadow:none; letter-spacing:normal; text-transform:none; }
+          :host { position:relative; display:inline-flex; vertical-align:top; height:100%; align-items:center; font:14px/1.5 system-ui; color:#eee; text-shadow:none; letter-spacing:normal; text-transform:none; font-weight:400; }
           button,select { font:inherit; color:inherit; background:#292b30; border:1px solid #555; border-radius:5px; padding:5px 9px; cursor:pointer; }
           button:focus-visible,select:focus-visible { outline:2px solid #8ab4f8; }
-          #learning { background:transparent; border:0; padding:0 12px; height:100%; }
+          #learning { background:transparent; border:0; padding:0 4px; height:100%; color:#fff; filter:drop-shadow(0 1px 2px #000); } #learning[aria-expanded=true]{background:#ffffff26}
           ${brandTokens}${sharedControls}
-          #menu { color:var(--pd-ink);position:absolute; right:0; bottom:calc(100% + 12px); width:280px; box-sizing:border-box; max-height:calc(var(--blc-player-height,360px) - 72px); overflow-y:auto; background:var(--pd-paper); border:1px solid var(--pd-line); border-radius:8px; padding:12px; box-shadow:0 6px 24px #0008; }
+          #menu { color:var(--pd-ink);position:absolute; right:0; bottom:calc(100% + 12px); width:min(280px,calc(100vw - 24px)); box-sizing:border-box; max-height:calc(var(--blc-player-height,360px) - 72px); overflow-y:auto; background:var(--pd-paper); border:1px solid var(--pd-line); border-radius:8px; padding:12px; box-shadow:0 6px 24px #0008; }
           [hidden] { display:none!important; } label { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:7px 0; } small { color:var(--pd-muted); } #menu button,#menu select { background:var(--pd-surface);border-color:var(--pd-line);color:var(--pd-ink); } #menu input {accent-color:var(--pd-blue)}
           label:has(select) {display:grid;grid-template-columns:minmax(0,1fr);gap:4px} #menu select {width:100%;min-width:0}
-          .menu-actions {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--pd-line)}
-          .menu-actions button {display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;min-height:38px;padding:7px 8px;border-radius:7px;font-size:13px;box-sizing:border-box}
+          .menu-actions {display:flex;justify-content:flex-end;gap:4px;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--pd-line)}
+          #menu .menu-actions button {border:0;background:transparent}
           .menu-actions svg {width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
           #menu #panel {color:var(--pd-blue);background:var(--pd-selected);border-color:transparent}
-          #menu .menu-actions button:hover {background:#d6e5f1;border-color:var(--pd-mist);color:var(--pd-blue)}
-          #menu .menu-actions button:active {background:#c9dcec}
+          #menu .menu-actions button:hover {background:var(--pd-selected);border-color:var(--pd-mist);color:var(--pd-blue)}
+          #menu .menu-actions button:active {background:var(--pd-selected)}
           #menu .menu-actions button:focus-visible {outline:2px solid var(--pd-blue);outline-offset:2px}
-        </style><button id="learning" aria-expanded="false" data-i18n-title="双语字幕与学习面板" title="${tr("双语字幕与学习面板")}" data-i18n="双语">${tr("双语")}</button><div id="menu" hidden>
+        </style><button id="learning" class="ui-icon-button" aria-expanded="false" data-i18n-title="双语字幕与学习面板" data-i18n-aria-label="双语字幕与学习面板">${uiIcon('translate')}</button><div id="menu" hidden>
           <div class="menu-actions">
-            <button id="panel" data-i18n-aria-label="打开学习面板" aria-label="${tr("打开学习面板")}" data-i18n-title="打开学习面板" title="${tr("打开学习面板")}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M7 9h4M7 13h4"/></svg><span data-i18n="学习面板">${tr("学习面板")}</span></button>
-            <button id="settings" data-i18n-aria-label="打开设置" aria-label="${tr("打开设置")}" data-i18n-title="打开设置" title="${tr("打开设置")}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3m4 0h9M4 17h9m4 0h3"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg><span data-i18n="设置">${tr("设置")}</span></button>
+            <button id="panel" class="ui-icon-button" data-i18n-aria-label="打开学习面板" data-i18n-title="打开学习面板">${uiIcon('dock')}</button>
+            <button id="settings" class="ui-icon-button" data-i18n-aria-label="打开设置" data-i18n-title="打开设置">${uiIcon('settings')}</button>
           </div>
           <label><span data-i18n="双语字幕">${tr("双语字幕")}</span><input id="bilingual" type="checkbox"></label><label><span data-i18n="显示中文">${tr("显示中文")}</span><input id="chinese" type="checkbox"></label>
           <label><span data-i18n="原文语言">${tr('原文语言')}</span><select id="source-track" data-i18n-aria-label="原文字幕语言" aria-label="${tr("原文字幕语言")}"></select></label>
@@ -588,16 +591,17 @@ export default defineContentScript({
       let host = document.getElementById(SUBS_ID);
       if (!host) {
         host = document.createElement('div'); host.id = SUBS_ID;
+        applyAppearance(host);
         const root = host.attachShadow({ mode:'open' });
         root.innerHTML = `<style>
-          :host { display:block; color:#fff; font:var(--blc-font,28px)/1.45 system-ui,"Microsoft YaHei",sans-serif; }
+          ${brandTokens}:host { display:block; color:#fff; font:var(--blc-font,28px)/1.45 system-ui,"Microsoft YaHei",sans-serif; }
           .wrap { text-align:center; padding:12px 18px; background:#151719; border-radius:0 0 8px 8px; }
           .en { font-weight:600; overflow-wrap:anywhere; } .zh { font-size:.8em; color:#e1cc91; margin-top:6px; }
           .notice { color:#b7bdc7; font-size:14px; } .w { cursor:pointer; border-radius:3px; } .w:hover { background:#454d58; }
-          .w:focus-visible { outline:2px solid #8ab4f8; } .saved { border-bottom:2px solid #8ab4f8; } .known { color:#9aa0a6; }
+          .w:focus-visible { outline:2px solid #8ab4f8; } .saved { border-bottom:2px solid color-mix(in srgb,var(--pd-blue),white 62%); } .known { border-bottom:1px dotted color-mix(in srgb,var(--pd-blue),white 62%); }
           button { cursor:pointer; margin:6px; padding:4px 10px; border:1px solid #555; border-radius:5px; background:#292b30; color:#eee; font:14px system-ui; }
           :host([data-fullscreen]) .wrap { background:transparent; padding:4px 8px; text-shadow:0 1px 3px #000,0 0 2px #000; }
-          :host([data-fullscreen]) .en,:host([data-fullscreen]) .zh { width:fit-content;max-width:100%;margin-left:auto;margin-right:auto;background:rgba(16,18,20,.25);padding:2px 8px;border-radius:4px; }
+          :host([data-fullscreen]) .en,:host([data-fullscreen]) .zh { width:fit-content;max-width:100%;margin-left:auto;margin-right:auto;background:rgba(16,18,20,.72);padding:2px 8px;border-radius:4px; }
         </style><div class="wrap"></div>`;
         bindWordEvents(host);
       }
@@ -730,6 +734,7 @@ export default defineContentScript({
       dismissedSelection = null;
       const host=document.createElement('div');host.id='pd-phrase-actions';
       host.style.cssText='position:fixed;z-index:2147483646';
+      applyAppearance(host);
       const root=host.attachShadow({mode:'open'});
       root.innerHTML=`<style>${brandTokens}:host{display:block;text-shadow:none;letter-spacing:normal;text-transform:none;font-weight:400}${selectionActionStyles}</style><div class="selection-actions"><button id="lookup" type="button" hidden data-i18n-title="查词" data-i18n-aria-label="查词">${uiIcon('lookup')}</button><button id="translate" type="button" hidden data-i18n-title="翻译" data-i18n-aria-label="翻译">${uiIcon('translate')}</button><button id="chat" type="button" class="blc-chat-add" data-i18n-title="添加到对话" data-i18n-aria-label="添加到对话">${CHAT_ADD_ICON}</button></div>`;
       localize(root);

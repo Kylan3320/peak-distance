@@ -9,6 +9,7 @@
 //   - 关闭开关（设置）或 stop() 时拆掉全部包装，恢复原文本。
 // 只做视觉标记，不挂任何页面事件；选区、复制、链接行为不受影响。
 
+import { onAppearanceChange } from './appearance';
 import { normalizeExpressionInLanguage, parseEntryKey, primaryOfLang } from '@/shared/languages';
 import { detectTextLanguage, segmentWords } from '@/shared/tokenize';
 import { visibleVocabStatus, type VocabIndexItem } from '@/shared/vocab';
@@ -176,23 +177,31 @@ export function createMarker(opts: {
 
   // ---- 样式 -----------------------------------------------------------------
 
+  let accent = '#296b63';
+  onAppearanceChange(theme => {
+    accent = theme === 'classic' ? '#1a5fc4' : '#296b63';
+    const style = document.getElementById(STYLE_ID);
+    if (style) style.textContent = markerStyles();
+  });
+
+  function markerStyles() {
+    return `
+      span.blc-mark[${MARK_ATTR}] { all: unset; }
+      span.blc-mark[${MARK_ATTR}].saved {
+        background: color-mix(in srgb,${accent} 10%,transparent) !important;
+        border-bottom: 1px solid ${accent} !important;
+      }
+      span.blc-mark[${MARK_ATTR}].known {
+        border-bottom: 1px dotted ${accent} !important;
+      }
+    `;
+  }
+
   function ensureStyle(): void {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement('style');
     style.id = STYLE_ID;
-    style.textContent = `
-      span.blc-mark[${MARK_ATTR}] {
-        all: unset;
-      }
-      span.blc-mark[${MARK_ATTR}].saved {
-        background: rgba(26, 115, 232, 0.08) !important;
-        border-bottom: 1px solid #1a73e8 !important;
-      }
-      span.blc-mark[${MARK_ATTR}].known {
-        color: #5f6368 !important;
-        border-bottom: 1px dotted #9aa0a6 !important;
-      }
-    `;
+    style.textContent = markerStyles();
     document.head?.appendChild(style);
   }
 

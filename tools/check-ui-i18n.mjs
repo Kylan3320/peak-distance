@@ -42,7 +42,9 @@ try {
   const panel=await context.newPage();
   await panel.goto(`chrome-extension://${id}/sidepanel.html#list`);
   await panel.waitForFunction(()=>!document.body.inert);
+  await panel.locator('.entry-expand').click();
   await panel.getByRole('button',{name:'添加笔记',exact:true}).click();
+  await options.locator('#ai-settings > summary').click();
   await panel.locator('.note-box textarea').fill('保留解释 {literal} — my unsaved note');
   await options.locator('#key').fill('local-test-key');
   await options.locator('#ai-advanced summary').click();
@@ -87,6 +89,7 @@ try {
   await options.waitForFunction(()=>document.querySelector('#cacheLimit')?.closest('.settings-field').querySelector('.settings-field-state')?.textContent.includes('Réessayez'));
   assert.equal(await options.locator('#cacheLimit').inputValue(),'100');
   await options.evaluate(()=>{chrome.storage.local.set=globalThis.originalStorageSet;});
+  await options.locator('#ai-settings > summary').click();
   await options.locator('#key').fill('local-test-key');
   await options.locator('#save').click();
   await options.waitForFunction(async()=>!!(await chrome.storage.local.get('aiServices')).aiServices?.profiles?.deepseek?.apiKey);
@@ -127,23 +130,30 @@ try {
   await web.evaluate(()=>{const node=document.createTreeWalker(document.querySelector('#selection'),NodeFilter.SHOW_TEXT).nextNode(),range=document.createRange();range.setStart(node,0);range.setEnd(node,8);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));});
   await web.locator('#blc-lookup-pill #lookup').waitFor();
   assert.equal(await web.locator('#blc-lookup-pill #lookup').getAttribute('aria-label'),'Look up');
+  await options.locator('#appearanceTheme').selectOption('classic');
+  await web.locator('#blc-lookup-pill[data-pd-theme=classic]').waitFor();
+  assert.equal(await web.evaluate(()=>getSelection().toString()),'Learning');
+  assert.equal(await web.locator('html').getAttribute('data-pd-theme'),null);
   await options.locator('#displayLanguage').selectOption('de');
   await web.waitForFunction(()=>document.querySelector('#blc-lookup-pill')?.shadowRoot?.querySelector('#lookup')?.getAttribute('aria-label')==='Nachschlagen');
   await web.locator('#blc-lookup-pill #lookup').click();
-  await web.locator('#blc-lookup-popup .act.save').waitFor();
-  assert.equal(await web.locator('#blc-lookup-popup .act.save').getAttribute('aria-label'),'Gespeichert');
+  await web.locator('#blc-lookup-popup .learning-status').waitFor();
+  assert.equal(await web.locator('#blc-lookup-popup .learning-status').getAttribute('aria-label'), 'Learning · Gespeichert');
   await options.locator('#displayLanguage').selectOption('fr');
-  await web.waitForFunction(()=>document.querySelector('#blc-lookup-popup')?.shadowRoot?.querySelector('.act.save')?.getAttribute('aria-label')==='Enregistré');
+  await web.waitForFunction(()=>document.querySelector('#blc-lookup-popup')?.shadowRoot?.querySelector('.learning-status')?.getAttribute('aria-label')==='Learning · Enregistré');
   assert.equal(await web.locator('#blc-lookup-popup .ctx').innerText(),'Learning makes reading easier.');
   assert.equal(await web.locator('html').getAttribute('lang'),'en');
+  await web.locator('#blc-lookup-popup[data-pd-theme=classic]').waitFor();
+  await options.locator('#appearanceTheme').selectOption('minimal');
+  await web.locator('#blc-lookup-popup[data-pd-theme=minimal]').waitFor();
   if(output)await web.screenshot({path:path.join(output,'web-lookup-fr.png')});
   await context.route('https://www.youtube.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="en"><head><title>Video practice</title><style>body{margin:0;padding:32px;background:#fff;font:14px system-ui}#movie_player{position:relative;width:960px;height:540px;margin:auto;background:#181818}video{width:100%;height:100%}.ytp-chrome-bottom{position:absolute;left:12px;right:12px;bottom:16px;height:48px;display:flex;justify-content:flex-end}.ytp-right-controls{display:flex;height:100%}button{font:inherit;color:#fff}</style></head><body><div id="movie_player" class="html5-video-player"><video class="html5-main-video"></video><div class="ytp-chrome-bottom"><div class="ytp-right-controls"></div><button class="ytp-subtitles-button" aria-pressed="true"></button></div></div></body></html>'}));
   const video=await context.newPage();await video.goto('https://www.youtube.com/watch?v=abcdefghijk');
   await video.locator('#blc-subs-switch #learning').waitFor();
-  assert.equal(await video.locator('#blc-subs-switch #learning').innerText(),'Sous-titres');
+  assert.equal(await video.locator('#blc-subs-switch #learning').getAttribute('aria-label'),'Réglages des sous-titres');
   await video.locator('#blc-subs-switch #learning').click();
   await options.locator('#displayLanguage').selectOption('en');
-  await video.waitForFunction(()=>document.querySelector('#blc-subs-switch')?.shadowRoot?.querySelector('#learning')?.textContent==='Subtitles');
+  await video.waitForFunction(()=>document.querySelector('#blc-subs-switch')?.shadowRoot?.querySelector('#learning')?.getAttribute('aria-label')==='Subtitle settings');
   assert.equal(await video.locator('#blc-subs-switch label').filter({has:video.locator('#chinese')}).innerText(),'Show translation');
   assert.equal(await video.locator('#blc-subs-switch label').filter({has:video.locator('#ap')}).innerText(),'Pause after each line');
   assert.equal(await video.locator('#blc-subs-switch #translation-mode option[value="ai"]').innerText(),'AI translation');
@@ -159,6 +169,7 @@ try {
   if(output){
     await panel.screenshot({path:path.join(output,'sidebar.png')});
     await panel.locator('#open-settings').click();await panel.setViewportSize({width:390,height:844});
+    await panel.locator('#ai-settings > summary').click();
     for(const locale of ['zh-Hans','en','de','fr']){
       await options.locator('#displayLanguage').selectOption(locale);
       await panel.waitForFunction(locale=>document.documentElement.lang===locale,locale);

@@ -1,5 +1,13 @@
 /** Product copy only. Source keys stay stable across wording changes and saved material labels. */
 export const UI_MESSAGES: Record<string, readonly [string, string, string, string, string]> = {
+  '外观主题': ['外观主题', '外觀主題', 'Appearance', 'Erscheinungsbild', 'Apparence'],
+  '简约': ['简约', '簡約', 'Minimal', 'Schlicht', 'Épuré'],
+  '经典': ['经典', '經典', 'Classic', 'Klassisch', 'Classique'],
+  '{word}（{language}）': ['{word}（{language}）', '{word}（{language}）', '{word} ({language})', '{word} ({language})', '{word} ({language})'],
+  '{expression} · {status}': ['{expression} · {status}', '{expression} · {status}', '{expression} · {status}', '{expression} · {status}', '{expression} · {status}'],
+  '{scope} · {category}': ['{scope} · {category}', '{scope} · {category}', '{scope} · {category}', '{scope} · {category}', '{scope} · {category}'],
+  '空白对话标题': ['新对话', '新對話', 'New chat', 'Neuer Chat', 'Nouveau chat'],
+  '正在读取对话…': ['正在读取对话…', '正在讀取對話…', 'Loading conversation…', 'Unterhaltung wird geladen…', 'Chargement de la conversation…'],
   '字幕响应为空，请重试': ['字幕响应为空，请重试', '字幕回應為空，請重試', 'The subtitle response was empty. Try again.', 'Die Untertitelantwort war leer. Versuche es erneut.', 'La réponse des sous-titres était vide. Réessayez.'],
   '字幕网络请求失败，请重试': ['字幕网络请求失败，请重试', '字幕網路請求失敗，請重試', 'The subtitle request failed. Try again.', 'Die Untertitelanfrage ist fehlgeschlagen. Versuche es erneut.', 'La requête de sous-titres a échoué. Réessayez.'],
   '字幕解析失败，请重试': ['字幕解析失败，请重试', '字幕解析失敗，請重試', 'The subtitles could not be read. Try again.', 'Die Untertitel konnten nicht gelesen werden. Versuche es erneut.', 'Impossible de lire les sous-titres. Réessayez.'],
@@ -277,7 +285,7 @@ export const UI_MESSAGES: Record<string, readonly [string, string, string, strin
   '解释这句': ['解释这句', '解釋這句', 'Explain this sentence', 'Diesen Satz erklären', 'Expliquer cette phrase'],
   '梳理观点': ['整理要点', '整理重點', 'Summarize key points', 'Kernaussagen zusammenfassen', 'Résumer les points clés'],
   '举例说明': ['举例说明', '舉例說明', 'Give an example', 'Ein Beispiel geben', 'Donner un exemple'],
-  '想弄懂什么？': ['想弄懂什么？', '想弄懂什麼？', 'What would you like to understand?', 'Was möchtest du verstehen?', 'Que souhaitez-vous comprendre ?'],
+  '想弄懂什么？': ['想弄懂什么？', '想弄懂什麼？', 'Ask a question…', 'Stell eine Frage…', 'Posez une question…'],
   '向 AI 提问': ['向AI提问', '向AI提問', 'Ask AI', 'KI fragen', 'Poser une question à l’IA'],
   '发送': ['发送', '傳送', 'Send', 'Senden', 'Envoyer'],
   '停止': ['停止', '停止', 'Stop', 'Stoppen', 'Arrêter'],

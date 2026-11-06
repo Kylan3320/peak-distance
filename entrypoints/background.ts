@@ -9,7 +9,7 @@ import type { SelectionSnapshot } from '@/shared/panel';
 import { translateRegularCues } from '@/lib/regularTranslation';
 import { isTranslationService } from '@/shared/translationService';
 import { cached, cacheGet, cachePut, trimCache, clearQueryCache } from '@/lib/onlineCache';
-import { comprehensionLangFor, DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
+import { appearanceTheme, comprehensionLangFor, DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
 import { resolveDisplayLocale, translate } from '@/shared/i18n';
 import type { LearningResult, ContextExplanation } from '@/shared/vocab';
 // background：词汇 / 翻译消息路由、IndexedDB 存取、AI 请求、广播。
@@ -621,7 +621,7 @@ async function handle(
       return { ...r, ok: !r.error && !r.conflicts, error: r.error ?? (r.conflicts ? 'conflict' : undefined) };
     }
     case 'openSettings': {
-      return handlePanelMessage({type:'panelOpen',view:'settings'},sender,nativeOpen);
+      return handlePanelMessage({type:'panelOpen',view:'settings',settingsAi:m.ai===true},sender,nativeOpen);
     }
     default:
       return bad('unknown-type');
@@ -662,7 +662,8 @@ export default defineBackground(() => {
     if (area !== 'local') return;
     if ('cacheLimit' in changes) void trimCache();
     if ('displayLanguage' in changes) void updateActionTitle();
-    if (Object.keys(changes).some(k => k in DEFAULT_SETTINGS)) broadcast({ type: 'settings-changed' });
+    if (changes.appearanceTheme) broadcast({type:'theme-changed',theme:appearanceTheme(changes.appearanceTheme.newValue)});
+    if (Object.keys(changes).some(k => k !== 'appearanceTheme' && k in DEFAULT_SETTINGS)) broadcast({ type: 'settings-changed' });
     // 语言偏好双向生效：设置变化即排队写回 偏好.md（幂等键，重复无害）
     if ('defaultComprehensionLang' in changes || 'comprehensionOverrides' in changes) {
       queueVaultWriteAfterSave(() => enqueuePreferenceWrite());

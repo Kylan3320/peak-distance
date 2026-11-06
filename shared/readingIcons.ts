@@ -23,8 +23,8 @@ export const readingIconStyles = `
   .reading-icon.is-saved svg {fill:currentColor}
   .reading-icon[aria-busy=true] {cursor:wait}
   @keyframes pd-bookmark-saved {from {transform:scale(.78)} to {transform:scale(1)}}
-  .reading-icon.save-complete svg {animation:pd-bookmark-saved 160ms cubic-bezier(.16,1,.3,1)}
-  @media(prefers-reduced-motion:reduce) {.reading-icon.save-complete svg {animation:none}}
+  .save-complete svg {animation:pd-bookmark-saved 160ms cubic-bezier(.16,1,.3,1)}
+  @media(prefers-reduced-motion:reduce) {.save-complete svg {animation:none}}
 `;
 
 /** Run only in the successful mutation callback, never in a render path. */

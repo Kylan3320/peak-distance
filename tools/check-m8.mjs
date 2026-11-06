@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 const profile=mkdtempSync(join(tmpdir(),'pd-m8-'));
 const output=resolve('.upstream/m8');mkdirSync(output,{recursive:true});
 const context=await chromium.launchPersistentContext(profile,{
-  executablePath:process.env.BLC_CHROME||'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',headless:true,
+  executablePath:process.env.BLC_CHROME||'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',headless:!process.argv.includes('--headed'),
   proxy:{server:process.env.BLC_PROXY||'http://127.0.0.1:7890'},
   args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'--autoplay-policy=no-user-gesture-required'],viewport:{width:1280,height:900},
 });
@@ -28,7 +28,10 @@ const paragraph='Learning a language helps us understand the world. '.repeat(8)+
 const article=`<!doctype html><html><head><title>Language and the world</title></head><body><h1>Language and the world</h1><p id="text" style="white-space:pre-wrap;max-width:680px">${paragraph}</p><p id="short">A different sentence.</p><p id="fail">FAIL translating this sentence.</p></body></html>`;
 const videoHtml=`<!doctype html><html><head><title>Learning in context</title></head><body style="margin:24px;background:#13181e;color:white;font-family:system-ui"><ytd-watch-flexy><div id="player-container-outer" style="aspect-ratio:16/9"><div id="movie_player" style="position:relative;width:100%;height:100%;background:linear-gradient(90deg,#f1e8ce,#163343)"><video style="width:100%;height:100%"></video><div class="ytp-chrome-bottom" style="position:absolute;bottom:0;right:0;height:40px"><div class="ytp-right-controls" style="height:100%"></div></div></div></div></ytd-watch-flexy><script>
 const v=document.querySelector('video'),bytes=new Uint8Array(44+8000*2*30),d=new DataView(bytes.buffer);const str=(at,s)=>[...s].forEach((c,i)=>bytes[at+i]=c.charCodeAt(0));str(0,'RIFF');d.setUint32(4,bytes.length-8,true);str(8,'WAVE');str(12,'fmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,1,true);d.setUint32(24,8000,true);d.setUint32(28,16000,true);d.setUint16(32,2,true);d.setUint16(34,16,true);str(36,'data');d.setUint32(40,bytes.length-44,true);v.src=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));
-window.addEventListener('message',e=>{const m=e.data;if(m?.source!=='blc-content')return;if(m.type==='config'){window.__nonce=m.nonce;window.postMessage({source:'blc-inject',type:'cues',nonce:m.nonce,videoId:'m8test01',trackId:'https://www.youtube.com/api/timedtext?v=m8test01&lang=en',trackLang:'en',trackKind:'manual',seen:1,cues:[{start:0,dur:3000,lastOff:0,text:'Run, run home.'},{start:3000,dur:3000,lastOff:0,text:'Home is a good place to learn.'}]},'*');}if(m.type==='translation-request')window.postMessage({...m,source:'blc-inject',type:'translation',nonce:window.__nonce,cues:[]},'*');});
+const player=document.getElementById('movie_player'),url='https://www.youtube.com/api/timedtext?v=m8test01&lang=en';
+const track={languageCode:'en',name:'English',baseUrl:url};
+player.getOption=(module,key)=>key==='tracklist'?[track]:track;player.setOption=()=>{};player.loadModule=()=>{};
+window.addEventListener('message',e=>{if(e.data?.source==='blc-content'&&e.data.type==='config')fetch(url);});
 </script></body></html>`;
 async function select(page,selector){await page.locator(selector).evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);document.dispatchEvent(new Event('selectionchange'));});}
 try {
@@ -63,12 +66,12 @@ try {
   await page.screenshot({path:join(output,'translation.png')});
   await page.getByRole('button',{name:'关闭翻译'}).click();
   await select(page,'#fail');await page.getByRole('button',{name:'翻译',exact:true}).click();
-  await page.locator('#pd-translation #result').filter({hasText:'限制访问'}).waitFor();
-  check('失败保留原文与重试',await page.locator('#pd-translation #retry').isEnabled());
-  await worker.evaluate(()=>globalThis.__retryOK=true);await page.locator('#pd-translation #retry').click();await page.locator('#pd-translation #result').filter({hasText:'学习语言'}).waitFor();check('失败后可重试成功',true);
+  await page.locator('#pd-translation #retry-inline').waitFor();
+  check('失败保留原文与重试',await page.locator('#pd-translation #retry-inline').isEnabled()&&await page.locator('#pd-translation #original').textContent()==='FAIL translating this sentence.');
+  await worker.evaluate(()=>globalThis.__retryOK=true);await page.locator('#pd-translation #retry-inline').click();await page.locator('#pd-translation #result').filter({hasText:'学习语言'}).waitFor();check('失败后可重试成功',true);
   await page.getByRole('button',{name:'关闭翻译'}).click();
   await page.locator('#text').evaluate(el=>el.textContent='Long text '.repeat(600));await select(page,'#text');await page.getByRole('button',{name:'翻译',exact:true}).click();
-  await page.locator('#pd-translation #result').filter({hasText:'缩小选区'}).waitFor();check('超限明确提示而不消失或截断',true);await page.getByRole('button',{name:'关闭翻译'}).click();
+  await page.locator('#pd-translation #query-state').filter({hasText:'缩小选文'}).waitFor();check('超限明确提示而不消失或截断',true);await page.getByRole('button',{name:'关闭翻译'}).click();
   await page.locator('#short').evaluate(el=>el.textContent='SLOW translating this sentence.');await select(page,'#short');await page.getByRole('button',{name:'翻译',exact:true}).click();await page.evaluate(()=>history.pushState({},'','/next'));await page.locator('#pd-translation').waitFor({state:'detached'});check('SPA 导航取消旧翻译浮层',true);
 
   // M10: old selection stays suppressed; outside clicks continue their original action.
@@ -84,6 +87,7 @@ try {
   check('浮动扩展工作区加载完成',(await control.evaluate(id=>chrome.tabs.sendMessage(id,{type:'pd-panel-show'},{frameId:0}),tabId)).ok);
   const frame=page.frames().find(f=>f.url().includes('/sidepanel.html'));
   await frame.getByRole('button',{name:'设置',exact:true}).click();
+  await frame.locator('#ai-settings > summary').click();
   const pageCount=context.pages().length;
   await frame.locator('#key').fill('m8-disposable-test-key');await frame.locator('#save').click();await frame.locator('#state').filter({hasText:'已保存'}).waitFor();
   check('面板内设置不创建标签页',context.pages().length===pageCount);
@@ -92,12 +96,12 @@ try {
   check('普通设置快照不含 key',!JSON.stringify(await send({type:'getSettings'})).includes('m8-disposable-test-key'));
   await frame.locator('#markingEnabled').uncheck();await frame.locator('#markingEnabled').locator('..').locator('.settings-field-state.ok').filter({hasText:'已保存'}).waitFor();
   check('设置写入实际存储',(await send({type:'getSettings'})).settings.markingEnabled===false);
-  await frame.locator('#settings-back').click();
-  await frame.getByRole('button',{name:'AI 问答',exact:true}).click();
+  await frame.locator('#workspace-back').click();
+  await frame.getByRole('button',{name:'AI问答',exact:true}).click();
   await frame.locator('#chat-input').fill('Preserve this draft across both panel modes.');
   const cdp=await context.newCDPSession(page);
-  await frame.getByRole('button',{name:'切换为固定侧栏'}).click();
-  let target;for(let i=0;i<40&&!target;i++){target=(await cdp.send('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&t.url===panelUrl);if(!target)await new Promise(r=>setTimeout(r,100));}
+  await frame.locator('#panel-mode').click();
+  let target;for(let i=0;i<40&&!target;i++){target=(await cdp.send('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&t.url.startsWith(panelUrl));if(!target)await new Promise(r=>setTimeout(r,100));}
   assert.ok(target,'native panel target');
   let {sessionId}=await cdp.send('Target.attachToTarget',{targetId:target.targetId,flatten:false});let nextId=1;const pending=new Map();
   cdp.on('Target.receivedMessageFromTarget',e=>{if(e.sessionId!==sessionId)return;const m=JSON.parse(e.message);const cb=pending.get(m.id);if(cb){pending.delete(m.id);cb(m);}});
@@ -110,7 +114,7 @@ try {
   await nativeEval('document.querySelector("#chat-input").value="Updated draft in native panel.";document.querySelector("#chat-input").dispatchEvent(new Event("input",{bubbles:true}));document.querySelector("#open-settings").click();document.querySelector("#panel-mode").click();');
   await page.locator('#pd-floating-panel').waitFor({state:'visible'});
   await frame.locator('#view-settings').waitFor({state:'visible'});
-  await frame.locator('#settings-back').click();
+  await frame.locator('#workspace-back').click();
   await frame.waitForFunction(()=>document.querySelector('#chat-input').value==='Updated draft in native panel.');
   check('回到浮动模式保留最新草稿',(await frame.locator('#chat-input').inputValue())==='Updated draft in native panel.');
   const oldDocument=(await frame.evaluate(()=>chrome.runtime.sendMessage({type:'panelContext'}))).documentId;
@@ -119,7 +123,7 @@ try {
   check('旧 ready 随文档失效且无自动重载',page.frames().some(f=>f.url()==='about:blank'));
   let releaseStall;await context.route('https://example.com/stalled-workspace',async route=>{await new Promise(done=>{releaseStall=done;});await route.abort().catch(()=>{});});
   await page.locator('#pd-floating-panel iframe').evaluate(el=>{const observer=new MutationObserver(()=>{if(el.src.includes('/sidepanel.html')){observer.disconnect();el.src='https://example.com/stalled-workspace';}});observer.observe(el,{attributes:true,attributeFilter:['src']});});
-  await page.locator('#pd-floating-panel .retry').click();await page.locator('#pd-floating-panel .status-text').filter({hasText:'未能就绪'}).waitFor();check('重试加载再次失败后仍能继续重试',await page.locator('#pd-floating-panel .retry').isVisible());releaseStall?.();
+  await page.locator('#pd-floating-panel .retry').click();await page.locator('#pd-floating-panel .status-text[data-i18n="工作区未能就绪，请重试"]').waitFor();check('重试加载再次失败后仍能继续重试',await page.locator('#pd-floating-panel .retry').isVisible());releaseStall?.();
   await page.locator('#pd-floating-panel .retry').click();await page.frameLocator('#pd-floating-panel iframe').locator('#chat-input').waitFor();
   await frame.waitForFunction(()=>document.querySelector('#chat-input').value==='Updated draft in native panel.');
   const recoveredDocument=(await frame.evaluate(()=>chrome.runtime.sendMessage({type:'panelContext'}))).documentId;
@@ -127,18 +131,26 @@ try {
   const diagnostic=await worker.evaluate(tabId=>chrome.storage.session.get(`panel-diagnostics:${tabId}`),tabId);
   check('浮动诊断记录真实文档失效且不包含输入正文',JSON.stringify(diagnostic).includes('document-missing')&&!JSON.stringify(diagnostic).includes('Updated draft'));
 
-  await frame.getByRole('button',{name:'设置',exact:true}).click();await frame.locator('#clear').click();
-  await frame.locator('#state').filter({hasText:'已清除'}).waitFor();await frame.locator('#settings-back').click();
+  await frame.getByRole('button',{name:'设置',exact:true}).click();
+  await frame.locator('#ai-settings > summary').click();
+  await frame.locator('#clear').click();
+  await frame.locator('#state').filter({hasText:'已清除'}).waitFor();await frame.locator('#workspace-back').click();
 
   for(const [i,word]of ['journey','understand'].entries())await send({type:'save',snapshot:{source:'web',expression:word,sentence:`Every ${word} begins with a single step.`,url:'https://example.com/article',title:'A journey'},definition:'从语境中理解新的表达'});
   await frame.getByRole('button',{name:'生词本',exact:true}).click();await frame.locator('.entry').first().waitFor();await page.waitForTimeout(200);await page.screenshot({path:join(output,'vocabulary.png')});
-  await frame.getByRole('button',{name:'原句复习'}).click();await frame.getByRole('button',{name:'揭示',exact:true}).click();
-  await frame.getByRole('button',{name:'设置',exact:true}).click();await frame.locator('#settings-back').click();
+  await frame.getByRole('button',{name:'原句复习'}).click();
+  await frame.locator('#review-body').getByRole('button',{name:'英语',exact:true}).click();
+  await frame.getByRole('button',{name:'显示单词',exact:true}).click();
+  await frame.getByRole('button',{name:'设置',exact:true}).click();await frame.locator('#workspace-back').click();
   check('设置往返保留复习揭示状态',await frame.getByRole('button',{name:'下一条',exact:true}).isVisible());
   await page.screenshot({path:join(output,'review.png')});
   await page.goto('https://x.com/example/status/123');await page.locator('html[data-blc-web]').waitFor();
   const hostWindow=await control.evaluate(async()=>(await chrome.windows.getCurrent()).id);await control.waitForFunction(async w=>(await chrome.runtime.sendMessage({type:'chatActive',windowId:w})).chat.draft==='',hostWindow);check('承载网页关闭丢弃未发送输入',true);await select(page,'#short');await page.getByRole('button',{name:'翻译',exact:true}).click();await page.locator('#pd-translation #result').filter({hasText:'另一句话'}).waitFor();check('X 选区翻译',true);
 
+  await context.route('https://www.youtube.com/api/timedtext?*',r=>r.fulfill({json:{events:[
+    {tStartMs:0,dDurationMs:3000,segs:[{utf8:'Run, run home.'}]},
+    {tStartMs:3000,dDurationMs:3000,segs:[{utf8:'Home is a good place to learn.'}]},
+  ]}}));
   await context.route('https://www.youtube.com/watch?v=m8test01',r=>r.fulfill({contentType:'text/html',body:videoHtml}));
   await page.goto('https://www.youtube.com/watch?v=m8test01');await page.locator('#blc-subs .en').waitFor();await page.locator('#blc-subs .zh').waitFor();
   check('普通模式字幕在视频下方',await page.locator('#blc-subs').evaluate(el=>el.getBoundingClientRect().top>=document.getElementById('movie_player').getBoundingClientRect().bottom));
@@ -164,10 +176,10 @@ try {
   await page.mouse.move(10,10);await page.evaluate(()=>document.querySelector('video').play());await videoFrame.locator('#blc-learning-panel .w').first().hover();await videoFrame.locator('#blc-lookup-popup .compact').waitFor();check('面板字幕悬停就地查词并暂停',await page.evaluate(()=>document.querySelector('video').paused));
   await videoFrame.locator('#blc-learning-panel .w').first().click();await page.mouse.click(10,10);await videoFrame.locator('#blc-lookup-popup').waitFor({state:'detached'});check('网页点击关闭自有 iframe 内词卡',true);await page.waitForFunction(()=>!document.querySelector('video').paused);check('关闭面板词卡恢复插件造成的暂停',true);await page.evaluate(()=>{document.querySelector('video').pause();document.querySelector('video').currentTime=0;});
   await videoFrame.getByRole('button',{name:'词语',exact:true}).click();await videoFrame.getByRole('button',{name:'Run · 2 次',exact:true}).waitFor();check('视频全部词汇与词次仍可用',true);
-  await videoFrame.getByRole('button',{name:'字幕',exact:true}).click();await videoFrame.getByRole('button',{name:'收藏整句',exact:true}).first().click();
-  await videoFrame.getByRole('button',{name:'问 AI',exact:true}).first().click();const quoteRow=videoFrame.locator('#chat-attachment-focus').filter({hasText:'焦点：'});await quoteRow.waitFor();const quoteText=await quoteRow.textContent();await videoFrame.locator('#chat-input').fill('Temporary input with material and quote.');await videoFrame.getByRole('button',{name:'生词本',exact:true}).click();await videoFrame.getByRole('button',{name:'AI 问答',exact:true}).click();check('模块往返保留输入材料与引用',await videoFrame.locator('#chat-input').inputValue()==='Temporary input with material and quote.'&&await quoteRow.textContent()===quoteText);
-  await videoFrame.getByRole('button',{name:'切换为固定侧栏'}).click();
-  let quoteTarget;for(let i=0;i<40&&!quoteTarget;i++){quoteTarget=(await cdp.send('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&t.url===panelUrl);if(!quoteTarget)await new Promise(r=>setTimeout(r,100));}
+  await videoFrame.getByRole('button',{name:'字幕',exact:true}).click();await videoFrame.getByRole('button',{name:'收藏句子',exact:true}).first().click();
+  await videoFrame.getByRole('button',{name:'继续提问',exact:true}).first().click();const quoteRow=videoFrame.locator('#chat-attachment-focus').filter({hasText:'焦点：'});await quoteRow.waitFor();const quoteText=await quoteRow.textContent();await videoFrame.locator('#chat-input').fill('Temporary input with material and quote.');await videoFrame.getByRole('button',{name:'生词本',exact:true}).click();await videoFrame.getByRole('button',{name:'AI问答',exact:true}).click();check('模块往返保留输入材料与引用',await videoFrame.locator('#chat-input').inputValue()==='Temporary input with material and quote.'&&await quoteRow.textContent()===quoteText);
+  await videoFrame.locator('#panel-mode').click();
+  let quoteTarget;for(let i=0;i<40&&!quoteTarget;i++){quoteTarget=(await cdp.send('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&t.url.startsWith(panelUrl));if(!quoteTarget)await new Promise(r=>setTimeout(r,100));}
   assert.ok(quoteTarget);sessionId=(await cdp.send('Target.attachToTarget',{targetId:quoteTarget.targetId,flatten:false})).sessionId;
   for(let i=0;i<40;i++){if(await nativeEval('document.body&&!document.body.inert&&[...document.querySelectorAll("#chat-attachment-focus")].some(n=>n.textContent.includes("焦点："))'))break;await new Promise(r=>setTimeout(r,100));}
   const nativeQuote=await nativeEval('[...document.querySelectorAll("#chat-attachment-focus")].find(n=>n.textContent.includes("焦点："))?.textContent');
@@ -177,7 +189,7 @@ try {
   await videoFrame.getByRole('button',{name:'已保存',exact:true}).click();await videoFrame.getByText('Run, run home.',{exact:true}).waitFor();check('整句收藏进入同一学习库',(await send({type:'listSentences'})).sentences.length===1);
   await page.screenshot({path:join(output,'youtube-workspace.png')});
   await page.evaluate(()=>document.querySelector('video').play());await page.locator('#blc-subs .w').first().hover();await page.locator('#blc-lookup-popup .compact').waitFor();check('字幕悬停暂停仍有效',await page.evaluate(()=>document.querySelector('video').paused));
-  await page.locator('#blc-subs .w').first().click();await videoFrame.getByRole('button',{name:'设置',exact:true}).click();await page.locator('#blc-lookup-popup').waitFor({state:'detached'});check('自有 iframe 点击关闭网页词卡',true);await videoFrame.locator('#settings-back').click();check('外部关闭恢复播放',!await page.evaluate(()=>document.querySelector('video').paused));
+  await page.locator('#blc-subs .w').first().click();await videoFrame.getByRole('button',{name:'设置',exact:true}).click();await page.locator('#blc-lookup-popup').waitFor({state:'detached'});check('自有 iframe 点击关闭网页词卡',true);await videoFrame.locator('#workspace-back').click();check('外部关闭恢复播放',!await page.evaluate(()=>document.querySelector('video').paused));
   await page.locator('#blc-subs-switch #learning').click();check('AP 默认关闭',!await page.locator('#blc-subs-switch #ap').isChecked());await page.locator('#blc-subs-switch #ap').check();
   await page.evaluate(()=>{const v=document.querySelector('video');v.currentTime=2.7;v.play();});await page.waitForFunction(()=>document.querySelector('video').paused);
   check('AP 在句末暂停',await page.evaluate(()=>document.querySelector('video').currentTime>=3&&document.querySelector('video').currentTime<3.5));
@@ -191,7 +203,7 @@ try {
   check('全屏移交保留未发送输入',await page.frameLocator('#pd-floating-panel iframe').locator('#chat-input').inputValue()==='Temporary input with material and quote.');
   check('全屏面板挂载在可见全屏节点',await page.locator('#pd-floating-panel').evaluate(el=>document.fullscreenElement.contains(el)));
   await page.frameLocator('#pd-floating-panel iframe').locator('.brand-name').waitFor();
-  const fullFrame=page.frames().find(f=>f.url().includes('/sidepanel.html'));await fullFrame.getByRole('button',{name:'切换为固定侧栏'}).click();check('全屏固定入口不退出全屏',await page.evaluate(()=>!!document.fullscreenElement));
+  const fullFrame=page.frames().find(f=>f.url().includes('/sidepanel.html'));await fullFrame.locator('#panel-mode').click();check('全屏固定入口不退出全屏',await page.evaluate(()=>!!document.fullscreenElement));
   await page.locator('#blc-subs .en').evaluate(el=>el.textContent='A long sentence that requires additional space in the subtitle area. '.repeat(5));
   await page.waitForTimeout(150);check('字幕增高后面板仍避让',await page.locator('#pd-floating-panel').evaluate(el=>el.getBoundingClientRect().bottom<=document.getElementById('blc-subs').getBoundingClientRect().top));
   await fullFrame.getByRole('button',{name:'关闭面板'}).click();check('关闭面板保留视频全屏',await page.evaluate(()=>!!document.fullscreenElement));
@@ -200,14 +212,14 @@ try {
   check('运行无页面异常',errors.length===0);
   check('常规学习流程未调用 AI',!(await worker.evaluate(()=>globalThis.__requests)).some(u=>u.includes('api.deepseek.com')));
   await worker.evaluate(async()=>{const {aiServices}=await chrome.storage.local.get('aiServices');aiServices.profiles[aiServices.active].apiKey='m8-disposable-stream-key';await chrome.storage.local.set({aiServices});});
-  await control.getByRole('button',{name:'AI 问答',exact:true}).click();await control.locator('#chat-input').fill('解释这句英文');await control.locator('#chat-send').click();await control.locator('#chat-list .msg.user').last().waitFor();
+  await control.getByRole('button',{name:'AI问答',exact:true}).click();await control.locator('#chat-input').fill('解释这句英文');await control.locator('#chat-send').click();await control.locator('#chat-list .msg.user').last().waitFor();
   await control.locator('#views [data-view="list"]').click();
   const windowId=await control.evaluate(async()=>(await chrome.windows.getCurrent()).id);
   let active;for(let i=0;i<40;i++){active=await send({type:'chatActive',windowId});if(active.chat?.messages.at(-1)?.state==='done')break;await new Promise(r=>setTimeout(r,100));}
   check('离开问答视图不中断后台生成',active.chat?.messages.at(-1)?.state==='done'&&active.chat.messages.at(-1).text.includes('受控回答'));
   check('发送后清除待发送引用',active.chat.pendingQuote===null);
-  await control.getByRole('button',{name:'AI 问答',exact:true}).click();await control.locator('#chat-list').evaluate(el=>el.scrollTop=120);await control.waitForTimeout(100);const messageTop=await control.locator('#chat-list').evaluate(el=>el.scrollTop);
-  await control.getByRole('button',{name:'设置',exact:true}).click();await control.locator('#settings-back').click();check('设置往返保留问答阅读位置',messageTop>0&&Math.abs(await control.locator('#chat-list').evaluate(el=>el.scrollTop)-messageTop)<2);
+  await control.getByRole('button',{name:'AI问答',exact:true}).click();await control.locator('#chat-list').evaluate(el=>el.scrollTop=120);await control.waitForTimeout(100);const messageTop=await control.locator('#chat-list').evaluate(el=>el.scrollTop);
+  await control.getByRole('button',{name:'设置',exact:true}).click();await control.locator('#workspace-back').click();check('设置往返保留问答阅读位置',messageTop>0&&Math.abs(await control.locator('#chat-list').evaluate(el=>el.scrollTop)-messageTop)<2);
   await control.locator('#chat-input').fill('Discard this edit on native close.');
   await control.evaluate(async()=>{const windowId=(await chrome.windows.getCurrent()).id;await chrome.storage.session.set({[`panel-host:${windowId}`]:{mode:'fixed'}});await chrome.sidePanel.open({windowId});});
   await control.evaluate(async()=>chrome.sidePanel.close({windowId:(await chrome.windows.getCurrent()).id}));

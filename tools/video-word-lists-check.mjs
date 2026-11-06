@@ -13,6 +13,7 @@ const browser=await chromium.launch({executablePath:process.env.BLC_CHROME||'C:/
 try {
   const page=await browser.newPage({viewport:{width:520,height:780}});
   await page.setContent('<div id="mount" style="width:100%;height:740px"></div>');
+  await page.evaluate(()=>{window.browser={runtime:{getURL:()=>'',onMessage:{addListener(){}},sendMessage:async()=>({ok:true,settings:{appearanceTheme:'minimal'}})}};});
   await page.addScriptTag({content:code});
   await page.evaluate(()=>{
     window.calls=[];
@@ -40,11 +41,13 @@ try {
   await panel.screenshot({path:join(tmpdir(),'pd-video-words.png')});
   await panel.locator('[data-tab="saved"]').click();
   const saved=panel.locator('.saved-heading').first();
-  assert.equal(await saved.locator('select').inputValue(),'saved');
-  assert.equal(await saved.locator('select').evaluate(el=>getComputedStyle(el).borderTopWidth),'0px');
-  await saved.locator('select').selectOption('known');
+  const status=saved.locator('.learning-status');
+  assert.equal(await status.getAttribute('aria-label'),'pragmatic · 已收藏');
+  assert.equal(await status.evaluate(el=>getComputedStyle(el).borderTopWidth),'0px');
+  await status.click();
+  await saved.locator('button[value="known"]').click();
   assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['status','en::pragmatic','known']);
-  await saved.locator('button').click();
+  await saved.locator('.word-action').click();
   assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['lookup','pragmatic',0]);
   await saved.locator('..').locator('.saved-time').click();
   assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['seek',0]);

@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, validSetting } from './settings';
+import { onAppearanceChange } from './appearance';
 import { AI_PRESETS, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiProfile, type AiProvider, type AiServices, type AiProtocol } from './aiConfig';
 import { TARGET_LANGUAGES, langDisplayName, primaryOfLang, type LanguageTag } from './languages';
 import { authorizeVaultInPage, pickVaultDirectoryInPage } from '@/lib/vault/fs';
@@ -13,7 +14,8 @@ const COMPREHENSION_OPTIONS: LanguageTag[] = [
 ];
 
 export function mountSettings(root: HTMLElement) {
-  root.innerHTML = `<section class="settings-section"><h2 data-i18n="语言"></h2>
+  root.innerHTML = `<section class="settings-section"><label class="settings-field"><span data-i18n="外观主题"></span><select id="appearanceTheme"><option value="minimal" data-i18n="简约"></option><option value="classic" data-i18n="经典"></option></select></label></section>
+    <section class="settings-section"><h2 data-i18n="语言"></h2>
     <label class="settings-field"><span data-i18n="显示语言"></span><select id="displayLanguage"></select></label>
     <label class="settings-field"><span data-i18n="默认理解语言"></span><select id="defaultComprehensionLang"></select></label>
     <details class="settings-details"><summary data-i18n="单独设置"></summary>
@@ -38,21 +40,28 @@ export function mountSettings(root: HTMLElement) {
     <div class="vault-overview"><div class="vault-summary"><span id="vault-label"></span><div id="vault-meta" class="hint" hidden><span id="vault-pending"></span><span id="vault-time"></span></div></div><div class="vault-tools"><button id="vault-connect" class="primary"><span id="vault-connect-label" data-i18n="连接学习文件夹"></span><span id="vault-folder-icon" hidden>${uiIcon('folder')}</span></button><button id="vault-flush" class="ui-icon-button" hidden>${uiIcon('sync')}</button><button id="vault-disconnect" class="ui-icon-button" hidden>${uiIcon('disconnect')}</button></div></div>
     <div id="vault-state" class="settings-status" role="status"></div>
     </section>
-    <section class="settings-section ai-section"><h2 data-i18n="AI 服务"></h2>
+    <details id="ai-settings" class="settings-section settings-details ai-section"><summary data-i18n="AI 服务"></summary>
     <fieldset id="ai-fields"><div class="ai-form-row"><label for="ai-provider" data-i18n="服务商"></label><div class="ai-control"><select id="ai-provider" aria-describedby="ai-current"></select><p id="ai-current" class="hint" hidden></p></div></div>
     <div class="ai-form-row"><label for="key" data-i18n="API Key"></label><div class="ai-control"><div class="ai-key-control"><input id="key" class="settings-key" type="password" autocomplete="off" spellcheck="false"><button id="clear" class="ui-icon-button ui-danger" type="button" hidden>${uiIcon('trash')}</button></div></div></div>
     <details id="ai-advanced" class="settings-details"><summary data-i18n="高级设置"></summary>
       <label class="ai-field"><span data-i18n="接口格式"></span><select id="ai-protocol"><option value="openai" data-i18n="OpenAI 兼容"></option><option value="anthropic">Anthropic Messages</option><option value="gemini">Gemini</option></select></label>
       <label class="ai-field"><span data-i18n="API 地址（Base URL）"></span><input id="ai-url" type="url" placeholder="https://api.example.com/v1" spellcheck="false"></label>
       <label class="ai-field"><span data-i18n="模型 ID"></span><input id="ai-model" type="text" spellcheck="false"></label>
-    </details><div class="ai-footer"><button id="save" class="ui-icon-button" type="button">${uiIcon('save')}</button><div id="state" class="settings-status" role="status"></div></div></fieldset></section>
+    </details><div class="ai-footer"><button id="save" class="ui-icon-button" type="button">${uiIcon('save')}</button><div id="state" class="settings-status" role="status"></div></div></fieldset></details>
     <details class="settings-section settings-details"><summary data-i18n="更多设置"></summary>
     <label class="settings-field"><span data-i18n="常规翻译来源"></span><select id="regularTranslation"><option value="browser-native" data-i18n="浏览器内置翻译"></option><option value="google-gtx" data-i18n="Google 免费翻译"></option></select></label><button id="prepare-native" data-i18n="准备内置翻译"></button></details>
     <p id="version" class="hint settings-version"></p>`;
   localize(root);
   const get = <T extends HTMLElement>(id:string) => root.querySelector<T>(`#${id}`)!;
   get('prepare-native').onclick = () => void browser.runtime.sendMessage({type:'prepareNativeTranslation', sourceLang:'en', targetLang:get<HTMLSelectElement>('defaultComprehensionLang').value});
-  const report = (id:string,key:string,ok:boolean|null) => {const el=get(id);el.setAttribute('data-i18n',key);el.textContent=t(key);el.className=`settings-status${ok===null?'':ok?' ok':' err'}`;el.hidden=id==='state'&&key==='已配置';};
+  const showAi = (reveal = false) => {
+    const section = get<HTMLDetailsElement>('ai-settings');
+    section.open = true;
+    if (reveal) section.scrollIntoView({block:'start'});
+  };
+  const report = (id:string,key:string,ok:boolean|null) => {const el=get(id);el.setAttribute('data-i18n',key);el.textContent=t(key);el.className=`settings-status${ok===null?'':ok?' ok':' err'}`;el.hidden=id==='state'&&key==='已配置';if(id==='state'&&ok===false)showAi();};
+  const themeControl=get<HTMLSelectElement>('appearanceTheme');
+  onAppearanceChange(theme=>{themeControl.value=theme;});
   for(const [id,label] of [['vault-flush','立即同步'],['vault-disconnect','断开'],['clear','清除当前 Key'],['save','保存并使用']] as const) {
     setLocalizedAttribute(get(id), 'title', message(label));
     setLocalizedAttribute(get(id), 'aria-label', message(label));
@@ -114,6 +123,7 @@ export function mountSettings(root: HTMLElement) {
   provider.addEventListener('change',()=>{drafts.set(selected,{profile:draft(),keyInput:get<HTMLInputElement>('key').value});selected=provider.value as AiProvider;showProvider();});
   for(const id of ['key','ai-url','ai-model'])get(id).addEventListener('input',()=>{updateKeyControls();showAiState();});
   get('ai-protocol').addEventListener('change',()=>{updateKeyControls();showAiState();});
+  let aiLoaded = false;
   async function load() {
     try {
       const stored=await browser.storage.local.get([...Object.keys(DEFAULT_SETTINGS),'deepseekApiKey','aiServices']);
@@ -125,7 +135,12 @@ export function mountSettings(root: HTMLElement) {
       renderOverrides(validSetting('comprehensionOverrides',stored.comprehensionOverrides)?(stored.comprehensionOverrides as Record<string,string>):{});
       get<HTMLSelectElement>('override-target').value=get<HTMLSelectElement>('defaultComprehensionLang').value;
       updateRuleChoices();
-      services=readAiServices(stored);selected=services.active;drafts.clear();showProvider();
+      const next = readAiServices(stored);
+      if (!aiLoaded) {
+        aiLoaded=true;services=next;selected=services.active;showProvider();
+      } else if (JSON.stringify(next) !== JSON.stringify(services)) {
+        services=next;showActiveAi();updateKeyControls();showAiState();
+      }
     } catch {report('state','设置读取失败，请重新打开设置重试',false);}
   }
   for(const name of Object.keys(DEFAULT_SETTINGS)) {
@@ -143,7 +158,13 @@ export function mountSettings(root: HTMLElement) {
     control.addEventListener('change',async()=>{
       const value=control instanceof HTMLInputElement&&control.type==='checkbox'?control.checked:name==='cacheLimit'?Number(control.value):control.value;
       if(!validSetting(name,value)){saved('请检查输入范围',false);return;}
-      try{await browser.storage.local.set({[name]:value});saved('已保存',true);}catch{saved('保存失败，请重试',false);}
+      try{await browser.storage.local.set({[name]:value});saved('已保存',true);}catch{
+        if(name==='appearanceTheme'){
+          const theme=document.documentElement.dataset.pdTheme;
+          if(control.value===value)control.value=theme??DEFAULT_SETTINGS.appearanceTheme;
+        }
+        saved('保存失败，请重试',false);
+      }
     });
   }
 
@@ -324,7 +345,7 @@ export function mountSettings(root: HTMLElement) {
     const target=selected;get<HTMLFieldSetElement>('ai-fields').disabled=true;
     try{const latest=readAiServices(await browser.storage.local.get(['aiServices','deepseekApiKey']));latest.profiles[target]={...latest.profiles[target]??defaultAiProfile(target),apiKey:''};await browser.storage.local.set({aiServices:latest});if(target==='deepseek')await browser.storage.local.remove('deepseekApiKey');services=readAiServices(await browser.storage.local.get('aiServices'));drafts.delete(target);showProvider();report('state','已清除所选服务的 Key',true);}catch{report('state','清除失败，请重试',false);}finally{get<HTMLFieldSetElement>('ai-fields').disabled=false;}
   });
-  get('version').textContent=`Peak Distance · ${browser.runtime.getManifest().version}`;
+  get('version').textContent=`v${browser.runtime.getManifest().version}`;
   onDisplayLanguageChange(()=>{
     display.value=getDisplayLanguage();
     localize(root);
@@ -336,5 +357,5 @@ export function mountSettings(root: HTMLElement) {
     showActiveAi();
     updateKeyControls();renderOverrides(currentOverrides);
   });
-  void load();return {refresh:load};
+  void load();return {refresh:load,showAi};
 }

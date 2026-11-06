@@ -1,3 +1,5 @@
+import { iconButton, learningStatus } from './uiControls';
+import { applyAppearance } from './appearance';
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 import { brandTokens, sharedControls } from './brand';
 import type { DictionarySource } from '@/lib/onlineDictionary';
@@ -33,7 +35,6 @@ export const POPUP_ID = 'blc-lookup-popup';
 // 纸纹背景地址在注入期解析一次并复用：扩展重载/更新后，残留旧标签页里的
 // content script 在事件期（首次打开词卡）再调 runtime.getURL 会抛
 // Extension context invalidated；地址本身不变，注入期上下文必然有效。
-const PAPER_TILE_URL = browser.runtime.getURL('/brand/paper-tile.png');
 
 export interface PopupOpenArgs {
   snapshot: LookupSnapshot;
@@ -83,7 +84,6 @@ interface PinnedState {
   lookupError: string | undefined;
   degraded?: Extract<OnlineLookupResult, { ok: true }>['degraded'];
   status: VocabStatus | null;
-  entryExists: boolean;
   /** 保存成功后回填的词条键；后续状态查询 / 更新优先用它。 */
   entryKey?: string;
 }
@@ -144,6 +144,7 @@ export function createLookupPopup(opts: {
     if (!host) {
       host = document.createElement('div');
       host.id = POPUP_ID;
+      applyAppearance(host);
       // 宿主必须是定位元素且给满 z-index，否则 prepend 到 DOM 最前意味着
       // 绘制顺序垫底，会被页面的悬浮层盖住。
       const parent = opts.mountParent?.() ?? document.documentElement;
@@ -155,13 +156,13 @@ export function createLookupPopup(opts: {
       const root = host.attachShadow({ mode: 'open' });
       const style = document.createElement('style');
       style.textContent = `
-        ${brandTokens}${sharedControls}:host { font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif; text-shadow:none; letter-spacing:normal; text-transform:none; color:var(--pd-ink); }
+        ${brandTokens}${sharedControls}:host { font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif; text-shadow:none; letter-spacing:normal; text-transform:none; font-weight:400; color:var(--pd-ink); }
         * { box-sizing:border-box; }
         ::selection { background:var(--pd-selected); color:var(--pd-ink); }
         .card {
           position: fixed; top: 64px; right: 16px; width: min(420px, calc(100vw - 32px));
           max-height: min(70vh, 560px); overflow: auto;
-          background: linear-gradient(#f7f4ecd9,#f7f4ecd9),url('${PAPER_TILE_URL}') center/620px; color: var(--pd-ink); border-radius: 12px;
+          background-color:var(--pd-paper);background-image:var(--pd-texture);background-position:center;background-size:620px; color: var(--pd-ink); border-radius: 12px;
           box-shadow: var(--pd-shadow);
           font: 14px/1.6 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
           padding: 20px; box-sizing: border-box;
@@ -173,12 +174,8 @@ export function createLookupPopup(opts: {
         .compact .ctx, .compact .sub { display: none; }
         .compact .feedback:empty { display: none; }
         .card.dragging { user-select: none; }
-        .expr { font:600 26px/1.35 Georgia,'Times New Roman',serif; margin: 0 0 10px; word-break: break-word;
+        .expr { font:600 24px/1.35 var(--pd-font-reading); margin: 0 0 10px; word-break: break-word;
                 cursor: grab; touch-action: none; }
-        .chip { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
-                font:12px/1.6 system-ui; vertical-align: 3px; }
-        .chip.saved { background: var(--pd-selected); color: var(--pd-blue); }
-        .chip.known { background: #e6f4ea; color: #137333; }
         .ctx { color: var(--pd-muted); font-size: 13px; margin: 4px 0 8px;
                display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
         .sub { color: var(--pd-muted); font-size: 12px; margin: 0 0 16px; }
@@ -189,7 +186,7 @@ export function createLookupPopup(opts: {
         .sense {margin:10px 0 14px;overflow-wrap:anywhere}
         .sense label {display:flex;align-items:baseline;gap:8px;cursor:pointer;font-size:15px;line-height:1.7}
         .sense input {accent-color:var(--pd-blue);margin:0;flex:none}
-        .example {font:17px/1.65 Georgia,serif;margin:12px 0 6px}
+        .example {font:17px/1.65 var(--pd-font-reading);margin:12px 0 6px}
         details {margin-top:8px} summary {cursor:pointer;color:var(--pd-muted);font-size:13px;padding:6px 0}
         audio {width:100%;margin-top:8px}
         .link-btn {cursor:pointer;color:var(--pd-blue);font:13px/1.5 system-ui;border:0;background:transparent;border-radius:6px;padding:6px 8px;min-height:32px}
@@ -211,7 +208,7 @@ export function createLookupPopup(opts: {
         option {background:var(--pd-surface);color:var(--pd-ink)}
         .feedback { font-size: 12px; margin-top: 8px; }
         .feedback:empty {display:none}
-        .feedback.err { color: #d93025; }
+        .feedback.err { color:var(--pd-danger); }
         .err-kind { font-size: 11px; color: var(--pd-muted); margin-top: 2px; }
       `;
       root.appendChild(style);
@@ -221,7 +218,7 @@ export function createLookupPopup(opts: {
       localize(root);
       // 页面内点击弹窗本身不冒泡成“新选区”
       host.addEventListener('mousedown', (e) => e.stopPropagation());
-      // 按住标题行（表达 + 状态 chip）拖动整卡。
+      // 按住词头拖动整卡。
       // 监听器在 shadow 边界外，e.target 已被 retarget 成 host，须用 composedPath 取真实目标。
       host.addEventListener('pointerdown', (e) => {
         const real = e.composedPath()[0] as Element | null;
@@ -274,17 +271,9 @@ export function createLookupPopup(opts: {
     body.classList.toggle('compact', !!p.compact);
     body.textContent = '';
 
-    // 表达 + 状态
     const head = document.createElement('p');
     head.className = 'expr';
     head.textContent = p.snapshot.expression;
-    if (p.status) {
-      const chip = document.createElement('span');
-      const status = visibleVocabStatus(p.status);
-      chip.className = `chip ${status}`;
-      setText(chip, message(VOCAB_STATUS_LABEL[status]));
-      head.appendChild(chip);
-    }
     body.appendChild(head);
 
     // 原文上下文（视频 = 当前字幕；网页 = 所在正文片段）
@@ -319,17 +308,14 @@ export function createLookupPopup(opts: {
     save.setAttribute('aria-busy', String(!!p.saving));
     save.disabled = !!p.saving || p.savedContextId !== null;
     save.addEventListener('click', () => void doSave());
-    row.appendChild(save);
+    if (p.savedContextId === null) row.appendChild(save);
 
-    const master = document.createElement('button');
-    master.className = 'act reading-icon';
-    master.innerHTML = readingIcon('check');
-    setLocalizedAttribute(master, 'title', message('已掌握'));
-    setLocalizedAttribute(master, 'aria-label', message('已掌握'));
-    master.disabled = !!p.saving;
-    master.addEventListener('click', () => void doSave('known'));
-    row.appendChild(master);
-
+    if (p.savedContextId === null) {
+      const master = iconButton('known',message('已掌握'));
+      master.disabled = !!p.saving;
+      master.addEventListener('click', () => void doSave('known'));
+      row.append(master);
+    }
     if (!p.compact && typeof p.onContinueAsk === 'function') {
       const ask = document.createElement('button');
       ask.className = 'act reading-icon';
@@ -347,19 +333,8 @@ export function createLookupPopup(opts: {
       row.appendChild(ask);
     }
 
-    if (p.entryExists && !p.compact) {
-      const sel = document.createElement('select');
-      sel.className = 'status';
-      setLocalizedAttribute(sel, 'aria-label', message('学习状态'));
-      for (const s of ['saved', 'known'] as const) {
-        const opt = document.createElement('option');
-        opt.value = s;
-        setText(opt, message(VOCAB_STATUS_LABEL[s]));
-        if (p.status && visibleVocabStatus(p.status) === s) opt.selected = true;
-        sel.appendChild(opt);
-      }
-      sel.addEventListener('change', () => void doStatus(sel.value as VocabStatus));
-      row.appendChild(sel);
+    if (p.status && (p.savedContextId !== null || !p.compact)) {
+      row.append(learningStatus(p.snapshot.expression,p.status,doStatus));
     }
 
     const close = document.createElement('button');
@@ -455,7 +430,7 @@ export function createLookupPopup(opts: {
     box.appendChild(row);
     const ai = button(p.aiRequest ? message('正在解释语境…') : message('解释语境'), () => void explainContext()); ai.disabled = !!p.aiRequest;
     if (p.explanation) { text(message('AI 语境解释 · 当前原句'), 'def-label'); text(p.explanation.text); }
-    if (p.aiError) { text(message(ERROR_LABEL[p.aiError] ?? '解释失败，请重试'), 'def-state'); if (p.aiError === 'no-key') button(message('打开设置填写 API key'), () => void send({ type: 'openSettings' })); }
+    if (p.aiError) { text(message(ERROR_LABEL[p.aiError] ?? '解释失败，请重试'), 'def-state'); if (p.aiError === 'no-key') button(message('打开设置填写 API key'), () => void send({ type: 'openSettings', ai: true })); }
   }
 
   // ---- 与 background 的交互 ---------------------------------------------------
@@ -480,7 +455,6 @@ export function createLookupPopup(opts: {
     if (!pinned || pinned.nonce !== my) return; // 弹窗已被替换
     if (r?.ok && r.entry) {
       pinned.status = r.entry.status;
-      pinned.entryExists = true;
       const snap = pinned.snapshot;
       const entry = r.entry;
       const saved = entry.contexts.find(c => {
@@ -562,9 +536,8 @@ export function createLookupPopup(opts: {
       void backfill(p);
       if (pinned !== p) return;
       p.status = r.status;
-      p.entryExists = true;
       renderPopup();
-      const button = document.getElementById(POPUP_ID)?.shadowRoot?.querySelector<HTMLButtonElement>('button.save');
+      const button = document.getElementById(POPUP_ID)?.shadowRoot?.querySelector<HTMLButtonElement>('.learning-status');
       if (button && !wasSaved) animateBookmark(button);
     } else {
       p.saveError = true;
@@ -572,18 +545,19 @@ export function createLookupPopup(opts: {
     }
   }
 
-  async function doStatus(status: VocabStatus): Promise<void> {
-    if (!pinned) return;
+  async function doStatus(status: VocabStatus): Promise<boolean> {
+    if (!pinned) return false;
     const p = pinned;
     const key = entryQueryKey(p);
     const r = await send<{ ok: boolean }>({ type: 'setStatus', key, status });
-    if (pinned !== p) return;
+    if (pinned !== p) return false;
     if (r?.ok) {
       pinned.status = status;
-      renderPopup();
-    } else {
-      setFeedback(false, message('状态更新失败'));
+      setFeedback(true,message(VOCAB_STATUS_LABEL[visibleVocabStatus(status)]));
+      return true;
     }
+    setFeedback(false, message('状态更新失败'));
+    return false;
   }
 
   // ---- 开 / 关 -----------------------------------------------------------------
@@ -616,7 +590,8 @@ export function createLookupPopup(opts: {
   }, true);
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && document.getElementById(POPUP_ID)) {
+    const root = document.getElementById(POPUP_ID)?.shadowRoot;
+    if (e.key === 'Escape' && root && !root.querySelector('.ui-action-menu:popover-open,select:open')) {
       e.preventDefault();
       e.stopImmediatePropagation();
       closePopup();
@@ -640,7 +615,6 @@ export function createLookupPopup(opts: {
         note: undefined,
         lookupError: undefined,
         status: null,
-        entryExists: false,
       };
       renderPopup();
       void queryStatus();
