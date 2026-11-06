@@ -1,35 +1,14 @@
 # README 视觉素材
 
-两版均以学习流程表达产品，不模拟界面，方便后续 UI 换样式时继续使用。
+- [首图底图](grid-art.jpg) 由 imagegen 生成，构图参考 [OpenAI LifeVal 宣传片](https://x.com/OpenAI/status/2117307611338997846)。标题单独排版，真实生词本截图从底边裁切。
+- 正文演示使用实际扩展界面。示例网页、收藏句和有道查词返回值均为受控演示数据。词卡的收藏与同一句的复习由扩展处理。
+- [render.mjs](render.mjs) 在独立的浏览器配置中采集简体中文和英文界面，导出中英文首图和演示图。
 
-| 文件 | 用途 |
-| --- | --- |
-| [hero.png](../hero.png) | 中文 README 默认首图；混合排版的静态导出 |
-| [hero-layout.svg](hero-layout.svg) | 混合版可编辑排版源；通过相对路径引用项目已有品牌图 |
-| [hero-en.png](../hero-en.png) | 英文 README（README.en.md）首图；同一混合排版管线的英文导出 |
-| [hero-en-layout.svg](hero-en-layout.svg) | 英文混合版可编辑排版源；学习路线为 Encounter → Understand → Save → Review |
-| [render.mjs](render.mjs) | 使用项目已有 Playwright 与本机浏览器重新导出中英两个混合版 |
+先构建扩展，再在项目根目录运行：
 
-## 内容与视觉依据
-
-- 读者：在网页、X 和 YouTube 中学习多种语言的个人用户；英语原句用于示例。
-- 价值：查词后连同语境保存，并能回到原句复习。
-- 示例：README 正文用 `She is comfortable with people.` 说明流程；这是学习示意，不是实时查询或界面截图。
-- 首次使用：构建并加载扩展，选词、查词、保存，再到生词本找到原句。
-- 配色与字体沿用 [design.md](../../../design.md)，具体排版值在 SVG 源文件维护。
-- 排版：Georgia 英文衬线标题，中文系统衬线标题，系统无衬线流程标签；1200 × 520 画布、64 单位外边距、轻分隔线。
-- 素材：复用 [山海插画](../../../public/brand/mountain-coast.png) 与 [纸纹](../../../public/brand/paper-tile.png)，原图未修改。原始来源见 [REFERENCES](../../../docs/REFERENCES.md)。没有重新生图，没有使用旧 UI 测试截图。
-
-## 更新与导出
-
-修改混合版的 `hero-layout.svg` 后，在已安装项目依赖的环境中运行：
-
-```powershell
+```sh
+npm run build
 node assets/readme/source/render.mjs
 ```
 
-默认使用本机 Windows Edge；可通过 `BLC_CHROME` 指定其它 Chromium 浏览器。导出 `hero.png` 与 `hero-en.png` 为 2400 × 1040，以保留高像素密度屏幕上的清晰度。字体由导出机器的系统字体决定。
-
-README 发布 PNG；排版源中的相对图片引用仅用于本地编辑与导出。两版精确文案分别在源文件中维护。
-
-验证时检查 900px 和 360px 宽度、浅色和深色页面背景。关键用法保留在 README 正文，图内辅助标签不承担唯一说明。
+默认使用本机 Windows Edge。可用 `BLC_CHROME` 指定支持加载解压扩展的 Chromium 可执行文件，或用 `PEAK_DISTANCE_UI_EXTENSION` 指定构建目录。
