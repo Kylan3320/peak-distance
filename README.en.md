@@ -23,7 +23,7 @@ On YouTube, you can also read bilingual captions, save a whole sentence, and rep
 
 ## Quick start
 
-The current release is [v0.72.0](https://github.com/Kylan3320/peak-distance/releases/tag/v0.72.0). Desktop Chrome requires version 142 or newer.
+The current release is [v0.72.1](https://github.com/Kylan3320/peak-distance/releases/tag/v0.72.1). Desktop Chrome requires version 142 or newer.
 
 1. Download and extract the `-chrome.zip` from the [latest release](https://github.com/Kylan3320/peak-distance/releases/latest).
 2. Open `chrome://extensions` (or `edge://extensions` in Edge) and turn on **Developer mode**.
