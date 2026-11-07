@@ -480,9 +480,8 @@ export default defineContentScript({
           #learning[aria-pressed=true] .caption-icon {background:#fff;border-color:#fff;color:#151719}
           button:disabled {opacity:.5} #learning[data-error=true] {color:#ffb4ab}
           #learning[data-error=true] .caption-icon {background:transparent;border-color:currentColor;color:inherit}
-        </style><button id="learning" type="button"><span class="caption-icon" aria-hidden="true">${uiIcon('translate')}</span></button><button id="panel" type="button">${uiIcon('dock')}</button>`;
+        </style><button id="learning" type="button"><span class="caption-icon" aria-hidden="true">${uiIcon('translate')}</span></button>`;
         root.querySelector('#learning')!.addEventListener('click', () => void setBilingual(!bilingualOn));
-        root.querySelector('#panel')!.addEventListener('click', () => { void send({type:'panelOpen',view:'subs'}); });
         host.addEventListener('click', e => e.stopPropagation());
         host.addEventListener('keydown', e => e.stopPropagation());
       }
@@ -495,8 +494,6 @@ export default defineContentScript({
       toggle.dataset.error = String(bilingualError);
       const label = message(bilingualError ? '字幕开关保存失败，请重试' : bilingualOn ? '关闭双语字幕' : '打开双语字幕');
       setLocalizedAttribute(toggle, 'title', label); setLocalizedAttribute(toggle, 'aria-label', label);
-      const panel = root.querySelector<HTMLButtonElement>('#panel')!;
-      setLocalizedAttribute(panel, 'title', message('打开学习面板')); setLocalizedAttribute(panel, 'aria-label', message('打开学习面板'));
     }
 
     function ensureSubsHost(): { host: HTMLElement; body: HTMLDivElement } | null {

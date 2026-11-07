@@ -221,9 +221,14 @@ try {
   }
   await options.locator('#displayLanguage').selectOption('en');
   await worker.evaluate(()=>chrome.storage.local.set({panelMode:'floating',translationMode:'regular'}));
-  await video.locator('#blc-subs-switch #panel').click();
+  await video.bringToFront();
+  assert.equal((await options.evaluate(async()=>{
+    const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
+    return chrome.tabs.sendMessage(tab.id,{type:'pd-panel-show'},{frameId:0});
+  })).ok,true);
   const videoPanel=video.frameLocator('#pd-floating-panel iframe');
-  await videoPanel.locator('body:not([inert]) #view-subs:not([hidden])').waitFor();
+  await videoPanel.locator('body:not([inert])').waitFor();
+  await videoPanel.locator('#views [data-view="subs"]').click();
   await videoPanel.locator('#open-settings').click();
   await videoPanel.locator('#video-settings:not([hidden])').waitFor();
   assert.equal(await videoPanel.locator('#video-track').isDisabled(),true);

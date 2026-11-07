@@ -311,7 +311,7 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
     const before = await page.evaluate(() => window.__requests.length + window.__generic.length);
     await page.locator('#blc-subs-switch #learning').click();
     await page.waitForFunction(()=>!document.getElementById('blc-subs'));
-    check(`${kind} 关闭双语后保留独立学习面板入口`,await page.locator('#blc-subs-switch #panel').isVisible());
+    check(`${kind} 播放器仅保留双语字幕开关`,await page.locator('#blc-subs-switch button').count()===1);
     await page.locator('#blc-subs-switch #learning').click();
     await page.waitForFunction(() => document.getElementById('blc-subs')?.shadowRoot?.querySelector('.zh'));
     check(`${kind} 显示开关复用成功结果`, before === await page.evaluate(() => window.__requests.length + window.__generic.length));
