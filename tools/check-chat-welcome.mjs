@@ -51,7 +51,8 @@ try {
   assert.equal(await panel.locator('#chat-count').isVisible(),false);
   assert.equal(await panel.locator('.chat-welcome,.brand-row').count(),0);
   assert.equal(await panel.locator('#views button > svg').count(),3);
-  assert.equal(await settings.locator('#appearanceTheme').inputValue(),'minimal');
+  assert.equal(await settings.locator('#appearanceTheme').inputValue(),'classic');
+  assert.equal(await panel.locator('html').getAttribute('data-pd-theme'),'classic');
 
   for(const width of [320,400,600]){
     await panel.setViewportSize({width,height:850});
@@ -69,6 +70,8 @@ try {
   await panel.waitForFunction(previous=>devicePixelRatio>previous,unzoomed);
   assert.ok(await panel.locator('#view-chat').evaluate(el=>el.scrollWidth<=el.clientWidth));
   await zoom(1);
+  await settings.locator('#appearanceTheme').selectOption('minimal');
+  await panel.waitForFunction(()=>document.documentElement.dataset.pdTheme==='minimal');
   await panel.locator('#chat-input').fill('Unsaved question across a theme switch.');
   await settings.locator('#ai-settings > summary').click();
   await settings.locator('#key').fill('unsaved-test-key');
@@ -96,6 +99,8 @@ try {
   await prep.waitForFunction(()=>document.documentElement.dataset.pdTheme==='minimal');
   await panel.waitForFunction(()=>document.documentElement.dataset.pdTheme==='minimal');
   assert.equal(await panel.locator('body').evaluate(el=>getComputedStyle(el).backgroundImage),'none');
+  await settings.reload();
+  await settings.waitForFunction(()=>document.querySelector('#appearanceTheme').value==='minimal');
 
   await settings.evaluate(()=>{
     const write=chrome.storage.local.set.bind(chrome.storage.local);
