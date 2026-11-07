@@ -22,13 +22,13 @@ export const readingIconStyles = `
   button.reading-icon.is-saved:disabled:not([aria-busy=true]) {opacity:1;cursor:default}
   .reading-icon.is-saved svg {fill:currentColor}
   .reading-icon[aria-busy=true] {cursor:wait}
-  @keyframes pd-bookmark-saved {from {transform:scale(.78)} to {transform:scale(1)}}
-  .save-complete svg {animation:pd-bookmark-saved 160ms cubic-bezier(.16,1,.3,1)}
+  @keyframes pd-bookmark-saved {0% {transform:scale(.84)} 65% {transform:scale(1.12)} 100% {transform:scale(1)}}
+  .save-complete svg {animation:pd-bookmark-saved 180ms cubic-bezier(.16,1,.3,1)}
   @media(prefers-reduced-motion:reduce) {.save-complete svg {animation:none}}
 `;
 
 /** Run only in the successful mutation callback, never in a render path. */
 export function animateBookmark(button: HTMLButtonElement) {
   button.classList.add('save-complete');
-  setTimeout(() => button.classList.remove('save-complete'), 160);
+  setTimeout(() => button.classList.remove('save-complete'), 180);
 }
