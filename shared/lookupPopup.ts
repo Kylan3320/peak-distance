@@ -299,18 +299,22 @@ export function createLookupPopup(opts: {
     const row = document.createElement('div');
     row.className = 'row actions';
 
-    const save = document.createElement('button');
-    save.className = `act reading-icon save${p.savedContextId !== null ? ' is-saved' : ''}`;
-    save.innerHTML = readingIcon('bookmark');
-    const saveLabel = message(p.saving ? '保存中…' : p.savedContextId !== null ? '已收藏' : '保存');
-    setLocalizedAttribute(save, 'title', saveLabel);
-    setLocalizedAttribute(save, 'aria-label', saveLabel);
-    save.setAttribute('aria-busy', String(!!p.saving));
-    save.disabled = !!p.saving || p.savedContextId !== null;
-    save.addEventListener('click', () => void doSave());
-    if (p.savedContextId === null) row.appendChild(save);
+    if (p.savedContextId !== null && p.status) {
+      const status = learningStatus(p.snapshot.expression,p.status,doStatus);
+      status.querySelector('button')!.classList.add('save');
+      row.append(status);
+    } else {
+      const save = document.createElement('button');
+      save.className = 'act reading-icon save';
+      save.innerHTML = readingIcon('bookmark');
+      const saveLabel = message(p.saving ? '保存中…' : '保存');
+      setLocalizedAttribute(save, 'title', saveLabel);
+      setLocalizedAttribute(save, 'aria-label', saveLabel);
+      save.setAttribute('aria-busy', String(!!p.saving));
+      save.disabled = !!p.saving;
+      save.addEventListener('click', () => void doSave());
+      row.append(save);
 
-    if (p.savedContextId === null) {
       const master = iconButton('known',message('已掌握'));
       master.disabled = !!p.saving;
       master.addEventListener('click', () => void doSave('known'));
@@ -331,10 +335,6 @@ export function createLookupPopup(opts: {
         });
       });
       row.appendChild(ask);
-    }
-
-    if (p.status && (p.savedContextId !== null || !p.compact)) {
-      row.append(learningStatus(p.snapshot.expression,p.status,doStatus));
     }
 
     const close = document.createElement('button');
