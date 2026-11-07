@@ -11,7 +11,7 @@ import {
 export type AppearanceTheme = 'minimal' | 'classic';
 
 export function appearanceTheme(value: unknown): AppearanceTheme {
-  return value === 'classic' ? 'classic' : 'minimal';
+  return value === 'minimal' || value === 'classic' ? value : DEFAULT_SETTINGS.appearanceTheme;
 }
 
 export interface Settings {
@@ -35,7 +35,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  appearanceTheme: 'minimal',
+  appearanceTheme: 'classic',
   displayLanguage: 'auto',
   markingEnabled: true, primaryDictionary: 'youdao', backupDictionary: 'cambridge',
   regularTranslation: 'browser-native', translationMode: 'regular',
