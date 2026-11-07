@@ -6,15 +6,17 @@ import { renderM6 } from './render-m6.mjs';
 //      加上 M3 标记（词边界 / 状态样式 / 词形 / 短语最长优先 / 开关拆除）。
 //   B. YouTube 模拟页：字幕栏随 currentTime 定位、ASR 合并、中文预取对齐、
 //      徽标默认隐藏、点击查词暂停 / 关闭恢复、拖选短语、双语开关、
-//      非英文轨道丢弃。
+//      非英文轨道保留。
 // 不连 DeepSeek、不碰用户浏览器；runtime 消息以 stub 应答。
-// 用法：node tools/render-check.mjs（需先 npm run build）
+// 用法：node tools/render-check.mjs（需先 npm run build）；--acquisition-only 仅运行双入口获取检查。
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createServer } from 'node:http';
 import { chromium } from 'playwright-core';
+import { tsImport } from 'tsx/esm/api';
+const { buildSubtitleViews } = await tsImport('../shared/cues.ts', import.meta.url);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webScript = readFileSync(
@@ -57,6 +59,7 @@ const ytPort = server.address().port;
 function installStub() {
   window.__saved = [];
   window.__lookups = [];
+  window.__translationItems = [];
   window.__chat = [];
   window.__listeners = [];
   window.__marking = true;
@@ -88,13 +91,16 @@ function installStub() {
           cb({ ok: true, chat: null, panelOpened: true });
         } else if (msg.type === 'vocabIndex') {
           cb({ ok: true, items: window.__items });
+        } else if (msg.type === 'setSetting') {
+          window.__settings={...window.__settings,[msg.name]:msg.value};cb({ok:true});window.__broadcast({type:'settings-changed'});
         } else if (msg.type === 'getSettings') {
-          cb({ ok: true, settings: { markingEnabled: window.__marking, translationMode: 'regular', ...window.__settings } });
+          cb({ ok: true, settings: { displayLanguage:'zh-Hans', regularTranslation:'google-gtx', markingEnabled: window.__marking, translationMode: 'regular', ...window.__settings } });
         } else if (msg.type === 'captionCache') cb({ ok: true, cues: [{ start: 0, dur: 1, text: 'unused' }] });
         else if (msg.type === 'translateCues') {
+          window.__translationItems.push(...msg.items);
           cb({
             ok: true,
-            translations: msg.items.map((i) => ({ id: i.id, text: `译${i.id}` })),
+            translations: msg.items.map((i) => ({ id: i.id, text: `译${i.text}` })),
           });
         } else cb({ ok: true });
       },
@@ -138,9 +144,13 @@ function installStub() {
 
 const browser = await chromium.launch({ executablePath: CHROME, headless: true });
 try {
+  if (!process.argv.includes('--acquisition-only')) {
   // ============================ A. 网页（M1 + M3 标记） ==========================
 
   const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+  page.on('pageerror',error=>console.error(error.stack));
+  await page.route('https://example.com/render-check',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Render fixture</title>'}));
+  await page.goto('https://example.com/render-check');
   await page.setContent(
     `<!doctype html><html><head><title>render check</title></head>
 <body style="margin:40px; font:16px/1.6 serif; max-width:640px">
@@ -290,14 +300,9 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
       }
     }
   });
-  await page.waitForTimeout(600);
-  await page.evaluate(() => {
-    document
-      .getElementById('blc-lookup-pill')
-      ?.shadowRoot?.querySelector('button')
-      ?.click();
-  });
-  await page.waitForTimeout(300);
+  await page.locator('#blc-lookup-pill #lookup').waitFor();
+  await page.locator('#blc-lookup-pill #lookup').evaluate(button=>button.click());
+  await page.locator('#blc-lookup-popup .card').waitFor();
   const popup = await page.evaluate(() => {
     const host = document.getElementById('blc-lookup-popup');
     const card = host?.shadowRoot?.querySelector('.card');
@@ -306,7 +311,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
     return {
       rect: { w: Math.round(r.width), h: Math.round(r.height) },
       text: card.innerText,
-      buttons: [...card.querySelectorAll('button')].map((b) => b.textContent),
+      buttons: [...card.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent),
     };
   });
   check('弹窗打开', !!popup && popup.rect.w > 100, popup ? JSON.stringify(popup.rect) : 'null');
@@ -321,7 +326,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   check(
     '操作按钮齐全',
     !!popup &&
-      popup.buttons.includes('保存') &&
+      popup.buttons.includes('收藏') &&
       popup.buttons.includes('已掌握') &&
       popup.buttons.includes('关闭'),
     '',
@@ -373,7 +378,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   // 保存：快照（网页来源）+ 反馈
   await page.evaluate(() => {
     const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-    [...card.querySelectorAll('button')].find((b) => b.textContent === '保存')?.click();
+    card.querySelector('button[data-i18n-aria-label="保存"]')?.click();
   });
   await page.waitForTimeout(300);
   const feedback = await page.evaluate(
@@ -392,12 +397,12 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
       JSON.stringify(savedMsgs[0].result?.entry?.forms) === '["go"]' && savedMsgs[0].forms === undefined,
     JSON.stringify(savedMsgs[0] ?? null).slice(0, 160),
   );
-  check('保存成功反馈', feedback === '已保存 ✓', JSON.stringify(feedback));
+  check('保存成功呈现已收藏状态且不重复提示', feedback === '' && await page.locator('#blc-lookup-popup .learning-status').getAttribute('aria-label').then(label=>label.includes('已收藏')), JSON.stringify(feedback));
 
   // ---- M5 继续问：弹窗转入问答（chatEnsure 带材料与引用） -------------------------
   await page.evaluate(() => {
     const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-    [...card.querySelectorAll('button')].find((b) => b.textContent === '继续问')?.click();
+    card.querySelector('button[data-i18n-aria-label="继续问"]')?.click();
   });
   await page.waitForFunction(() => window.__chat.length === 1);
   const chatAsk = await page.evaluate(() => {
@@ -461,6 +466,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   // ============================ B. YouTube 模拟页（M2） ==========================
 
   const yt = await browser.newPage({ viewport: { width: 720, height: 420 } });
+  yt.on('pageerror',error=>console.error(error.stack));
   await yt.goto(`http://127.0.0.1:${ytPort}/watch?v=testvid1&foo=bar`);
   await yt.evaluate(installStub);
   await yt.evaluate(() => {
@@ -495,6 +501,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
       nonce,
       seen: 2,
       ...data,
+      ...(data.type==='cues'?{...buildSubtitleViews(data.cues,data.trackKind,data.trackLang),revision:JSON.stringify(data.cues)}:{}),
     });
 
   // 轨道表 + ASR 英文轨（带滚动重复）
@@ -536,7 +543,8 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   });
   await yt.waitForFunction(() => {
     const zh = document.getElementById('blc-subs')?.shadowRoot?.querySelector('.zh');
-    return zh && zh.textContent === '译0';
+    const item=window.__translationItems.find(item=>item.text==='the sounds of silence');
+    return zh && item && zh.textContent === `译${item.text}`;
   });
   check('currentTime 定位当前句（ASR 滚动合并）+ 译文按 ID 对齐', true);
 
@@ -587,7 +595,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   await yt.waitForFunction(() => !!document.getElementById('blc-lookup-popup'));
   await yt.evaluate(() => {
     const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-    [...card.querySelectorAll('button')].find((b) => b.textContent === '继续问')?.click();
+    card.querySelector('button[data-i18n-aria-label="继续问"]')?.click();
   });
   await yt.waitForFunction(() => window.__chat.length === 1);
   const ytAsk = await yt.evaluate(() => {
@@ -639,7 +647,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   // 保存 → 视频快照（videoId/轨道/起始毫秒/词形）
   await yt.evaluate(() => {
     const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-    [...card.querySelectorAll('button')].find((b) => b.textContent === '保存')?.click();
+    card.querySelector('button[data-i18n-aria-label="保存"]')?.click();
   });
   await yt.waitForFunction(() => window.__saved.length === 1);
   const videoSnap = await yt.evaluate(() => {
@@ -669,7 +677,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   // 关闭弹窗 → 恢复播放（由本次查词暂停 + 同一视频）
   await yt.evaluate(() => {
     const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-    [...card.querySelectorAll('button')].find((b) => b.textContent === '关闭')?.click();
+    card.querySelector('button[data-i18n-aria-label="关闭"]')?.click();
   });
   await yt.waitForFunction(() => !document.getElementById('blc-lookup-popup'));
   const resumed = await yt.evaluate(() => document.querySelector('video').paused);
@@ -690,7 +698,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   });
   await yt.evaluate(() => {
     const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-    [...card.querySelectorAll('button')].find((b) => b.textContent === '关闭')?.click();
+    card.querySelector('button[data-i18n-aria-label="关闭"]')?.click();
   });
   await yt.waitForFunction(() => !document.getElementById('blc-lookup-popup'));
   const stillPlaying = await yt.evaluate(() => !document.querySelector('video').paused);
@@ -721,11 +729,11 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   check('拖选短语按短语查词', phraseExpr === 'one went', JSON.stringify(phraseExpr));
   await yt.evaluate(() => {
     const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-    [...card.querySelectorAll('button')].find((b) => b.textContent === '关闭')?.click();
+    card.querySelector('button[data-i18n-aria-label="关闭"]')?.click();
   });
   await yt.waitForFunction(() => !document.getElementById('blc-lookup-popup'));
 
-  // 非英文轨道：内容丢弃 + 提示（不把其它语言当英文处理）
+  // 非英文轨道：保留实际语言与原文，不强切英语。
   await postMsg({
     type: 'cues',
     trackKind: 'asr',
@@ -807,6 +815,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   await yt.locator('#blc-subs-switch').screenshot({ path: join(shotDir, 'render-video-controls.png') });
   await yt.close();
 
+  }
   await renderM6({ browser, port: ytPort, content: ytScript, inject: readFileSync(join(extensionPath, 'content-scripts', 'youtube-inject.js'), 'utf8'), installStub, check });
   const failed = results.filter((r) => !r.ok).length;
   console.log(`\n通过 ${results.length - failed}，失败 ${failed}`);

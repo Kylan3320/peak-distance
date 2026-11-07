@@ -56,10 +56,12 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
     await sourcePicker.selectOption(trackId('pt-br'));
     await tracksPage.waitForFunction(() => document.getElementById('blc-subs')?.shadowRoot?.querySelector('.en')?.textContent === 'Captions pt-BR');
     check('同语言地区变体切换保持完整标签', await tracksPage.evaluate(() => window.__currentTrack.languageCode === 'pt-BR'));
+    await tracksPage.clock.install();
     await tracksPage.evaluate(() => { window.__failLang = 'fr'; });
     await sourcePicker.selectOption(trackId('fr'));
-    await tracksPage.waitForFunction(()=>new Promise(resolve=>{for(const listener of window.__listeners)listener({type:'pd-video-settings-get'},{},state=>resolve(state.notice==='字幕切换失败，请重新选择原文语言'));}));
-    check('选轨失败保留可用原文并明确反馈，不伪装为新语言成功', await sourcePicker.inputValue() === trackId('pt-br') && await tracksPage.locator('#blc-subs .en').textContent() === 'Captions pt-BR');
+    await tracksPage.clock.runFor(31000);
+    const failedTrack=await videoSettings(tracksPage);
+    check('选轨失败在整轮截止后保留可用原文并明确反馈', failedTrack.trackId===trackId('pt-br') && !failedTrack.switchingTrack && failedTrack.notice==='字幕网络请求失败，请重试' && await tracksPage.locator('#blc-subs .en').textContent()==='Captions pt-BR');
     await tracksPage.evaluate(() => { window.__failLang = ''; });
     await sourcePicker.selectOption(trackId('fr'));
     await tracksPage.waitForFunction(() => document.getElementById('blc-subs')?.shadowRoot?.querySelector('.en')?.textContent === 'Captions fr');
@@ -121,11 +123,10 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
     check('同轨签名续期保留轨道身份和已有译文', await tracksPage.evaluate(before => document.getElementById('blc-debug').getAttribute('data-blc-track-id') === before.id && document.getElementById('blc-subs').shadowRoot.querySelector('.zh')?.textContent === before.zh, beforeRenewal));
 
     await tracksPage.screenshot({ path: '.upstream/subtitle-language-menu.png' });
-    await tracksPage.clock.install();
     await tracksPage.evaluate(() => { window.__holdLang = 'ar'; });
     await sourcePicker.selectOption(trackId('ar'));
     await tracksPage.clock.runFor(31000);
-    check('已有字幕时切换超时也结束等待并保留原文', await sourcePicker.inputValue() === trackId('en') && await tracksPage.locator('#blc-subs .en').textContent() === 'Captions en' && (await videoSettings(tracksPage)).notice==='字幕切换失败，请重新选择原文语言');
+    check('已有字幕时切换超时也结束等待并保留原文', await sourcePicker.inputValue() === trackId('en') && await tracksPage.locator('#blc-subs .en').textContent() === 'Captions en' && (await videoSettings(tracksPage)).notice==='字幕获取超时');
     await tracksPage.evaluate(() => { window.__holdLang = ''; window.__timingReport('https://www.youtube.com/api/timedtext?v=tracks01&lang=ar&kind=asr&signature=ar&pot=after-cancel'); });
     await tracksPage.clock.runFor(600);
     check('取消后新捕获不能重新启动已结束的获取', await tracksPage.locator('#blc-subs .en').textContent() === 'Captions en');
@@ -167,12 +168,15 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
     window.fetch = async url => window.__failInitial ? new Response('', { status: 503 }) : Response.json({ events: [{ tStartMs: 0, dDurationMs: 5000, segs: [{ utf8: new URL(url).searchParams.has('kind') ? 'Automatic' : 'Manual' }] }] });
     document.querySelector('video').currentTime = 1;
   });
+  await initial.clock.install();
   await initial.addScriptTag({ content: inject });
   await initial.addScriptTag({ content });
-  await initial.getByRole('button', { name: '重试字幕', exact: true }).waitFor();
+  await initial.locator('#blc-subs').waitFor();
+  await initial.clock.runFor(31000);
+  await initial.getByRole('button', { name: '重读字幕', exact: true }).waitFor();
   check('首次当前自动轨与同语言人工轨并存时选择人工轨', await initial.evaluate(() => window.__currentTrack.kind === ''));
   await initial.evaluate(() => { window.__failInitial = false; });
-  await initial.getByRole('button', { name: '重试字幕', exact: true }).click();
+  await initial.getByRole('button', { name: '重读字幕', exact: true }).click();
   await initial.locator('#blc-subs .en').filter({ hasText: 'Manual' }).waitFor();
   check('首屏失败后的重试为相同轨道重新获取', true);
   await changeVideo(initial,{trackId:trackId('en')});
@@ -223,6 +227,7 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
   check('字幕首轨不是当前语言时不抢选；有效令牌立即接管旧请求', recovered, JSON.stringify(await loading.evaluate(() => ({ requests: window.__requests.map(s => { const u = new URL(s); return `${u.searchParams.get('lang')}:${u.searchParams.has('pot')}`; }), notice: document.getElementById('blc-subs')?.shadowRoot?.querySelector('.notice')?.textContent }))));
   check('新来源取消旧请求', await loading.evaluate(() => window.__sourceAborted === 1));
 
+  await loading.clock.install();
   await loading.evaluate(() => {
     window.__failSource = true;
     history.pushState({}, '', '/watch?v=loading02');
@@ -230,7 +235,8 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
   });
   await loading.waitForFunction(() => document.getElementById('blc-debug')?.getAttribute('data-blc-video') === 'loading02');
   await loading.evaluate(() => { void fetch('https://www.youtube.com/api/timedtext?v=loading02&lang=en&kind=asr&pot=valid'); });
-  await loading.getByRole('button', { name: '重试字幕', exact: true }).waitFor();
+  await loading.clock.runFor(31000);
+  await loading.getByRole('button', { name: '重读字幕', exact: true }).waitFor();
   check('空响应结束 loading 并保留原生字幕', await loading.evaluate(() => !document.getElementById('blc-hide-native-captions') && document.getElementById('blc-debug').getAttribute('data-blc-count') === ''));
   await loading.evaluate(() => {
     window.__failSource = false;
@@ -239,9 +245,9 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
       if (e.currentTarget.getAttribute('aria-pressed') === 'true') void fetch('https://www.youtube.com/api/timedtext?v=loading02&lang=en&kind=asr&pot=renewed');
     });
   });
-  await loading.getByRole('button', { name: '重试字幕', exact: true }).click();
+  await loading.getByRole('button', { name: '重读字幕', exact: true }).click();
   await loading.waitForFunction(() => document.getElementById('blc-debug')?.getAttribute('data-blc-count') === '1');
-  check('点击重试使播放器刷新失效来源并恢复当前视频字幕', await loading.getByRole('button', { name: '重试字幕', exact: true }).count() === 0);
+  check('点击重试使播放器刷新失效来源并恢复当前视频字幕', await loading.getByRole('button', { name: '重读字幕', exact: true }).count() === 0);
   await loading.close();
 
   const silent = await browser.newPage();
@@ -250,7 +256,7 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
   await silent.evaluate(installStub);
   await silent.addScriptTag({ content }); // MAIN 未注入/无响应
   await silent.clock.runFor(31000);
-  check('MAIN 无响应也在整体截止时间结束等待并可重试', await silent.getByRole('button', { name: '重试字幕', exact: true }).isVisible());
+  check('MAIN 无响应也在整体截止时间结束等待并可重试', await silent.getByRole('button', { name: '重读字幕', exact: true }).isVisible());
   await silent.close();
 
   for (const kind of ['manual', 'asr', 'missing']) {
@@ -298,8 +304,10 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
       await page.evaluate(() => { document.querySelector('video').currentTime = 2.5; });
       await page.waitForFunction(() => document.getElementById('blc-subs')?.shadowRoot?.querySelector('.zh')?.textContent === '第二句');
       check('独立中文轨道成功句不被平台译文覆盖', true);
-    } else if (kind === 'asr') check('真实双入口协议在 ASR 合并时保留配对译文', state.count === '1' && state.text === '这架飞机' && state.generic === 0);
-    else check('平台路径缺失后才调用常规翻译，ID 不移位', state.text === '译0' && state.generic === 1);
+    } else if (kind === 'asr') {
+      check('ASR 播放器保留配对译文，学习句歧义由常规翻译补齐', state.count === '1' && state.text === '这架飞机' && await page.evaluate(async()=>(await window.__callTab({type:'blc-sub-get'})).cues[0].zh==='译the plane'));
+    }
+    else check('平台路径缺失后才调用常规翻译，ID 不移位', state.text === '译first' && state.generic >= 1 && await page.evaluate(()=>window.__requests.some(url=>new URL(url).searchParams.has('tlang'))));
     const before = await page.evaluate(() => window.__requests.length + window.__generic.length);
     await page.locator('#blc-subs-switch #learning').click();
     await page.waitForFunction(()=>!document.getElementById('blc-subs'));
@@ -313,7 +321,7 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
       await page.waitForFunction(() => window.__held === true);
       // M11 起加载文案按目标语言显示（默认中文）
       await page.waitForFunction(() =>
-        (document.getElementById('blc-subs')?.shadowRoot?.querySelector('.notice')?.textContent ?? '').startsWith('正在获取') &&
+        (document.getElementById('blc-subs')?.shadowRoot?.querySelector('.notice')?.textContent ?? '').startsWith('正在读取') &&
         (document.getElementById('blc-subs')?.shadowRoot?.querySelector('.notice')?.textContent ?? '').endsWith('译文…'),
       );
       check('等待中文时显示明确加载状态', true);
@@ -333,8 +341,8 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
 
       await page.evaluate(() => { window.__genericFail = true; });
       await changeVideo(page,{mode:'regular'});
-      await page.getByText('翻译暂不可用', { exact: true }).waitFor();
-      check('中文失败显示恢复动作并保留英文', await page.getByRole('button', { name: '用 AI 翻译', exact: true }).isVisible() && await page.locator('#blc-subs .en').isVisible());
+      await page.locator('[data-i18n="翻译暂不可用"]').waitFor();
+      check('中文失败显示恢复动作并保留英文', await page.locator('button[data-i18n="用 AI 翻译"]').isVisible() && await page.locator('#blc-subs .en').isVisible());
     }
     await page.close();
   }
