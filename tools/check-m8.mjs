@@ -154,9 +154,9 @@ try {
   await context.route('https://www.youtube.com/watch?v=m8test01',r=>r.fulfill({contentType:'text/html',body:videoHtml}));
   await page.goto('https://www.youtube.com/watch?v=m8test01');await page.locator('#blc-subs .en').waitFor();await page.locator('#blc-subs .zh').waitFor();
   check('普通模式字幕在视频下方',await page.locator('#blc-subs').evaluate(el=>el.getBoundingClientRect().top>=document.getElementById('movie_player').getBoundingClientRect().bottom));
-  await page.locator('#blc-subs-switch #panel').click();await page.locator('#pd-floating-panel').waitFor({state:'visible'});
-  await page.frameLocator('#pd-floating-panel iframe').locator('.brand-name').waitFor();
-  const videoFrame=page.frames().find(f=>f.url().includes('/sidepanel.html'));await videoFrame.locator('#blc-learning-panel .row').first().waitFor();
+  await control.evaluate(id=>chrome.tabs.sendMessage(id,{type:'pd-panel-show'},{frameId:0}),tabId);await page.locator('#pd-floating-panel').waitFor({state:'visible'});
+  await page.frameLocator('#pd-floating-panel iframe').locator('body').waitFor();
+  const videoFrame=page.frames().find(f=>f.url().includes('/sidepanel.html'));await videoFrame.locator('#views [data-view="subs"]').click();await videoFrame.locator('#blc-learning-panel .row').first().waitFor();
   // 非全屏：浮动面板可向下移动到播放器以下（不被钳在播放器上方）。
   // 受控 headless 中指针捕获跨扩展 iframe 派发不全，用产品自带的方向键移动验证同一钳制路径。
   {
@@ -199,7 +199,7 @@ try {
   check('进入全屏面板默认收起',await page.locator('#pd-floating-panel').isHidden());
   check('全屏无大面积实色底板',await page.locator('#blc-subs .wrap').evaluate(el=>getComputedStyle(el).backgroundColor==='rgba(0, 0, 0, 0)'));
   await page.screenshot({path:join(output,'fullscreen.png')});
-  await page.locator('#blc-subs-switch #panel').click();await page.locator('#pd-floating-panel').waitFor({state:'visible'});
+  await control.evaluate(id=>chrome.tabs.sendMessage(id,{type:'pd-panel-show'},{frameId:0}),tabId);await page.locator('#pd-floating-panel').waitFor({state:'visible'});
   check('全屏移交保留未发送输入',await page.frameLocator('#pd-floating-panel iframe').locator('#chat-input').inputValue()==='Temporary input with material and quote.');
   check('全屏面板挂载在可见全屏节点',await page.locator('#pd-floating-panel').evaluate(el=>document.fullscreenElement.contains(el)));
   await page.frameLocator('#pd-floating-panel iframe').locator('.brand-name').waitFor();

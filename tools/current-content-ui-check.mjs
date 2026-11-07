@@ -329,9 +329,13 @@ try {
   await videoPage.bringToFront();
   await videoPage.locator('#movie_player').evaluate(player=>{player.style.background='#f5f5f5';return player.requestFullscreen();});
   await videoPage.waitForFunction(()=>document.fullscreenElement?.id==='movie_player');
-  await videoPage.locator('#blc-subs-switch #panel').click();
+  assert.equal((await control.evaluate(async()=>{
+    const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
+    return chrome.tabs.sendMessage(tab.id,{type:'pd-panel-show'},{frameId:0});
+  })).ok,true);
   await videoPage.waitForFunction(()=>document.fullscreenElement?.contains(document.getElementById('pd-floating-panel')));
   const fullscreenFrame=videoPage.frameLocator('#pd-floating-panel iframe');
+  await fullscreenFrame.locator('#views [data-view="subs"]').click();
   await fullscreenFrame.locator('#blc-learning-panel .en').first().waitFor();
   await control.evaluate(()=>chrome.storage.local.set({appearanceTheme:'classic'}));
   await videoPage.locator('#pd-floating-panel[data-pd-theme=classic]').waitFor();

@@ -244,7 +244,7 @@ try {
   check('packaged acquisition recovers into split and cross-fragment sentences',true);
   check('player keeps the original short unit and its platform translation',
     await playerEn.textContent()===playerLine&&await playerZh.textContent()===combinedTranslation);
-  await page.locator('#blc-subs-switch #panel').click();
+  await control.evaluate(id=>chrome.tabs.sendMessage(id,{type:'pd-panel-show',view:'subs'},{frameId:0}),tabId);
   await page.frameLocator('#pd-floating-panel iframe').locator('#blc-learning-panel .en').first().waitFor();
   const frame=page.frames().find(f=>f.url().includes('/sidepanel.html'));
   const workspace=frame.locator('#blc-learning-panel'), body=workspace.locator('.body');
@@ -350,7 +350,7 @@ try {
   await control.waitForFunction(async tabId=>(await chrome.tabs.sendMessage(tabId,{type:'pd-video-settings-get'})).autoPause,tabId);
   check('video settings use the sidebar layout, survive theme/language changes, and reject stale targets',true);
   await frame.locator('#views [data-view="subs"]').click();
-  await page.locator('#blc-subs-switch #panel').click();
+  await control.evaluate(id=>chrome.tabs.sendMessage(id,{type:'pd-panel-show',view:'subs'},{frameId:0}),tabId);
   await button('下一句').click();await expectIndex(1);
   await button('重播').click();await waitPause(2);
   check('AP pauses once at the shared interval end and holds its explicitly selected row and player fragment',
@@ -452,7 +452,7 @@ try {
   assert.ok((await saveDirect(afterCrossing.cues[0])).ok);
   const legacy=(await denseRecords()).find(s=>s.text==='No.');
   const openDensePanel=async()=>{
-    await dense.locator('#blc-subs-switch #panel').click();
+    await control.evaluate(id=>chrome.tabs.sendMessage(id,{type:'pd-panel-show',view:'subs'},{frameId:0}),denseTab);
     const frame=dense.frameLocator('#pd-floating-panel iframe');
     const list=frame.locator('#blc-learning-panel');
     await list.locator('.en').first().waitFor();
