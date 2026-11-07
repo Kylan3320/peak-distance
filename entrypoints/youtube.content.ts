@@ -471,12 +471,16 @@ export default defineContentScript({
         const root = host.attachShadow({ mode: 'open' });
         root.innerHTML = `<style>
           :host {display:inline-flex;vertical-align:top;height:100%;align-items:center;text-shadow:none}
-          ${brandTokens}${sharedControls}
-          button.ui-icon-button {position:relative;height:100%;border:0;border-radius:0;background:transparent;color:white;filter:drop-shadow(0 1px 2px #000)}
-          button:hover {background:#ffffff26} button:focus-visible {outline:2px solid #8ab4f8;outline-offset:-2px}
-          #learning[aria-pressed=true]::after {content:'';position:absolute;bottom:5px;left:25%;right:25%;height:3px;background:currentColor;border-radius:2px}
+          ${brandTokens}
+          button {display:inline-flex;align-items:center;justify-content:center;width:var(--pd-control-size);min-height:var(--pd-control-size);height:100%;padding:0;border:0;border-radius:0;background:transparent;color:white;cursor:pointer;opacity:.9;text-shadow:none;filter:drop-shadow(0 1px 2px #000)}
+          button:hover,button:focus-visible {opacity:1} button:focus-visible {outline:2px solid #8ab4f8;outline-offset:-2px}
+          svg {width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
+          .caption-icon {display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:18px;border:1.5px solid currentColor;border-radius:2px}
+          .caption-icon svg {width:14px;height:14px}
+          #learning[aria-pressed=true] .caption-icon {background:#fff;border-color:#fff;color:#151719}
           button:disabled {opacity:.5} #learning[data-error=true] {color:#ffb4ab}
-        </style><button id="learning" class="ui-icon-button">${uiIcon('translate')}</button><button id="panel" class="ui-icon-button">${uiIcon('dock')}</button>`;
+          #learning[data-error=true] .caption-icon {background:transparent;border-color:currentColor;color:inherit}
+        </style><button id="learning" type="button"><span class="caption-icon" aria-hidden="true">${uiIcon('translate')}</span></button><button id="panel" type="button">${uiIcon('dock')}</button>`;
         root.querySelector('#learning')!.addEventListener('click', () => void setBilingual(!bilingualOn));
         root.querySelector('#panel')!.addEventListener('click', () => { void send({type:'panelOpen',view:'subs'}); });
         host.addEventListener('click', e => e.stopPropagation());
