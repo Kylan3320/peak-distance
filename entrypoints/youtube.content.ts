@@ -472,15 +472,15 @@ export default defineContentScript({
         root.innerHTML = `<style>
           :host {display:inline-flex;vertical-align:top;height:100%;align-items:center;text-shadow:none}
           ${brandTokens}
-          button {display:inline-flex;align-items:center;justify-content:center;width:var(--pd-control-size);min-height:var(--pd-control-size);height:100%;padding:0;border:0;border-radius:0;background:transparent;color:white;cursor:pointer;opacity:.9;text-shadow:none;filter:drop-shadow(0 1px 2px #000)}
-          button:hover,button:focus-visible {opacity:1} button:focus-visible {outline:2px solid #8ab4f8;outline-offset:-2px}
-          svg {width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
-          .caption-icon {display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:18px;border:1.5px solid currentColor;border-radius:2px}
-          .caption-icon svg {width:14px;height:14px}
-          #learning[aria-pressed=true] .caption-icon {background:#fff;border-color:#fff;color:#151719}
+          button {display:inline-flex;align-items:center;justify-content:center;width:48px;min-height:34px;height:100%;padding:0;border:0;border-radius:0;background:transparent;color:white;cursor:pointer;text-shadow:none}
+          button:focus-visible {outline:2px solid #8ab4f8;outline-offset:-2px}
+          .caption-icon {width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 1px #000c)}
+          #learning[aria-pressed=true] .caption-frame {fill:currentColor}
+          #learning[aria-pressed=true] .caption-glyph {stroke:#151719}
           button:disabled {opacity:.5} #learning[data-error=true] {color:#ffb4ab}
-          #learning[data-error=true] .caption-icon {background:transparent;border-color:currentColor;color:inherit}
-        </style><button id="learning" type="button"><span class="caption-icon" aria-hidden="true">${uiIcon('translate')}</span></button>`;
+          #learning[data-error=true] .caption-frame {fill:none}
+          #learning[data-error=true] .caption-glyph {stroke:currentColor}
+        </style><button id="learning" type="button"><svg class="caption-icon" viewBox="0 0 24 24" aria-hidden="true"><rect class="caption-frame" x="2" y="4" width="20" height="16" rx="1"/><path class="caption-glyph" d="M5 9h8M9 7v2m3 0c-1 3-3 5-6 6m.5-4.5c.8 1.7 2.1 3 4 4M13 17l3-7 3 7m-5-2h4"/></svg></button>`;
         root.querySelector('#learning')!.addEventListener('click', () => void setBilingual(!bilingualOn));
         host.addEventListener('click', e => e.stopPropagation());
         host.addEventListener('keydown', e => e.stopPropagation());
