@@ -1,5 +1,8 @@
 // 在现有 render-check 浏览器中检查 MAIN/ISOLATED 双轨与取消链路。
 export async function renderM6({ browser, port, content, inject, installStub, check }) {
+  const videoMessage=(page,message)=>page.evaluate(message=>new Promise(resolve=>{for(const listener of window.__listeners)listener(message,{},resolve);}),message);
+  const videoSettings=page=>videoMessage(page,{type:'pd-video-settings-get'});
+  const changeVideo=async(page,change)=>{const state=await videoSettings(page);return videoMessage(page,{type:'pd-video-settings-set',videoId:state.videoId,generation:state.generation,change});};
   const trackId = (lang, kind = 'asr', name = '') => JSON.stringify([lang, kind, name, '']);
   const tracksPage = await browser.newPage({ viewport: { width: 720, height: 600 } });
   await tracksPage.goto(`http://127.0.0.1:${port}/watch?v=tracks01`);
@@ -43,10 +46,9 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
   check('无选轨时使用当前默认音轨的默认字幕，首项阿拉伯语不被抢选', defaultSelected);
   await tracksPage.evaluate(() => { void fetch('https://www.youtube.com/api/timedtext?v=tracks01&lang=en&kind=asr&signature=en&pot=valid'); });
   await tracksPage.waitForFunction(() => document.getElementById('blc-debug')?.getAttribute('data-blc-track-lang') === 'en');
-  await tracksPage.locator('#blc-subs-switch #learning').click();
-  const sourcePicker = tracksPage.getByRole('combobox', { name: '原文字幕语言', exact: true });
-  const pickerExists = await sourcePicker.count() === 1;
-  check('双语菜单提供原文字幕语言选择，并保留地区变体', pickerExists && await sourcePicker.locator('option').allTextContents().then(x => x.length === 6));
+  const sourcePicker={selectOption:trackId=>changeVideo(tracksPage,{trackId}),inputValue:async()=>(await videoSettings(tracksPage)).trackId};
+  const pickerExists=(await videoSettings(tracksPage)).tracks.length===5;
+  check('侧栏设置协议提供全部原文轨道，并保留地区变体',pickerExists);
   if (pickerExists) {
     await sourcePicker.selectOption(trackId('ar'));
     await tracksPage.waitForFunction(() => document.getElementById('blc-subs')?.shadowRoot?.querySelector('.en')?.textContent === 'Captions ar');
@@ -56,7 +58,7 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
     check('同语言地区变体切换保持完整标签', await tracksPage.evaluate(() => window.__currentTrack.languageCode === 'pt-BR'));
     await tracksPage.evaluate(() => { window.__failLang = 'fr'; });
     await sourcePicker.selectOption(trackId('fr'));
-    await tracksPage.getByText('字幕切换失败，请重新选择原文语言', { exact: true }).first().waitFor();
+    await tracksPage.waitForFunction(()=>new Promise(resolve=>{for(const listener of window.__listeners)listener({type:'pd-video-settings-get'},{},state=>resolve(state.notice==='字幕切换失败，请重新选择原文语言'));}));
     check('选轨失败保留可用原文并明确反馈，不伪装为新语言成功', await sourcePicker.inputValue() === trackId('pt-br') && await tracksPage.locator('#blc-subs .en').textContent() === 'Captions pt-BR');
     await tracksPage.evaluate(() => { window.__failLang = ''; });
     await sourcePicker.selectOption(trackId('fr'));
@@ -117,15 +119,13 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
     await tracksPage.evaluate(() => window.__timingReport('https://www.youtube.com/api/timedtext?expire=renewed&signature=renewed&kind=asr&lang=en&v=tracks01&pot=renewed'));
     await tracksPage.waitForTimeout(100);
     check('同轨签名续期保留轨道身份和已有译文', await tracksPage.evaluate(before => document.getElementById('blc-debug').getAttribute('data-blc-track-id') === before.id && document.getElementById('blc-subs').shadowRoot.querySelector('.zh')?.textContent === before.zh, beforeRenewal));
-    await sourcePicker.focus();
-    await sourcePicker.press('Escape');
-    await tracksPage.locator('#blc-subs-switch #learning').click();
+
     await tracksPage.screenshot({ path: '.upstream/subtitle-language-menu.png' });
     await tracksPage.clock.install();
     await tracksPage.evaluate(() => { window.__holdLang = 'ar'; });
     await sourcePicker.selectOption(trackId('ar'));
     await tracksPage.clock.runFor(31000);
-    check('已有字幕时切换超时也结束等待并保留原文', await sourcePicker.inputValue() === trackId('en') && await tracksPage.locator('#blc-subs .en').textContent() === 'Captions en' && await tracksPage.getByText('字幕切换失败，请重新选择原文语言', { exact: true }).count() > 0);
+    check('已有字幕时切换超时也结束等待并保留原文', await sourcePicker.inputValue() === trackId('en') && await tracksPage.locator('#blc-subs .en').textContent() === 'Captions en' && (await videoSettings(tracksPage)).notice==='字幕切换失败，请重新选择原文语言');
     await tracksPage.evaluate(() => { window.__holdLang = ''; window.__timingReport('https://www.youtube.com/api/timedtext?v=tracks01&lang=ar&kind=asr&signature=ar&pot=after-cancel'); });
     await tracksPage.clock.runFor(600);
     check('取消后新捕获不能重新启动已结束的获取', await tracksPage.locator('#blc-subs .en').textContent() === 'Captions en');
@@ -175,8 +175,7 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
   await initial.getByRole('button', { name: '重试字幕', exact: true }).click();
   await initial.locator('#blc-subs .en').filter({ hasText: 'Manual' }).waitFor();
   check('首屏失败后的重试为相同轨道重新获取', true);
-  await initial.locator('#blc-subs-switch #learning').click();
-  await initial.getByRole('combobox', { name: '原文字幕语言', exact: true }).selectOption(trackId('en'));
+  await changeVideo(initial,{trackId:trackId('en')});
   await initial.locator('#blc-subs .en').filter({ hasText: 'Automatic' }).waitFor();
   check('首次人工优先之后仍尊重明确选择自动轨', await initial.evaluate(() => window.__currentTrack.kind === 'asr'));
   await initial.close();
@@ -302,10 +301,10 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
     } else if (kind === 'asr') check('真实双入口协议在 ASR 合并时保留配对译文', state.count === '1' && state.text === '这架飞机' && state.generic === 0);
     else check('平台路径缺失后才调用常规翻译，ID 不移位', state.text === '译0' && state.generic === 1);
     const before = await page.evaluate(() => window.__requests.length + window.__generic.length);
-    await page.evaluate(() => document.getElementById('blc-subs-switch').shadowRoot.querySelector('#bilingual').click());
     await page.locator('#blc-subs-switch #learning').click();
-    check(`${kind} 关闭双语后学习菜单仍能访问翻译方式与设置`, await page.getByRole('combobox', { name: '本视频翻译方式' }).isVisible() && await page.getByRole('button', { name: '打开设置', exact: true }).isVisible());
-    await page.evaluate(() => document.getElementById('blc-subs-switch').shadowRoot.querySelector('#bilingual').click());
+    await page.waitForFunction(()=>!document.getElementById('blc-subs'));
+    check(`${kind} 关闭双语后保留独立学习面板入口`,await page.locator('#blc-subs-switch #panel').isVisible());
+    await page.locator('#blc-subs-switch #learning').click();
     await page.waitForFunction(() => document.getElementById('blc-subs')?.shadowRoot?.querySelector('.zh'));
     check(`${kind} 显示开关复用成功结果`, before === await page.evaluate(() => window.__requests.length + window.__generic.length));
     if (kind === 'manual') {
@@ -318,12 +317,12 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
         (document.getElementById('blc-subs')?.shadowRoot?.querySelector('.notice')?.textContent ?? '').endsWith('译文…'),
       );
       check('等待中文时显示明确加载状态', true);
-      await page.locator('#blc-subs-switch #chinese').uncheck();
+      await page.evaluate(()=>{window.__settings={chineseVisible:false};window.__broadcast({type:'settings-changed'});});
       await page.waitForFunction(() => window.__aborted > 0);
       check('隐藏中文中止 MAIN 在途请求，英文仍显示', await page.locator('#blc-subs .en').count() === 1);
     }
     if (kind === 'missing') {
-      await page.getByRole('combobox', { name: '本视频翻译方式' }).selectOption('ai');
+      await changeVideo(page,{mode:'ai'});
       await page.waitForFunction(() => window.__controls.some(m => m.type === 'subtitleMode' && m.mode === 'ai'));
       check('翻译方式选择器设置本视频 AI 且不改全局默认', await page.evaluate(() => !window.__controls.some(m => m.type === 'setSetting' && m.name === 'translationMode')));
       await page.locator('#blc-subs .zh').filter({hasText:/译/}).waitFor();
@@ -331,11 +330,9 @@ export async function renderM6({ browser, port, content, inject, installStub, ch
       await page.evaluate(()=>window.__broadcast({type:'ai-service-changed'}));
       await page.waitForFunction(n=>window.__generic.length>n,beforeSwitch);
       check('切换 AI 服务清理当前视频译文并重新请求',true);
-      await page.getByRole('button', { name: '打开设置', exact: true }).click();
-      check('播放器设置入口发送打开设置动作', await page.evaluate(() => window.__controls.some(m => m.type === 'openSettings')));
-      await page.locator('#blc-subs-switch #learning').click();
+
       await page.evaluate(() => { window.__genericFail = true; });
-      await page.getByRole('combobox', { name: '本视频翻译方式' }).selectOption('regular');
+      await changeVideo(page,{mode:'regular'});
       await page.getByText('翻译暂不可用', { exact: true }).waitFor();
       check('中文失败显示恢复动作并保留英文', await page.getByRole('button', { name: '用 AI 翻译', exact: true }).isVisible() && await page.locator('#blc-subs .en').isVisible());
     }

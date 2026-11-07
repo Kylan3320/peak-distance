@@ -20,7 +20,7 @@ import {
   writePreferenceToVault,
   type VaultFileScan,
 } from './fs';
-import type { VaultChatRecord } from '@/shared/vault';
+import type { VaultChatRecord, VaultAccessStatus } from '@/shared/vault';
 import { vaultRecordJson, vaultErrorCode, type VaultError } from '@/shared/vault';
 import type { ChatRecord, MaterialSnapshotRecord } from '@/shared/chat';
 import { mergeVocabRecord, mergePreferenceRecord } from './format';
@@ -93,6 +93,17 @@ export interface FlushResult {
 }
 
 export const flushVaultWrites = (): Promise<FlushResult> => runVaultOperation(flushPendingWrites);
+
+export const inspectVaultAccess = (): Promise<VaultAccessStatus> => runVaultOperation(async () => {
+  const status = await getVaultStatus();
+  const handle = await getVaultHandle() as DirHandle | null;
+  if (!handle) return {...status, folderName:null, permission:null, accessError:null};
+  try {
+    return {...status, folderName:handle.name, permission:await ensurePermission(handle), accessError:null};
+  } catch (error) {
+    return {...status, folderName:handle.name, permission:null, accessError:error instanceof Error ? error.name : 'Error'};
+  }
+});
 
 async function flushCollectionWrites(handle: DirHandle, queue: VaultPendingWrite[]): Promise<FlushResult> {
   const result: FlushResult = { committed:0, failed:0, skipped:0 };

@@ -188,18 +188,19 @@ try {
   await context.route('https://www.youtube.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="en"><head><title>Video practice</title><style>body{margin:0;padding:32px;background:#fff;font:14px system-ui}#movie_player{position:relative;width:960px;height:540px;margin:auto;background:#181818}video{width:100%;height:100%}.ytp-chrome-bottom{position:absolute;left:12px;right:12px;bottom:16px;height:48px;display:flex;justify-content:flex-end}.ytp-right-controls{display:flex;height:100%}button{font:inherit;color:#fff}</style></head><body><div id="movie_player" class="html5-video-player"><video class="html5-main-video"></video><div class="ytp-chrome-bottom"><div class="ytp-right-controls"></div><button class="ytp-subtitles-button" aria-pressed="true"></button></div></div></body></html>'}));
   const video=await context.newPage();await video.goto('https://www.youtube.com/watch?v=abcdefghijk');
   await video.locator('#blc-subs-switch #learning').waitFor();
-  assert.equal(await video.locator('#blc-subs-switch #learning').getAttribute('aria-label'),'Réglages des sous-titres');
+  assert.equal(await video.locator('#blc-subs-switch #learning').getAttribute('aria-label'),'Désactiver les sous-titres bilingues');
   await video.locator('#blc-subs-switch #learning').click();
   await options.locator('#displayLanguage').selectOption('en');
-  await video.waitForFunction(()=>document.querySelector('#blc-subs-switch')?.shadowRoot?.querySelector('#learning')?.getAttribute('aria-label')==='Subtitle settings');
-  assert.equal(await video.locator('#blc-subs-switch label').filter({has:video.locator('#chinese')}).innerText(),'Show translation');
-  assert.equal(await video.locator('#blc-subs-switch label').filter({has:video.locator('#ap')}).innerText(),'Pause after each line');
-  assert.equal(await video.locator('#blc-subs-switch #translation-mode option[value="ai"]').innerText(),'AI translation');
+  await video.waitForFunction(()=>document.querySelector('#blc-subs-switch')?.shadowRoot?.querySelector('#learning')?.getAttribute('aria-label')==='Turn on bilingual subtitles');
+  assert.equal(await video.locator('#blc-subs-switch #learning').getAttribute('aria-pressed'),'false');
+  assert.equal(await video.locator('#blc-subs-switch #menu').count(),0);
+  await video.locator('#blc-subs-switch #learning').click();
+  await video.waitForFunction(()=>document.querySelector('#blc-subs-switch').shadowRoot.querySelector('#learning').getAttribute('aria-pressed')==='true');
   if(output)await video.screenshot({path:path.join(output,'video-controls-en.png')});
   for(const locale of ['de','fr']) {
     await options.locator('#displayLanguage').selectOption(locale);
     await video.waitForFunction(locale=>document.querySelector('#blc-subs-switch')?.lang===locale,locale);
-    assert.ok(await video.evaluate(()=>{const menu=document.querySelector('#blc-subs-switch').shadowRoot.querySelector('#menu');return menu.scrollWidth<=menu.clientWidth;}),`${locale}: video menu overflow`);
+    assert.ok(await video.evaluate(()=>{const controls=document.querySelector('#blc-subs-switch');return controls.getBoundingClientRect().right<=innerWidth;}),`${locale}: video controls overflow`);
     if(output)await video.screenshot({path:path.join(output,`video-controls-${locale}.png`)});
   }
   await options.locator('#displayLanguage').selectOption('auto');
@@ -218,6 +219,35 @@ try {
       await panel.locator('#displayLanguage').scrollIntoViewIfNeeded();
     }
   }
+  await options.locator('#displayLanguage').selectOption('en');
+  await worker.evaluate(()=>chrome.storage.local.set({panelMode:'floating',translationMode:'regular'}));
+  await video.locator('#blc-subs-switch #panel').click();
+  const videoPanel=video.frameLocator('#pd-floating-panel iframe');
+  await videoPanel.locator('body:not([inert]) #view-subs:not([hidden])').waitFor();
+  await videoPanel.locator('#open-settings').click();
+  await videoPanel.locator('#video-settings:not([hidden])').waitFor();
+  assert.equal(await videoPanel.locator('#video-track').isDisabled(),true);
+  await videoPanel.locator('#video-mode').selectOption('ai');
+  await videoPanel.locator('#video-mode:not([disabled])').waitFor();
+  const videoTabId=await videoPanel.locator('body').evaluate(async()=> (await chrome.runtime.sendMessage({type:'panelContext'})).tabId);
+  const modeState=await options.evaluate(tabId=>chrome.tabs.sendMessage(tabId,{type:'pd-video-settings-get'}),videoTabId);
+  assert.equal(modeState.mode,'ai');
+  assert.equal((await options.evaluate(()=>chrome.storage.local.get('translationMode'))).translationMode,'regular');
+  await videoPanel.locator('#video-mode').selectOption('regular');
+  await videoPanel.locator('#video-mode:not([disabled])').waitFor();
+  // Keyboard activation also reaches the player while the floating settings remain open.
+  await video.locator('#blc-subs-switch #learning').focus();
+  await video.locator('#blc-subs-switch #learning').press('Enter');
+  await videoPanel.locator('#bilingualEnabled:not(:checked)').waitFor();
+  await videoPanel.locator('#bilingualEnabled').check();
+  await video.waitForFunction(()=>document.querySelector('#blc-subs-switch').shadowRoot.querySelector('#learning').getAttribute('aria-pressed')==='true');
+  const authorizationTabPromise=context.waitForEvent('page');
+  await videoPanel.locator('#vault-connect').click();
+  const authorizationTab=await authorizationTabPromise;await authorizationTab.waitForLoadState();
+  assert.equal(new URL(authorizationTab.url()).pathname,'/options.html');
+  assert.equal(new URL(authorizationTab.url()).searchParams.get('vault'),'connect');
+  await authorizationTab.locator('#vault-connect').waitFor();await authorizationTab.close();
+  console.log('PASS redesigned video settings keep per-video mode separate, synchronize the toggle, and route embedded folder access to the settings tab');
   assert.deepEqual(errors,[]);
   console.log('UI checks passed: five locales, live updates, preserved inputs, saved rules, reload, save failure, AI request language, webpage lookup and video controls.');
 } finally {

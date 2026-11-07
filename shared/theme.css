@@ -29,6 +29,10 @@ h1 {font-size:var(--pd-text-title);line-height:1.4;margin:0 0 16px} h2 {font-siz
 .settings-field-state {flex-basis:100%;text-align:end;font-size:12px;line-height:1.4;color:var(--pd-muted)}
 .settings-field-state.err {color:var(--pd-danger)}
 .settings-field-state:empty {display:none}
+.settings-context {margin-top:16px;padding-top:14px;border-top:1px solid var(--pd-line)}
+.settings-context h3 {font:600 13px/1.5 var(--pd-font-ui);margin:0 0 3px}
+.settings-context-title {font-size:12px;line-height:1.5;color:var(--pd-muted);margin:0 0 8px;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.settings-context .settings-field select {max-width:65%;text-overflow:ellipsis}
 .settings-field input[type=checkbox] {appearance:none;width:30px;height:18px;margin:0;border:1px solid var(--pd-control-line);border-radius:12px;background:var(--pd-nav);padding:2px;cursor:pointer}
 .settings-field input[type=checkbox]::before {content:'';display:block;width:12px;height:12px;border-radius:50%;background:var(--pd-muted)}
 .settings-field input[type=checkbox]:checked {border-color:var(--pd-blue);background:var(--pd-blue)}
@@ -64,6 +68,7 @@ h1 {font-size:var(--pd-text-title);line-height:1.4;margin:0 0 16px} h2 {font-siz
 .vault-overview {display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-top:4px}
 .vault-summary {flex:1 1 135px;min-width:0;min-height:34px;display:flex;flex-wrap:wrap;align-items:center;align-content:center;gap:2px 12px;overflow-wrap:anywhere}
 #vault-label {font-weight:500}
+.vault-folder {flex-basis:100%;overflow-wrap:anywhere}
 #vault-pending {font-size:12px;font-variant-numeric:tabular-nums}
 .vault-tools {display:flex;align-items:center;flex-wrap:wrap;gap:4px;max-width:100%;margin-inline-start:auto}
 .vault-tools button:not(.ui-icon-button) {font-size:13px}

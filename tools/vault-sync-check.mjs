@@ -118,6 +118,7 @@ async function open(kind) {
         kind: "directory",
         name: "shared",
         queryPermission: async () => globals.__permission,
+        requestPermission: async () => { globals.__permissionRequests=(globals.__permissionRequests??0)+1; return globals.__permission=globals.__permissionDecision; },
         getDirectoryHandle: async (name, options) => {
           const path = [...parts, name];
           await disk("directory", path, !!options?.create);
@@ -387,15 +388,40 @@ try {
   assert.equal((await edge.evaluate(() => window.Vault.db.listEntries())).length, before);
   writeFileSync(bookPath, intact);
   console.log('PASS broken collection separators report format failure and preserve the running vocabulary');
-  await chrome.evaluate(() => {
-    window.__permission = "prompt";
+  await chrome.evaluate(async () => {
+    const record={id:'en::permission-recovery',language:'en',expression:'permission-recovery',status:'saved',forms:[],note:'Permission recovery keeps this note',createdAt:1,updatedAt:1,contexts:[]};
+    const mapped=Vault.vaultRecordToEntry(record,record.note);
+    await Vault.db.importVaultEntry(mapped.entry,mapped.contexts,null);
+    await Vault.enqueueVocabWrite(record);
+    window.__permission = 'prompt';
   });
-  const refused = await chrome.evaluate(() => window.Vault.synchronizeVault());
-  assert.equal(refused.error, "no-permission");
-  await chrome.evaluate(() => {
-    window.__permission = "granted";
+  const refused = await chrome.evaluate(() => Vault.synchronizeVault());
+  assert.equal(refused.error, 'no-permission');
+  const blocked = await chrome.evaluate(() => Vault.inspectVaultAccess());
+  assert.equal(blocked.permission, 'prompt');
+  assert.ok(blocked.pendingCount > 0);
+  assert.equal(blocked.lastError, null, 'permission is reported independently from historical write failures');
+  await chrome.evaluate(() => { window.__permissionDecision = 'denied'; });
+  assert.equal(await chrome.evaluate(() => Vault.files.authorizeVaultInPage()), 'denied');
+  assert.equal((await chrome.evaluate(() => Vault.inspectVaultAccess())).permission, 'denied');
+  await chrome.evaluate(() => { window.__permission = 'prompt'; window.__permissionDecision = 'granted'; });
+  assert.equal(await chrome.evaluate(() => Vault.files.authorizeVaultInPage()), 'granted');
+  assert.equal((await chrome.evaluate(() => Vault.inspectVaultAccess())).permission, 'granted');
+  assert.equal((await chrome.evaluate(() => Vault.synchronizeVault())).error, undefined);
+  assert.equal((await chrome.evaluate(() => Vault.inspectVaultAccess())).pendingCount, 0);
+  await edge.evaluate(() => Vault.syncFromVault());
+  assert.equal((await edge.evaluate(() => Vault.db.getEntry('en::permission-recovery'))).note, 'Permission recovery keeps this note');
+  assert.equal(await chrome.evaluate(() => window.__permissionRequests), 2);
+  await chrome.evaluate(async()=>{await Vault.db.deleteEntry('en::permission-recovery');await Vault.synchronizeVault();});
+  await edge.evaluate(()=>Vault.syncFromVault());
+  await chrome.evaluate(async () => {
+    window.showDirectoryPicker=async()=>{throw new DOMException('cancelled','AbortError');};
+    if(await Vault.files.pickVaultDirectoryInPage()!==false)throw Error('cancel should be harmless');
+    window.showDirectoryPicker=async()=>{throw new DOMException('blocked context','SecurityError');};
+    try {await Vault.files.pickVaultDirectoryInPage();throw Error('security error was swallowed');}
+    catch(error){if(error.name!=='SecurityError')throw error;}
   });
-  console.log("PASS unavailable permission is reported as a failed sync");
+  console.log('PASS permission prompt/denial/regrant preserves queued data, resumes sync to the other browser, and distinguishes cancellation from a blocked picker');
   const legacy = await chrome.evaluate(() => window.Vault.format.serializeVocabRecord({ id: "en::legacy", language: "en", expression: "legacy", status: "saved", forms: [], note: "保留旧笔记", createdAt: 1, updatedAt: 1, contexts: [] }));
   mkdirSync(join(directory, "词汇/en"), { recursive: true });
   writeFileSync(join(directory, "词汇/en/legacy.md"), legacy);

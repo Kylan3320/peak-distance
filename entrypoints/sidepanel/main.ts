@@ -114,7 +114,10 @@ let restoreReturnedVideo=false;
 let libraryId:string|null=null;
 interface ReviewSession extends LearningScope { vaultId?:string|null;category: LearningCategory; source?: SourceDescriptor; returnTo: 'list' | 'article' | 'video'; article?: ArticleLearningSnapshot; video?: ReturnedVideo }
 interface PanelSnapshot {settingsAi?:boolean;vaultId?:string|null;view?:string;previousView?:string;search?:string;reviewQueue?:ReviewItem[];reviewIdx?:number;revealed?:boolean;definitionRevealed?:boolean;reviewSession?:ReviewSession;knowledgeQueue?:KnowledgeRecord[];article?:ArticleLearningSnapshot;returnedVideo?:ReturnedVideo|null;scroll?:Record<string,number>;video?:{tab?:string;follow?:boolean;top?:number};chat?:ChatViewSnapshot}
-const settingsView=mountSettings(document.getElementById('settings-body')!);
+const settingsView=mountSettings(document.getElementById('settings-body')!, {
+  active: () => currentView === 'settings' && activePanel,
+  tab: async () => floating ? (panelTabId >= 0 ? panelTabId : undefined) : (await browser.tabs.query({active:true,windowId:panelWindow >= 0 ? panelWindow : undefined,currentWindow:panelWindow < 0 ? true : undefined}))[0]?.id,
+});
 const selectionPopup=createTranslationPopup(send);
 let closePanelSelectionActions = () => {document.getElementById('panel-selection-actions')?.remove();};
 const lookupPopup=createLookupPopup({send});

@@ -1148,7 +1148,7 @@ export async function markVaultWriteAttempt(attempt: VaultPendingWrite, error?: 
   });
 }
 
-/** 面板／设置页展示的库状态；connected = 已持有句柄（权限在写入时验证）。 */
+/** 持久同步结果；历史权限错误不代表当前权限，展示入口由 inspectVaultAccess 实时查询。 */
 export async function getVaultStatus(): Promise<VaultStatus> {
   return withDb(async db => {
     const tx = db.transaction([VAULT, VAULT_QUEUE], 'readonly');
@@ -1166,7 +1166,7 @@ export async function getVaultStatus(): Promise<VaultStatus> {
       identity: identity ?? null,
       pendingCount: currentQueue.length,
       lastCommitAt: meta?.lastCommitAt ?? null,
-      lastError: currentQueue.some(w => !w.vaultId) ? 'conflict' : currentQueue.find(w => w.lastError)?.lastError ?? meta?.lastError ?? null,
+      lastError: currentQueue.some(w => !w.vaultId) ? 'conflict' : currentQueue.find(w => w.lastError && w.lastError !== 'no-permission')?.lastError ?? (meta?.lastError === 'no-permission' ? null : meta?.lastError) ?? null,
     };
   });
 }

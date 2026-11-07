@@ -10,7 +10,7 @@ import type { LearningResult, ContextExplanation } from './vocab';
 
 import type { LookupSnapshot, VocabIndexItem, VocabStatus } from './vocab';
 import type { LanguageTag } from './languages';
-import type { VaultError, VaultFormatDiagnostic, VaultIdentity, VaultStatus } from './vault';
+import type { VaultError, VaultFormatDiagnostic, VaultIdentity, VaultAccessStatus } from './vault';
 import type {
   ChatRecordView,
   MaterialPayload,
@@ -194,7 +194,7 @@ export type GetSettingsResult = { ok: true; settings: SettingsView } | BgcError;
 
 // ---- M11 学习库消息结果 ----------------------------------------------------------
 
-export type VaultStatusResult = { ok: true; status: VaultStatus } | BgcError;
+export type VaultStatusResult = { ok: true; status: VaultAccessStatus } | BgcError;
 export type VaultConnectResult =
   | { ok: true; vault: VaultIdentity | null; imported: boolean; syncError?: VaultError; formatDiagnostic?: VaultFormatDiagnostic } // imported = 首次连接合并了本机持久记录
   | (BgcError & { formatDiagnostic?: VaultFormatDiagnostic });
@@ -258,6 +258,28 @@ export interface SubControlMessage {
 }
 
 export type TabMessage = SubGetMessage | SubControlMessage;
+
+/** Settings commands belong to the captured tab/video generation, never a later video. */
+export interface VideoSettingsState {
+  videoId: string;
+  generation: string;
+  title: string;
+  tracks: { id: string; lang: string; kind: 'asr' | 'manual'; name?: string; label?: string }[];
+  trackId: string;
+  switchingTrack: boolean;
+  mode: 'regular' | 'ai';
+  autoPause: boolean;
+  ready: boolean;
+  hasCues: boolean;
+  notice: string;
+}
+export type VideoSettingsChange = { trackId: string } | { mode: 'regular' | 'ai' } | { autoPause: boolean };
+export interface VideoSettingsCommand {
+  type: 'pd-video-settings-set';
+  videoId: string;
+  generation: string;
+  change: VideoSettingsChange;
+}
 
 /** content script → 侧栏：字幕视图状态（非视频页 videoId 为空）。 */
 export interface SubViewState {

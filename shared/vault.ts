@@ -171,3 +171,10 @@ export interface VaultStatus {
   lastCommitAt: number | null;
   lastError: string | null;
 }
+
+/** Live access is separate from the outcome of past synchronization attempts. */
+export interface VaultAccessStatus extends VaultStatus {
+  folderName: string | null;
+  permission: PermissionState | null;
+  accessError: string | null;
+}
