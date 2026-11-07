@@ -36,7 +36,7 @@ import { lookupExpression, translateSentences } from '@/lib/aiClient';
 import { getAiConfig } from '@/lib/aiTransport';
 import { aiCacheScope, isAiProvider, validateAiProfile } from '@/shared/aiConfig';
 import { handleChatRequest, initChatService, stopWindowChats, closeLibraryWorkspace } from '@/lib/chatService';
-import { getVaultIdentity, getVaultStatus, migrateLegacyLanguages } from '@/lib/db';
+import { getVaultIdentity, migrateLegacyLanguages } from '@/lib/db';
 import {
   adoptVault,
   disconnectVault,
@@ -44,6 +44,7 @@ import {
   flushVaultWrites,
   syncFromVault,
   synchronizeVault,
+  inspectVaultAccess,
 } from '@/lib/vault/sync';
 import { vaultErrorCode } from '@/shared/vault';
 import { isLanguageTag, normalizeLangTag } from '@/shared/languages';
@@ -600,7 +601,7 @@ async function handle(
     }
     // ---- M11 学习库 -------------------------------------------------------------
     case 'vaultStatus': {
-      return { ok: true, status: await getVaultStatus() };
+      return { ok: true, status: await inspectVaultAccess() };
     }
     case 'vaultConnect': {
       // 页面侧已完成选目录/授权（pickVaultDirectoryInPage 把句柄写入 IDB），

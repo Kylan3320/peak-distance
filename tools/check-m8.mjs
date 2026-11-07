@@ -154,7 +154,7 @@ try {
   await context.route('https://www.youtube.com/watch?v=m8test01',r=>r.fulfill({contentType:'text/html',body:videoHtml}));
   await page.goto('https://www.youtube.com/watch?v=m8test01');await page.locator('#blc-subs .en').waitFor();await page.locator('#blc-subs .zh').waitFor();
   check('普通模式字幕在视频下方',await page.locator('#blc-subs').evaluate(el=>el.getBoundingClientRect().top>=document.getElementById('movie_player').getBoundingClientRect().bottom));
-  await page.locator('#blc-subs-switch #learning').click();await page.locator('#blc-subs-switch #panel').click();await page.locator('#pd-floating-panel').waitFor({state:'visible'});
+  await page.locator('#blc-subs-switch #panel').click();await page.locator('#pd-floating-panel').waitFor({state:'visible'});
   await page.frameLocator('#pd-floating-panel iframe').locator('.brand-name').waitFor();
   const videoFrame=page.frames().find(f=>f.url().includes('/sidepanel.html'));await videoFrame.locator('#blc-learning-panel .row').first().waitFor();
   // 非全屏：浮动面板可向下移动到播放器以下（不被钳在播放器上方）。
@@ -190,16 +190,16 @@ try {
   await page.screenshot({path:join(output,'youtube-workspace.png')});
   await page.evaluate(()=>document.querySelector('video').play());await page.locator('#blc-subs .w').first().hover();await page.locator('#blc-lookup-popup .compact').waitFor();check('字幕悬停暂停仍有效',await page.evaluate(()=>document.querySelector('video').paused));
   await page.locator('#blc-subs .w').first().click();await videoFrame.getByRole('button',{name:'设置',exact:true}).click();await page.locator('#blc-lookup-popup').waitFor({state:'detached'});check('自有 iframe 点击关闭网页词卡',true);await videoFrame.locator('#workspace-back').click();check('外部关闭恢复播放',!await page.evaluate(()=>document.querySelector('video').paused));
-  await page.locator('#blc-subs-switch #learning').click();check('AP 默认关闭',!await page.locator('#blc-subs-switch #ap').isChecked());await page.locator('#blc-subs-switch #ap').check();
+  await videoFrame.locator('#open-settings').click();check('AP 默认关闭',!await videoFrame.locator('#video-auto-pause').isChecked());await videoFrame.locator('#video-auto-pause').check();
   await page.evaluate(()=>{const v=document.querySelector('video');v.currentTime=2.7;v.play();});await page.waitForFunction(()=>document.querySelector('video').paused);
   check('AP 在句末暂停',await page.evaluate(()=>document.querySelector('video').currentTime>=3&&document.querySelector('video').currentTime<3.5));
-  await page.evaluate(()=>document.querySelector('video').play());await page.waitForTimeout(150);check('AP 继续播放不重复暂停',!await page.evaluate(()=>document.querySelector('video').paused));await page.locator('#blc-subs-switch #ap').uncheck();await page.locator('#blc-subs-switch #learning').click();
+  await page.evaluate(()=>document.querySelector('video').play());await page.waitForTimeout(150);check('AP 继续播放不重复暂停',!await page.evaluate(()=>document.querySelector('video').paused));await videoFrame.locator('#video-auto-pause').uncheck();await videoFrame.locator('#workspace-back').click();
   await page.evaluate(()=>document.querySelector('video').pause());
   await page.locator('#movie_player').evaluate(el=>el.requestFullscreen());await page.waitForFunction(()=>!!document.fullscreenElement);
   check('进入全屏面板默认收起',await page.locator('#pd-floating-panel').isHidden());
   check('全屏无大面积实色底板',await page.locator('#blc-subs .wrap').evaluate(el=>getComputedStyle(el).backgroundColor==='rgba(0, 0, 0, 0)'));
   await page.screenshot({path:join(output,'fullscreen.png')});
-  await page.locator('#blc-subs-switch #learning').click();await page.locator('#blc-subs-switch #panel').click();await page.locator('#pd-floating-panel').waitFor({state:'visible'});
+  await page.locator('#blc-subs-switch #panel').click();await page.locator('#pd-floating-panel').waitFor({state:'visible'});
   check('全屏移交保留未发送输入',await page.frameLocator('#pd-floating-panel iframe').locator('#chat-input').inputValue()==='Temporary input with material and quote.');
   check('全屏面板挂载在可见全屏节点',await page.locator('#pd-floating-panel').evaluate(el=>document.fullscreenElement.contains(el)));
   await page.frameLocator('#pd-floating-panel iframe').locator('.brand-name').waitFor();

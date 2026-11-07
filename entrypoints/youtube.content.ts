@@ -1,4 +1,4 @@
-import { t as tr, localize, onDisplayLanguageChange, setDisplayLanguage , message, setText, setLocalizedAttribute, languageLabel, type UiText } from '@/shared/i18n';
+import { t as tr, localize, onDisplayLanguageChange, setDisplayLanguage , message, setText, setLocalizedAttribute, type UiText } from '@/shared/i18n';
 import { initFloatingPanel } from '@/shared/floatingPanel';
 import { createTranslationPopup } from '@/shared/translationPopup';
 import { shadowSelection, classifyRangeIn, clampRangeToElement } from '@/shared/selection';
@@ -61,7 +61,7 @@ import {
   type SelectionCandidate,
   type SourceDescriptor,
 } from '@/shared/chat';
-import type { ChatSourceInfo, SubControlMessage, SubtitleRowAction, SubViewState } from '@/shared/messages';
+import type { ChatSourceInfo, SubControlMessage, SubtitleRowAction, SubViewState, VideoSettingsState, VideoSettingsCommand } from '@/shared/messages';
 
 const SUBS_ID = 'blc-subs';
 const SWITCH_ID = 'blc-subs-switch';
@@ -119,24 +119,6 @@ export default defineContentScript({
     let settings: Settings = { ...DEFAULT_SETTINGS };
     let settingsReady = false;
     let settingsFailed = false;
-    // 在途设置写入记账：change → setSetting 消息与 settings-changed 广播之间，
-    // 广播里读到的可能是旧值；本地刚写的状态不回滚（5 秒过期兜底写入失败等）
-    const pendingSettingWrites = new Map<string, { at: number; value: unknown }>();
-
-    function notePendingSettingWrite(name: string, value: unknown): void {
-      pendingSettingWrites.set(name, { at: Date.now(), value });
-    }
-
-    /** 存储值是否应跳过覆盖本地：键在途且 ≠ 本地刚写的值 → true（视为回执则移除标记）。 */
-    function pendingWriteBlocks(name: string, stored: unknown): boolean {
-      const p = pendingSettingWrites.get(name);
-      if (!p) return false;
-      if (Date.now() - p.at > 5000 || stored === p.value) {
-        pendingSettingWrites.delete(name);
-        return false;
-      }
-      return true;
-    }
     let translationMode: 'regular' | 'ai' = 'regular';
     let modeReady = false;
     let modeBusy = false;
@@ -466,21 +448,21 @@ export default defineContentScript({
       return document.getElementById('movie_player') ?? document.documentElement;
     }
 
-    // 双语开关宿主与其菜单关闭函数：ensureSwitchHost 重建/移除时更新。
-    // document 级关闭监听在 main 顶层只注册一次（SPA 导航反复重建宿主时不累积）。
-    let switchHost: HTMLElement | null = null;
-    let closeSwitchMenu: (() => void) | null = null;
-    document.addEventListener('pointerdown', (e) => {
-      if (switchHost?.isConnected && !e.composedPath().includes(switchHost)) closeSwitchMenu?.();
-    }, true);
+    let bilingualBusy = false;
+    let bilingualError = false;
+
+    function videoSettingsState(): VideoSettingsState {
+      const tracks = [...tracklist];
+      const current = trackOfUrl(lastTrackId) ?? captionTrackOf({ languageCode: lastTrackLang, kind: lastTrack === 'asr' ? 'asr' : '' });
+      if (current && !tracks.some(t => t.id === current.id)) tracks.push(current);
+      return { videoId: currentVideoId, generation, title: document.title, tracks,
+        trackId: pendingTrack?.id ?? current?.id ?? '', switchingTrack: !!pendingTrack,
+        mode: translationMode, autoPause, ready: modeReady && !modeBusy,
+        hasCues: !!cues.length, notice };
+    }
 
     function ensureSwitchHost(): void {
-      if (!currentVideoId) {
-        document.getElementById(SWITCH_ID)?.remove();
-        switchHost = null;
-        closeSwitchMenu = null;
-        return;
-      }
+      if (!currentVideoId) { document.getElementById(SWITCH_ID)?.remove(); return; }
       const parent = playerRoot().querySelector('.ytp-right-controls') ?? playerRoot();
       let host = document.getElementById(SWITCH_ID);
       if (!host) {
@@ -488,102 +470,29 @@ export default defineContentScript({
         applyAppearance(host);
         const root = host.attachShadow({ mode: 'open' });
         root.innerHTML = `<style>
-          :host { position:relative; display:inline-flex; vertical-align:top; height:100%; align-items:center; font:14px/1.5 system-ui; color:#eee; text-shadow:none; letter-spacing:normal; text-transform:none; font-weight:400; }
-          button,select { font:inherit; color:inherit; background:#292b30; border:1px solid #555; border-radius:5px; padding:5px 9px; cursor:pointer; }
-          button:focus-visible,select:focus-visible { outline:2px solid #8ab4f8; }
-          #learning { background:transparent; border:0; padding:0 4px; height:100%; color:#fff; filter:drop-shadow(0 1px 2px #000); } #learning[aria-expanded=true]{background:#ffffff26}
+          :host {display:inline-flex;vertical-align:top;height:100%;align-items:center;text-shadow:none}
           ${brandTokens}${sharedControls}
-          #menu { color:var(--pd-ink);position:absolute; right:0; bottom:calc(100% + 12px); width:min(280px,calc(100vw - 24px)); box-sizing:border-box; max-height:calc(var(--blc-player-height,360px) - 72px); overflow-y:auto; background:var(--pd-paper); border:1px solid var(--pd-line); border-radius:8px; padding:12px; box-shadow:0 6px 24px #0008; }
-          [hidden] { display:none!important; } label { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:7px 0; } small { color:var(--pd-muted); } #menu button,#menu select { background:var(--pd-surface);border-color:var(--pd-line);color:var(--pd-ink); } #menu input {accent-color:var(--pd-blue)}
-          label:has(select) {display:grid;grid-template-columns:minmax(0,1fr);gap:4px} #menu select {width:100%;min-width:0}
-          .menu-actions {display:flex;justify-content:flex-end;gap:4px;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--pd-line)}
-          #menu .menu-actions button {border:0;background:transparent}
-          .menu-actions svg {width:var(--pd-icon-size);height:var(--pd-icon-size);flex:none;fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
-          #menu #panel {color:var(--pd-blue);background:var(--pd-selected);border-color:transparent}
-          #menu .menu-actions button:hover {background:var(--pd-selected);border-color:var(--pd-mist);color:var(--pd-blue)}
-          #menu .menu-actions button:active {background:var(--pd-selected)}
-          #menu .menu-actions button:focus-visible {outline:2px solid var(--pd-blue);outline-offset:2px}
-        </style><button id="learning" class="ui-icon-button" aria-expanded="false" data-i18n-title="双语字幕与学习面板" data-i18n-aria-label="双语字幕与学习面板">${uiIcon('translate')}</button><div id="menu" hidden>
-          <div class="menu-actions">
-            <button id="panel" class="ui-icon-button" data-i18n-aria-label="打开学习面板" data-i18n-title="打开学习面板">${uiIcon('dock')}</button>
-            <button id="settings" class="ui-icon-button" data-i18n-aria-label="打开设置" data-i18n-title="打开设置">${uiIcon('settings')}</button>
-          </div>
-          <label><span data-i18n="双语字幕">${tr("双语字幕")}</span><input id="bilingual" type="checkbox"></label><label><span data-i18n="显示中文">${tr("显示中文")}</span><input id="chinese" type="checkbox"></label>
-          <label><span data-i18n="原文语言">${tr('原文语言')}</span><select id="source-track" data-i18n-aria-label="原文字幕语言" aria-label="${tr("原文字幕语言")}"></select></label>
-          <small id="source-track-status" role="status"></small>
-          <label><span data-i18n="本视频翻译">${tr('本视频翻译')}</span><select id="translation-mode" data-i18n-aria-label="本视频翻译方式" aria-label="${tr("本视频翻译方式")}"><option value="regular" data-i18n="常规">${tr("常规")}</option><option value="ai" data-i18n="AI（LLM）">${tr("AI（LLM）")}</option></select></label>
-          <small data-i18n="默认方式在设置中修改">${tr("默认方式在设置中修改")}</small>
-          <label><span data-i18n="字幕字号">${tr('字幕字号')}</span><select id="size" data-i18n-aria-label="字幕字号" aria-label="${tr("字幕字号")}"><option value="small" data-i18n="小">${tr("小")}</option><option value="standard" data-i18n="标准">${tr("标准")}</option><option value="large" data-i18n="大">${tr("大")}</option></select></label>
-          <label><span data-i18n="逐句暂停（AP）">${tr('逐句暂停（AP）')}</span><input id="ap" type="checkbox"></label>
-        </div>`;
-        const menu = root.querySelector<HTMLElement>('#menu')!;
-        const close = () => { menu.hidden = true; host!.removeAttribute('data-open'); root.querySelector('#learning')!.setAttribute('aria-expanded', 'false'); };
-        root.querySelector('#learning')!.addEventListener('click', () => {
-          if(menu.hidden&&floatingPanel.isOpen())floatingPanel.hide();
-          menu.hidden = !menu.hidden; host!.toggleAttribute('data-open', !menu.hidden); root.querySelector('#learning')!.setAttribute('aria-expanded', String(!menu.hidden));
-        });
-        root.querySelector('#panel')!.addEventListener('click', () => { void send({type:'panelOpen',view:'subs'}); close(); });
-        root.querySelector('#bilingual')!.addEventListener('change', e => setBilingual((e.target as HTMLInputElement).checked));
-        root.querySelector('#chinese')!.addEventListener('change', e => {
-          zhVisible = (e.target as HTMLInputElement).checked;
-          if (!zhVisible) stopTranslation();
-          notePendingSettingWrite('chineseVisible', zhVisible);
-          void send({ type:'setSetting', name:'chineseVisible', value:zhVisible }); renderBar();
-        });
-        root.querySelector('#translation-mode')!.addEventListener('change', e => void setTranslationMode((e.target as HTMLSelectElement).value as 'regular' | 'ai'));
-        root.querySelector('#source-track')!.addEventListener('change', e => {
-          const target = tracklist.find(t => t.id === (e.target as HTMLSelectElement).value);
-          if (!target) return;
-          pendingTrack = target;
-          closeSelectionActions?.();
-          notice = ''; nocuesReason = '';
-          stopTranslation();
-          clearAcquisitionTimer();
-          sendConfig(target);
-          renderBar();
-        });
-        root.querySelector('#size')!.addEventListener('change', e => {
-          settings.subtitleSize = (e.target as HTMLSelectElement).value as Settings['subtitleSize'];
-          notePendingSettingWrite('subtitleSize', settings.subtitleSize);
-          void send({ type:'setSetting', name:'subtitleSize', value:settings.subtitleSize }); renderBar();
-        });
-        root.querySelector('#ap')!.addEventListener('change', e => void updateVideoSession({ autoPause:(e.target as HTMLInputElement).checked }));
-        root.querySelector('#settings')!.addEventListener('click', () => { void send({ type:'openSettings' }); close(); });
+          button.ui-icon-button {position:relative;height:100%;border:0;border-radius:0;background:transparent;color:white;filter:drop-shadow(0 1px 2px #000)}
+          button:hover {background:#ffffff26} button:focus-visible {outline:2px solid #8ab4f8;outline-offset:-2px}
+          #learning[aria-pressed=true]::after {content:'';position:absolute;bottom:5px;left:25%;right:25%;height:3px;background:currentColor;border-radius:2px}
+          button:disabled {opacity:.5} #learning[data-error=true] {color:#ffb4ab}
+        </style><button id="learning" class="ui-icon-button">${uiIcon('translate')}</button><button id="panel" class="ui-icon-button">${uiIcon('dock')}</button>`;
+        root.querySelector('#learning')!.addEventListener('click', () => void setBilingual(!bilingualOn));
+        root.querySelector('#panel')!.addEventListener('click', () => { void send({type:'panelOpen',view:'subs'}); });
         host.addEventListener('click', e => e.stopPropagation());
-        host.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); close(); root.querySelector<HTMLButtonElement>('#learning')!.focus(); } });
-        switchHost = host;
-        closeSwitchMenu = close;
+        host.addEventListener('keydown', e => e.stopPropagation());
       }
       if (host.parentElement !== parent) parent.append(host);
       host.style.cssText = parent === playerRoot() ? 'position:absolute;right:100px;bottom:10px;z-index:66;height:32px;' : '';
-      host.style.setProperty('--blc-player-height', `${playerRoot().getBoundingClientRect().height}px`);
       const root = host.shadowRoot!;
-      const sourceTrack = root.querySelector<HTMLSelectElement>('#source-track')!;
-      const tracks = [...tracklist];
-      const currentTrack = trackOfUrl(lastTrackId) ?? captionTrackOf({ languageCode: lastTrackLang, kind: lastTrack === 'asr' ? 'asr' : '' });
-      if (currentTrack && !tracks.some(t => t.id === currentTrack.id)) tracks.push(currentTrack);
-      const trackKey = JSON.stringify(tracks);
-      if (sourceTrack.dataset.tracks !== trackKey) {
-        const current=new Option('', '');setText(current,message('沿用播放器'));sourceTrack.replaceChildren(current);
-        for (const track of tracks) {
-          const option=new Option('',track.id);
-          setText(option,message('{language} ({kind}){name}',{language:languageLabel(track.lang),kind:message(track.kind==='asr'?'自动':'人工'),name:track.name?` · ${track.label||track.name}`:''}));
-          sourceTrack.add(option);
-        }
-        sourceTrack.dataset.tracks = trackKey;
-      }
-      sourceTrack.value = pendingTrack?.id ?? currentTrack?.id ?? '';
-      if (sourceTrack.selectedIndex < 0) sourceTrack.value = '';
-      sourceTrack.options[0]!.disabled = true;
-      sourceTrack.disabled = !tracks.length;
-      setText(root.querySelector('#source-track-status')!, pendingTrack ? message('正在切换原文字幕…') : notice?message(notice):'');
-      if (!modeBusy) (root.querySelector('#translation-mode') as HTMLSelectElement).value = translationMode;
-      (root.querySelector('#translation-mode') as HTMLSelectElement).disabled = modeBusy || !modeReady;
-      if (!modeBusy) (root.querySelector('#ap') as HTMLInputElement).checked = autoPause;
-      (root.querySelector('#ap') as HTMLInputElement).disabled = modeBusy || !cues.length;
-      (root.querySelector('#bilingual') as HTMLInputElement).checked = bilingualOn;
-      (root.querySelector('#chinese') as HTMLInputElement).checked = zhVisible;
-      (root.querySelector('#size') as HTMLSelectElement).value = settings.subtitleSize;
+      const toggle = root.querySelector<HTMLButtonElement>('#learning')!;
+      toggle.disabled = bilingualBusy || !settingsReady;
+      toggle.setAttribute('aria-pressed', String(bilingualOn));
+      toggle.dataset.error = String(bilingualError);
+      const label = message(bilingualError ? '字幕开关保存失败，请重试' : bilingualOn ? '关闭双语字幕' : '打开双语字幕');
+      setLocalizedAttribute(toggle, 'title', label); setLocalizedAttribute(toggle, 'aria-label', label);
+      const panel = root.querySelector<HTMLButtonElement>('#panel')!;
+      setLocalizedAttribute(panel, 'title', message('打开学习面板')); setLocalizedAttribute(panel, 'aria-label', message('打开学习面板'));
     }
 
     function ensureSubsHost(): { host: HTMLElement; body: HTMLDivElement } | null {
@@ -897,10 +806,13 @@ export default defineContentScript({
       if (last < text.length) en.appendChild(document.createTextNode(text.slice(last)));
     }
 
-    function setBilingual(on: boolean): void {
+    async function setBilingual(on: boolean): Promise<void> {
+      if (bilingualBusy) return;
+      bilingualBusy = true; bilingualError = false; ensureSwitchHost();
+      const result = await send<{ok:boolean}>({ type:'setSetting', name:'bilingualEnabled', value:on });
+      bilingualBusy = false;
+      if (!result?.ok) { bilingualError = true; ensureSwitchHost(); return; }
       bilingualOn = on;
-      notePendingSettingWrite('bilingualEnabled', on);
-      void send({ type: 'setSetting', name: 'bilingualEnabled', value: on });
       if (!on) {
         cancelSourceAcquisition();
         stopTranslation();
@@ -1278,8 +1190,6 @@ export default defineContentScript({
       if (!r?.ok) { settingsFailed = true; renderBar(); return; }
       settingsFailed = false;
       const next: Settings = { ...DEFAULT_SETTINGS, ...r.settings };
-      // 在途写入不回滚：广播读到旧值时保留本地刚写的状态
-      if (pendingWriteBlocks('subtitleSize', next.subtitleSize)) next.subtitleSize = settings.subtitleSize;
       const previousTarget = targetLangOf();
       settings = next; settingsReady = true;
       const targetChanged = previousTarget !== targetLangOf();
@@ -1288,8 +1198,8 @@ export default defineContentScript({
       }
       setDisplayLanguage(settings.displayLanguage,browser.i18n.getUILanguage());
       const wasBilingual = bilingualOn;
-      if (!pendingWriteBlocks('bilingualEnabled', settings.bilingualEnabled)) bilingualOn = settings.bilingualEnabled;
-      if (!pendingWriteBlocks('chineseVisible', settings.chineseVisible)) zhVisible = settings.chineseVisible;
+      bilingualOn = settings.bilingualEnabled;
+      zhVisible = settings.chineseVisible;
       if (!modeReady) await updateVideoSession();
       if (!bilingualOn || !zhVisible) stopTranslation();
       if (bilingualOn) { if (!wasBilingual) sendConfig(); hideNativeCaptions(); ensureCaptionsOn(20); }
@@ -1468,6 +1378,27 @@ export default defineContentScript({
           else if(a.action==='save') { void toggleSentence(a.index).then(sendResponse); return true; }
           else if(a.action==='lookup' && typeof a.word==='string' && a.word.length<=200)openLookup(a.word,a.index);
           sendResponse({ok:true});return true;
+        }
+        if (m.type === 'pd-video-settings-get') { sendResponse(videoSettingsState()); return true; }
+        if (m.type === 'pd-video-settings-set') {
+          const command = m as VideoSettingsCommand;
+          if (!currentVideoId || command.videoId !== currentVideoId || command.generation !== generation) {
+            sendResponse({ok:false, error:'video-mismatch'}); return true;
+          }
+          const change = command.change;
+          if ('trackId' in change) {
+            const target = tracklist.find(track => track.id === change.trackId);
+            if (!target) { sendResponse({ok:false, error:'track-unavailable'}); return true; }
+            pendingTrack = target; closeSelectionActions?.(); notice = ''; nocuesReason = '';
+            stopTranslation(); clearAcquisitionTimer(); sendConfig(target); renderBar();
+            sendResponse({ok:true}); return true;
+          }
+          if (!modeReady || modeBusy || ('mode' in change && !['regular','ai'].includes(change.mode)) ||
+              ('autoPause' in change && (typeof change.autoPause !== 'boolean' || !cues.length))) {
+            sendResponse({ok:false, error:'not-ready'}); return true;
+          }
+          void updateVideoSession(change).then(() => sendResponse({ok:currentVideoId===command.videoId && modeReady && !settingsFailed}));
+          return true;
         }
         if (m.type === 'blc-sub-get') {
           const v = getVideo();

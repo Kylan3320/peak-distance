@@ -244,8 +244,7 @@ try {
   check('packaged acquisition recovers into split and cross-fragment sentences',true);
   check('player keeps the original short unit and its platform translation',
     await playerEn.textContent()===playerLine&&await playerZh.textContent()===combinedTranslation);
-  const settings=page.locator('#blc-subs-switch #learning');
-  await settings.click();await page.locator('#blc-subs-switch #panel').click();
+  await page.locator('#blc-subs-switch #panel').click();
   await page.frameLocator('#pd-floating-panel iframe').locator('#blc-learning-panel .en').first().waitFor();
   const frame=page.frames().find(f=>f.url().includes('/sidepanel.html'));
   const workspace=frame.locator('#blc-learning-panel'), body=workspace.locator('.body');
@@ -331,7 +330,26 @@ try {
   const videoTime=()=>page.evaluate(()=>document.querySelector('video').currentTime);
   const play=()=>page.evaluate(()=>document.querySelector('video').play());
   const waitPause=min=>page.waitForFunction(min=>{const v=document.querySelector('video');return v.paused&&v.currentTime>=min;},min);
-  await settings.click();await page.locator('#blc-subs-switch #ap').check();
+  await frame.locator('#open-settings').click();
+  await frame.locator('#video-settings:not([hidden])').waitFor();
+  assert.equal(await frame.locator('#video-auto-pause').isChecked(),false);
+  const settingsBefore=await action({type:'pd-video-settings-get'});
+  assert.equal((await action({type:'pd-video-settings-set',videoId:'stale-video',generation:settingsBefore.generation,change:{autoPause:true}})).ok,false);
+  assert.equal((await action({type:'pd-video-settings-set',videoId:settingsBefore.videoId,generation:'stale-generation',change:{autoPause:true}})).ok,false);
+  assert.equal((await action({type:'pd-video-settings-get'})).autoPause,false);
+  for(const [width,theme,locale] of [[320,'classic','zh-Hans'],[400,'minimal','de'],[540,'classic','zh-Hans']]) {
+    await control.evaluate(({theme,locale})=>chrome.storage.local.set({appearanceTheme:theme,displayLanguage:locale}),{theme,locale});
+    await page.locator('#pd-floating-panel').evaluate((el,width)=>el.style.width=width+'px',width);
+    await frame.waitForFunction(locale=>document.documentElement.lang===locale,locale);
+    await frame.locator('#video-settings').scrollIntoViewIfNeeded();
+    assert.ok(await frame.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await frame.locator('#view-settings').screenshot({path:resolve(output,`video-settings-${width}-${theme}.png`)});
+  }
+  await page.locator('#pd-floating-panel').evaluate(el=>el.style.width='400px');
+  await frame.locator('#video-auto-pause').check();
+  await control.waitForFunction(async tabId=>(await chrome.tabs.sendMessage(tabId,{type:'pd-video-settings-get'})).autoPause,tabId);
+  check('video settings use the sidebar layout, survive theme/language changes, and reject stale targets',true);
+  await frame.locator('#views [data-view="subs"]').click();
   await page.locator('#blc-subs-switch #panel').click();
   await button('下一句').click();await expectIndex(1);
   await button('重播').click();await waitPause(2);
@@ -364,10 +382,12 @@ try {
 
   await action({type:'blc-sub-control',videoId:state.videoId,action:'seek',timeMs:trailing[8].tStartMs});
   await gate('old','ready');
-  const trackSelect=page.locator('#blc-subs-switch #source-track');
-  if(!await trackSelect.isVisible())await settings.click();
+  await frame.locator('#open-settings').click();
+  const trackSelect=frame.locator('#video-track');
+  await trackSelect.waitFor();
   const anchoredValue=await trackSelect.locator('option').filter({hasText:'Anchored'}).getAttribute('value');
   await trackSelect.selectOption(anchoredValue);
+  await frame.locator('#views [data-view="subs"]').click();
   await gate('old','aborted');
   await control.waitForFunction(async({tabId,generation})=>(await chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'})).generation!==generation,{tabId,generation:state.generation});
   const anchored=await getState();
@@ -432,7 +452,6 @@ try {
   assert.ok((await saveDirect(afterCrossing.cues[0])).ok);
   const legacy=(await denseRecords()).find(s=>s.text==='No.');
   const openDensePanel=async()=>{
-    await dense.locator('#blc-subs-switch #learning').click();
     await dense.locator('#blc-subs-switch #panel').click();
     const frame=dense.frameLocator('#pd-floating-panel iframe');
     const list=frame.locator('#blc-learning-panel');

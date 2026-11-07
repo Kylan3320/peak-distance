@@ -329,7 +329,6 @@ try {
   await videoPage.bringToFront();
   await videoPage.locator('#movie_player').evaluate(player=>{player.style.background='#f5f5f5';return player.requestFullscreen();});
   await videoPage.waitForFunction(()=>document.fullscreenElement?.id==='movie_player');
-  await videoPage.locator('#blc-subs-switch #learning').click();
   await videoPage.locator('#blc-subs-switch #panel').click();
   await videoPage.waitForFunction(()=>document.fullscreenElement?.contains(document.getElementById('pd-floating-panel')));
   const fullscreenFrame=videoPage.frameLocator('#pd-floating-panel iframe');

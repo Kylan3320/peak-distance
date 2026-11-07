@@ -532,24 +532,26 @@ export async function authorizeVaultInPage(): Promise<PermissionState> {
   const dir = await getVaultHandle() as DirHandle | null;
   if (!dir) throw new Error('not-connected');
   const permission = await ensurePermission(dir);
+  if (permission !== 'granted' && window.top !== window) throw new Error('authorization-page');
   return permission === 'granted' || !dir.requestPermission ? permission : dir.requestPermission({ mode: 'readwrite' });
 }
 
 /**
  * 页面侧选目录并授权（需用户激活；仅在扩展页面调用）。
  * 句柄直接写入 blc-learning 的 vault store（同源 IDB；background 随后读取）。
- * 返回 false = 用户取消或 API 不可用。
+ * 返回 false 仅表示用户取消；上下文或平台失败保留真实原因。
  */
 export async function pickVaultDirectoryInPage(): Promise<boolean> {
   const picker = (window as unknown as {
     showDirectoryPicker?: (o: { mode: 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
   }).showDirectoryPicker;
-  if (!picker) return false;
+  if (!picker || window.top !== window) throw new Error('authorization-page');
   let dir: FileSystemDirectoryHandle;
   try {
     dir = await picker.call(window, { mode: 'readwrite' });
-  } catch {
-    return false; // 用户取消
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return false;
+    throw error;
   }
   await new Promise<void>((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);

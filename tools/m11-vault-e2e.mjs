@@ -64,7 +64,7 @@ try {
   const PAGE_SETUP = `async () => {
     const dir = await navigator.storage.getDirectory();
     const db = await new Promise((res, rej) => {
-      const r = indexedDB.open('blc-learning', 5);
+      const r = indexedDB.open('blc-learning');
       r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('vault')) d.createObjectStore('vault'); if (!d.objectStoreNames.contains('vaultQueue')) d.createObjectStore('vaultQueue', { keyPath: 'id' }); };
       r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
     });
@@ -107,7 +107,7 @@ try {
   check('视频句子保存成功', sentenceSave?.ok);
   await send({ type: 'vaultFlush' });
   await page.evaluate(async () => {
-    const request = indexedDB.open('blc-learning', 5);
+    const request = indexedDB.open('blc-learning');
     const db = await new Promise((done, fail) => { request.onsuccess = () => done(request.result); request.onerror = () => fail(request.error); });
     await new Promise((done, fail) => { const tx = db.transaction('sentences', 'readwrite'); tx.objectStore('sentences').clear(); tx.oncomplete = done; tx.onerror = () => fail(tx.error); });
     db.close();
@@ -122,19 +122,26 @@ try {
     await page.locator('#vault-flush').scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(output, `vault-settings-${width}.png`) });
   }
+  await worker.evaluate(()=>{globalThis.__queryPermission=FileSystemDirectoryHandle.prototype.queryPermission;FileSystemDirectoryHandle.prototype.queryPermission=async()=> 'prompt';});
   await page.evaluate(() => {
     window.__queryPermission = FileSystemDirectoryHandle.prototype.queryPermission;
     window.__requestPermission = FileSystemDirectoryHandle.prototype.requestPermission;
     FileSystemDirectoryHandle.prototype.queryPermission = async () => 'denied';
     FileSystemDirectoryHandle.prototype.requestPermission = async () => 'denied';
   });
-  await page.locator('#vault-flush').click();
-  await page.waitForFunction(() => document.querySelector('#vault-state').textContent.includes('未获得文件夹读写权限'));
-  check('权限未获得时设置页明确提示，按钮恢复可重试', await page.locator('#vault-flush').isEnabled());
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await page.locator('#vault-authorize').waitFor();
+  await page.locator('#vault-authorize').click();
+  await page.waitForFunction(() => document.querySelector('#vault-state').textContent.includes('需要允许访问文件夹'));
+  check('权限未获得时显示授权操作，原目录保持连接', await page.locator('#vault-authorize').isEnabled() && await page.locator('#vault-flush').isDisabled());
   await page.evaluate(() => {
     FileSystemDirectoryHandle.prototype.queryPermission = window.__queryPermission;
     FileSystemDirectoryHandle.prototype.requestPermission = window.__requestPermission;
   });
+  await worker.evaluate(()=>{FileSystemDirectoryHandle.prototype.queryPermission=globalThis.__queryPermission;});
+  await page.locator('#vault-authorize').click();
+  await page.locator('#vault-authorize').waitFor({state:'hidden'});
+  check('授权恢复后继续原库同步，无需重新选择文件夹',await page.locator('#vault-flush').isEnabled());
   const intactBook = await page.evaluate(async () => {
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('生词本.md');
     const text = await (await handle.getFile()).text();
@@ -142,7 +149,7 @@ try {
     return text;
   });
   await page.locator('#vault-flush').click();
-  await page.waitForFunction(() => document.querySelector('#vault-state').textContent.includes('学习文档格式有误'));
+  await page.waitForFunction(() => document.querySelector('#vault-state').textContent.includes('文档格式有误'));
   check('格式损坏如实报错且本机词条不被清空', !!(await send({ type: 'getEntry', key: 'ja::学ぶ' }))?.entry);
   await page.evaluate(async text => {
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('生词本.md');
@@ -176,7 +183,7 @@ try {
   let conflictQueued = false;
   for (let i = 0; i < 20; i++) {
     const st = await send({ type: 'vaultStatus' });
-    if (st?.ok && st.status.lastError === 'conflict') { conflictQueued = true; break; }
+    if (st?.ok && st.status.lastError?.startsWith('conflict') && st.status.pendingCount > 0) { conflictQueued = true; break; }
     await page.waitForTimeout(300);
   }
   check('写前检查发现外部改动且未覆盖（待办保留）', conflictQueued);
@@ -185,8 +192,9 @@ try {
   const entry2 = await send({ type: 'getEntry', key: 'ja::学ぶ' });
   check('冲突时本地版本保留（known 不被覆盖）', entry2?.entry?.status === 'known', entry2?.entry?.status);
   const conflictRaw = await page.evaluate(`(async () => {
-    const db = await new Promise((res, rej) => { const r = indexedDB.open('blc-learning', 5); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
-    const v = await new Promise((res, rej) => { const tx = db.transaction('vault', 'readonly'); const q = tx.objectStore('vault').get('conflict:ja::学ぶ'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); db.close();
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('blc-learning'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const owner = await new Promise((res, rej) => {const q=db.transaction('vault','readonly').objectStore('vault').get('lastIdentity');q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error);});
+    const v = await new Promise((res, rej) => { const tx = db.transaction('vault', 'readonly'); const q = tx.objectStore('vault').get('conflict:'+owner.vaultId+':ja::学ぶ'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); db.close();
     return v ? JSON.stringify(v).slice(0, 160) : null;
   })()`);
   check('冲突详情已记录（双方数据完整保留）', !!conflictRaw && conflictRaw.includes('status'), String(conflictRaw).slice(0, 80));

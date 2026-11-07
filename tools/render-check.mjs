@@ -67,10 +67,12 @@ function installStub() {
     crypto.randomUUID = () => `stub-${Math.random().toString(36).slice(2)}-${Date.now()}`;
   }
   window.browser = {
+    i18n: {getUILanguage:()=> 'zh-CN'},
     runtime: {
       id: 'render-check',
       getURL: () => 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=',
       sendMessage: (msg, cb) => {
+        if(!cb)return new Promise(resolve=>window.browser.runtime.sendMessage(msg,resolve));
         if (msg.type === 'lookup') {
           window.__lookups.push(msg);
           cb({ ok: true, result: { kind: 'dictionary', entry: { source: 'youdao', expression: msg.snapshot.expression, headword: msg.snapshot.expression, url: 'https://dict.youdao.com/', senses: [{ definition: '去；离开' }], forms: ['go'] } } });
@@ -87,7 +89,7 @@ function installStub() {
         } else if (msg.type === 'vocabIndex') {
           cb({ ok: true, items: window.__items });
         } else if (msg.type === 'getSettings') {
-          cb({ ok: true, settings: { markingEnabled: window.__marking, translationMode: 'regular' } });
+          cb({ ok: true, settings: { markingEnabled: window.__marking, translationMode: 'regular', ...window.__settings } });
         } else if (msg.type === 'captionCache') cb({ ok: true, cues: [{ start: 0, dur: 1, text: 'unused' }] });
         else if (msg.type === 'translateCues') {
           cb({
@@ -759,13 +761,13 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
 
   // 双语开关：右上常驻按钮关闭 → 移除字幕栏 + 清译文；再开 → 恢复
   await yt.evaluate(() => {
-    document.getElementById('blc-subs-switch')?.shadowRoot?.querySelector('#bilingual')?.click();
+    document.getElementById('blc-subs-switch')?.shadowRoot?.querySelector('#learning')?.click();
   });
   await yt.waitForFunction(() => !document.getElementById('blc-subs'));
   const offState = await yt.evaluate(() => ({
     bilingual: document.getElementById('blc-debug')?.getAttribute('data-blc-bilingual'),
     zh: document.getElementById('blc-debug')?.getAttribute('data-blc-zh'),
-    switchOff: !document.getElementById('blc-subs-switch')?.shadowRoot?.querySelector('#bilingual')?.checked,
+    switchOff: document.getElementById('blc-subs-switch')?.shadowRoot?.querySelector('#learning')?.getAttribute('aria-pressed') === 'false',
     nativeVisible: !document.getElementById('blc-hide-native-captions'),
     originalCcRestored: document.querySelector('.ytp-subtitles-button').getAttribute('aria-pressed') === 'false',
   }));
@@ -775,7 +777,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
     JSON.stringify(offState),
   );
   await yt.evaluate(() => {
-    document.getElementById('blc-subs-switch')?.shadowRoot?.querySelector('#bilingual')?.click();
+    document.getElementById('blc-subs-switch')?.shadowRoot?.querySelector('#learning')?.click();
   });
   await yt.waitForFunction(() => !!document.getElementById('blc-subs'));
   check('重新开启双语恢复字幕栏', true);
@@ -789,7 +791,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
     return en && en.textContent === 'english is back';
   });
   await yt.evaluate(() => {
-    document.getElementById('blc-subs-switch').shadowRoot.querySelector('#chinese').click();
+    window.__settings={chineseVisible:false};window.__broadcast({type:'settings-changed'});
   });
   await yt.waitForFunction(
     () =>
@@ -800,10 +802,9 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
   );
   check('隐藏中文：不再显示译文', zhHidden === true);
 
-  check('学习菜单隔离播放器文字阴影', await yt.locator('#blc-subs-switch label').first().evaluate(el => getComputedStyle(el).textShadow === 'none' && getComputedStyle(el).fontWeight === '400'));
+  check('字幕开关隔离播放器文字阴影', await yt.locator('#blc-subs-switch #learning').evaluate(el => getComputedStyle(el).textShadow === 'none'));
   await yt.screenshot({ path: join(shotDir, 'render-youtube.png') });
-  await yt.locator('#blc-subs-switch #learning').click();
-  await yt.locator('#blc-subs-switch #menu').screenshot({ path: join(shotDir, 'render-video-menu.png') });
+  await yt.locator('#blc-subs-switch').screenshot({ path: join(shotDir, 'render-video-controls.png') });
   await yt.close();
 
   await renderM6({ browser, port: ytPort, content: ytScript, inject: readFileSync(join(extensionPath, 'content-scripts', 'youtube-inject.js'), 'utf8'), installStub, check });
