@@ -23,7 +23,7 @@ Peak Distance 是我做给自己用的浏览器扩展。读网页、刷 X 或看
 
 ## 快速开始
 
-当前发布版为 [v0.72.2](https://github.com/Kylan3320/peak-distance/releases/tag/v0.72.2)。桌面 Chrome 需要 142 或更新版本。
+当前发布版为 [v0.72.3](https://github.com/Kylan3320/peak-distance/releases/tag/v0.72.3)。桌面 Chrome 需要 142 或更新版本。
 
 1. 下载并解压 [最新 Release](https://github.com/Kylan3320/peak-distance/releases/latest) 里的 `-chrome.zip`。
 2. 打开 `chrome://extensions`（Edge 用 `edge://extensions`），开启「开发者模式」。
