@@ -29,25 +29,11 @@
 
 ## 验证结果
 
-| 检查 | 结果 |
+| 能力 | 阶段结果与复现入口 |
 | --- | --- |
-| `npm run verify-local`（typecheck + build + regress 217/217，含本轮新增 33 项分类/表达/材料用例 + chat-lifecycle） | 通过 |
-| `node tools/render-check.mjs`（57 项：网页浮条/标记/弹窗 + 模拟视频页字幕链路） | 通过 |
-| `node tools/check-m8.mjs`（60 项：选区翻译、工作区、固定/浮动、全屏、AP，含新增「浮动面板非全屏可向下移动」） | 通过 |
-| `npm run e2e-check -- --no-video`（49/50；唯一失败「显式 AI 解释真实请求」需真实 API Key，环境项） | 通过（环境项除外） |
-| `npm run selection-check -- --no-video`（42/42：X 形态页（div 推文）单词分类/词内补全/句段清洗首尾、分类浮条按钮矩阵、learnin→learning、候选折叠后仍可附加、菜单摘要与入口、div 正文附加页面、重复附加不叠加、A→B 替换、× 保留草稿、导航失效原因、失败反馈保留、新选区清除错误、附件展开有界滚动、零 LLM；注入式播放器页单词/句段分类、拖选不误触词卡、短语残缺补齐、附加消息形状含时间与 openPanel；YouTube 页面正文单词/短语残缺补齐/句段分类、article 源候选与附加、字幕栏选区不出现页面浮条；翻译卡片展示补全/清洗表达（teady pace.→steady pace、went ho→went home、句段首尾 teady pace. Th→steady pace. The、hey… it al→they … it all；YouTube 页面正文容器改 div 形态复验）；扩展重载后旧页查词全路径无 invalidated 报错） | 通过 |
+| 选区分类、补全及材料构建 | 纯逻辑与受控页面通过，见 `tools/regress.ts`、`tools/selection-check.mjs` |
+| 网页／字幕浮条、词卡及标记 | 构建产物的受控渲染通过，见 `tools/render-check.mjs` |
+| 工作区、翻译与播放 | 受控交互通过，见 `tools/check-m8.mjs` |
+| 扩展消息及持久化 | 隔离扩展检查通过；真实 AI 请求当时因缺少 Key 未验，见 `tools/e2e-check.mjs` |
 
-零 LLM 由 SW fetch 记录断言：分类与附加全程无任何 AI 请求。
-
-### 既有检查的修复（非本轮产品缺陷）
-
-- `render-check`：harness 在 about:blank 非安全上下文下 `crypto.randomUUID` 缺失导致内容脚本启动即崩（真实页面均 https 不受影响），已补 stub；两处 M11 行为变更后的过期断言（视频继续问范围、非英文轨道合法保留）按现行 spec/ARCHITECTURE 更新；合成页补足可识别正文。
-- `render-m6`：加载文案断言更新为 M11 按语言显示。
-- `e2e-check`：nonsense 词预期更新为允许 M11 免费译文兜底；chat 断言从顶部材料行更新为附件区 DOM。
-- `check-m8`：引用行断言从顶部 `.quote-row` 更新为附件区焦点行。
-
-## 未验证项（需实机）
-
-- **真实 YouTube 侧栏字幕列表跨项选择 → 附加 与 页面正文（描述/评论）选区浮条**（selection-check Part C）：无登录 headless 环境被 YouTube 机器人验证拦截（证据 `.upstream/selection-check/yt-probe.png`），需在用户已登录 Chrome 实机执行 `npm run selection-check`。跨项材料构建、候选与附加路径已由模块回归与注入式播放器链路覆盖；页面正文浮条同链路（B6–B10）已覆盖。
-- 真实 X 帖子内选区（信息流绑定目标帖）：X 页面同样需要登录环境；来源绑定逻辑（x:statusId 候选 + 身份校验）已实现并有模块覆盖。
-- 用户实机 Chrome/Edge 的固定/浮动面板下「添加到对话」气泡点击（面板打开手势链路复用既有 chatEnsure+openPanel 机制，受控环境已覆盖浮动 iframe 形态）。
+真实 X、登录态 YouTube 和用户面板选区入口的待验操作见 [ROADMAP](../ROADMAP.md#未完成项)。当时的用例结果及测试夹具修订见[历史版本](https://github.com/Kylan3320/peak-distance/blob/b1f2ab02fd907e2b8f4e3aa2804194d3a85ef8cc/docs/specs/selection-chat-actions-verification.md)。

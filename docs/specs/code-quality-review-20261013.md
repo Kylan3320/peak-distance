@@ -46,16 +46,7 @@
 
 成功条件：外框上边缘拉大／缩回且底边固定；键盘可调；窄窗口正文保留主要空间；材料详情和移除可用；已有发送／历史路径不回归；AI 首次与缓存结果同形且能显示；降级原因可见；首选限流仍查备用；失效内容脚本提供真实恢复动作；无真实 AI 调用。
 
-已通过：
-
-- `npm run verify-local`：类型、构建、回归、聊天生命周期、AI 协议及 i18n 检查。
-- `PEAK_DISTANCE_UI_EXTENSION=.output/chrome-mv3 npm run check-ui-i18n`：五语言界面、输入保留、设置保存与失败反馈、AI 响应语言、网页词卡及视频控制。工具新增生产产物路径参数，默认开发路径保持原值。
-- `node tools/check-lookup-interactions.mjs`：生产词卡 AI 首次／缓存显示、三类降级重复查询、缓存不绕过新 AI 配置、真实 runtime.reload 后的失效提示和无效重试移除；全程受控服务、无真实 AI 请求。
-- `node tools/check-chat-interactions.mjs` 通过：材料折叠和展开、首问快捷按钮、首次发送、生成中防重复、移除与草稿、历史与引用续聊、Enter／换行／输入法、外框边缘及键盘调节、窄宽空间约束。截图位于 `.upstream/chat-interactions/`。
-- 子 agent 复核修复 diff，独立通过类型、233 项回归及两个交互检查，未发现新增 P1；其补充的混合失败问题随后由根任务修复并加入最终第 234 项回归。
-- 用户 Chrome：安装目录先完整备份至 `/Users/boohee/Downloads/peak-distance-0.6.5-chrome-before-edge-lookup-20261013`，再复制通过检查的生产产物。原生管理页显示“已重新加载”；新网页真实查词 `a` 返回有道释义，实际聊天面板显示紧凑品牌区与上边缘调节按钮、可通过 Tab 到达。没有发送真实 AI 问题、收藏测试词或删除用户记录。已关闭验收标签页并恢复原 X 标签页；原先打开的网页需要刷新以重建内容脚本。
-
-审查时基线已有类型、231 项回归、聊天生命周期和 AI 协议 fixture 全部通过；新增发现揭示了测试盲点：重复缓存结果、完整 UI 联合类型、恢复后关联、地区标签、提交后失败和短暂断连此前没有覆盖。新增测试限定本轮修复范围，不把未修问题标成通过。源码合入本地主线，不构成正式版本发布。
+阶段类型、构建及相关回归通过。词卡与问答交互分别由 `tools/check-lookup-interactions.mjs`、`tools/check-chat-interactions.mjs` 覆盖，五语言设置由 `tools/check-ui-i18n.mjs` 覆盖。测试结果和当时的用户浏览器观察见[历史版本](https://github.com/Kylan3320/peak-distance/blob/b1f2ab02fd907e2b8f4e3aa2804194d3a85ef8cc/docs/specs/code-quality-review-20261013.md)。
 
 ## 2026-10-15：长期可靠性修复
 
