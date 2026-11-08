@@ -101,7 +101,14 @@ export function createLookupPopup(opts: {
   /** 宿主挂载点（默认 documentElement；全屏时由调用方移动节点）。 */
   mountParent?: () => HTMLElement | null;
 }): LookupPopup {
-  onDisplayLanguageChange(()=>{const root=document.getElementById(POPUP_ID)?.shadowRoot;if(root)localize(root);});
+  onDisplayLanguageChange(()=>{
+    const root = document.getElementById(POPUP_ID)?.shadowRoot;
+    if (root) {
+      localize(root);
+      const card = root.querySelector<HTMLDivElement>('.card');
+      if (card) applyDragPos(card);
+    }
+  });
   const send = opts.send;
   const playerUrl = browser.runtime.getURL('/dictionary-audio.html');
   let pinned: PinnedState | null = null;
@@ -183,7 +190,7 @@ export function createLookupPopup(opts: {
         .example {font:17px/1.65 var(--pd-font-reading);margin:12px 0 6px}
         details {margin-top:8px} summary {cursor:pointer;color:var(--pd-muted);font-size:13px;padding:6px 0}
         .lookup-media:empty {display:none}
-        .lookup-media iframe {display:block;width:100%;height:86px;border:0;margin-top:8px;color-scheme:light}
+        .lookup-media iframe {display:block;width:100%;height:54px;border:0;margin-top:8px;color-scheme:light}
         .link-btn {cursor:pointer;color:var(--pd-blue);font:13px/1.5 system-ui;border:0;background:transparent;border-radius:6px;padding:6px 8px;min-height:32px}
         .link-btn:hover {background:var(--pd-selected)}
         .row { margin-top: 12px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
@@ -560,7 +567,12 @@ export function createLookupPopup(opts: {
   });
   window.addEventListener('message', e => {
     const frame = document.getElementById(POPUP_ID)?.shadowRoot?.querySelector<HTMLIFrameElement>('.lookup-media iframe');
-    if (frame && e.source === frame.contentWindow && e.origin === playerUrl.split('/').slice(0, 3).join('/') && e.data?.type === 'pd-audio-close') closePopup();
+    if (!frame || e.source !== frame.contentWindow || e.origin !== playerUrl.split('/').slice(0, 3).join('/')) return;
+    if (e.data?.type === 'pd-audio-close') closePopup();
+    if (e.data?.type === 'pd-audio-size') {
+      frame.style.height = `${e.data.height}px`;
+      applyDragPos(frame.closest<HTMLDivElement>('.card')!);
+    }
   });
   window.addEventListener('resize', () => { const card = document.getElementById(POPUP_ID)?.shadowRoot?.querySelector<HTMLDivElement>('.card'); if (card) applyDragPos(card); });
   document.addEventListener('scroll', () => {
