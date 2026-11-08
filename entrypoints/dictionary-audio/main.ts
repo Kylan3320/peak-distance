@@ -5,6 +5,10 @@ const audio = document.querySelector('audio')!;
 const failure = document.querySelector<HTMLDivElement>('#failure')!;
 const retry = document.querySelector('button')!;
 const src = new URLSearchParams(location.search).get('src') ?? '';
+// Measure content, not the iframe viewport, so hidden errors reserve no space.
+new ResizeObserver(() => {
+  parent.postMessage({type:'pd-audio-size', height:Math.ceil(document.body.getBoundingClientRect().height)}, '*');
+}).observe(document.body);
 // This web-accessible page only plays the dictionary's own media, never arbitrary URLs.
 let valid = false;
 try {
