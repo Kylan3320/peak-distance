@@ -16,7 +16,7 @@
 - 2026-10-03 用户在本次对话提供完整 `NativeDelete` 组件；仅归档为 [native-delete.tsx.txt](references/native-delete.tsx.txt)，不参与构建。原路径由使用示例指向 `components/ui/delete-button.tsx`；本地 DOM / CSS 实现为 `shared/deleteButton.ts` 与 `shared/deleteButton.css`，复用到历史行删除及清空。
 - [公开演示](https://cdn.21st.dev/moumensoliman/delete-button/default/bundle.1768800782521.html) 已核对 Delete → Confirm＋取消按钮及默认／确认态计算样式；动画数值以用户提供的源码为准。用户授权纸感和红色适配，结构、尺寸与动效保留，详见 [M10 spec](specs/m10-chat-and-popup-interactions.md)。原英文文案随后按[界面语言规范](specs/ui-i18n.md)改为当前显示语言。
 
-- 原生动效使用 bounce=0、duration=.35 的临界阻尼响应采样到 Web Animations；图标与文字分别先退出150ms再进入150ms。默认／确认／取消静态样式已对照归档预览，纸感和暖红属于用户授权适配。
+- 当前确认交互和动效约定见 [design.md](../design.md#工作区与通用操作)，原始数值可从归档源码追溯。
 
 ## Peak Distance 品牌素材
 
@@ -31,7 +31,7 @@
 2026-10-03 生成本地派生素材（未引入第三方图像，脚本 [tools/make-brand-assets.py](../tools/make-brand-assets.py) 可复现，原图 peak-mark.png 保留）：
 
 - [peak-icon.png](../public/brand/peak-icon.png)：为深色工具栏可见度新增的扩展图标，paper-tile 纸纹底 + 墨灰山形，`#DDD9CF` 轻边框圆角。
-- [peak-mark-crop.png](../public/brand/peak-mark-crop.png)：peak-mark 按可见山形（alpha>16 边界加 6px 余量）裁掉四周透明留白与淡晕影的副本；品牌区与问答空态以 `object-fit:contain` 使用，替代原先按 64px 负偏移硬裁导致峰体两侧被切的 CSS。
+- [peak-mark-crop.png](../public/brand/peak-mark-crop.png)：peak-mark 按可见山形（alpha>16 边界加 6px 余量）裁掉四周透明留白与淡晕影的副本；用于历史品牌区与问答空态，当前界面停用。
 
 ## 2026-11-06 整体前端确认稿
 
@@ -69,14 +69,7 @@ commit：[5657c8a18ca30c84b5d4662bca58e3e9214ffdff](https://github.com/Gythiro/y
 
 ## M6 接入记录
 
-2026-10-02：在隔离的 Chromium MV3（Edge）扩展 service worker 中，以 `dict.youdao.com`、`dictionary.cambridge.org`、`translate.googleapis.com` 的 host permissions 和本机代理发起真实请求；本地来源模块也打包进该 worker 运行了同组样例。另在 Node 执行 `tools/check-online-sources.ts`。官方 Chrome 137+ 已移除命令行 `--load-extension`，本轮隔离命令行测试使用 Edge；产品扩展的完整浏览器验收由集成线程完成。
-
-| 来源 | 样例的实际内容 | 选取与限制 |
-| --- | --- | --- |
-| 有道 `dict.youdao.com/jsonapi` | run「跑，奔跑」、bank「银行」、went「去，过去（go 的过去式）」、take off「脱下… / 起飞」、in spite of「尽管…」；`a surprisingly good result` 与 `zzzxxyynotaword` 没有 `ec.word` 完整词条 | 主词典；仅接收与查询完整匹配且含中文义项的 `ec.word`。`went` 的 `prototype` 返回 `wend`，与释义提到的 go 不一致，只交付来源候选，不自动归并。原站链接为 `/w/<表达>/`。 |
-| 剑桥英汉 `dictionary.cambridge.org` | run「跑，奔跑」、take off「起飞;飞起」、in spite of 在重定向的 spite 页内有完整短语块「尽管;不顾，不管」；自由短语和不存在词返回无完整词条 | 备用词典；解析真实 HTML，必须匹配完整词头或带 something/someone 占位的短语块。受限 / 验证页不可当释义。 |
-| 牛津学习词典 | run 页面有英文词条、例句；未见英汉义项 | 只留原站入口，不作为本轮中文备用。 |
-| Google 免 key 翻译 `translate.googleapis.com/translate_a/single` | `take off` →「起飞」；`The plane took off.` →「飞机起飞了。」 | 常规翻译；非官方端点，可能受限或返回空 / 部分译文，模块将这些情况作为失败而非永久成功缓存。 |
+2026-10-02 的词典与翻译服务响应样例见[历史调查](https://github.com/Kylan3320/peak-distance/blob/b1f2ab02fd907e2b8f4e3aa2804194d3a85ef8cc/docs/REFERENCES.md#m6-接入记录)。当前词典优先级见 [PRD](PRD.md#查询与调用)，请求及解析由来源模块维护。
 
 Google 路径参考 / 移植自 [yt-dual-subs commit 5657c8a](https://github.com/Gythiro/yt-dual-subs/commit/5657c8a18ca30c84b5d4662bca58e3e9214ffdff) 的 `background.js` `gtxFetch`；本地落点 `lib/regularTranslation.ts`。MIT，Copyright (c) 2026 Gythiro；许可全文见上节。词典模块 `lib/onlineDictionary.ts` 按本轮实际响应实现，未复制 Saladict 源码。
 
