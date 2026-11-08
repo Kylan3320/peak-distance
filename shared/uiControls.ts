@@ -7,7 +7,7 @@ const paths = {
   history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2"/>',
   bookmark:'<path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-6-4z"/>',
   saved:'<path fill="currentColor" stroke="none" d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-6-4z"/>',
-  known:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-6-4zM8 10l3 3 5-5-1-1-4 4-2-2z"/>',
+  pause:'<path d="M8 5v14M16 5v14"/>',
   article:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   library:'<path d="M12 6a5 5 0 0 0-4-2H3v15h5a5 5 0 0 1 4 2 5 5 0 0 1 4-2h5V4h-5a5 5 0 0 0-4 2Zm0 0v15"/>',
   chat:'<path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"/><path d="M8 12h8"/>',
@@ -98,15 +98,14 @@ export function choiceMenu<T extends string>(
 
 export function learningStatus(expression: string, status: VocabStatus, choose: (value: 'saved' | 'known') => Promise<boolean>) {
   const current = visibleVocabStatus(status);
-  const labels = (['saved', 'known'] as const).map(value => ({value,label:message(VOCAB_STATUS_LABEL[value])}));
-  const label = message('{expression} · {status}', {expression,status:message(VOCAB_STATUS_LABEL[current])});
-  const control = choiceMenu(current, label, labels, current, async value => {
+  const labels = (['saved', 'known'] as const).map(value => ({value,label:message(value==='saved'?'重新加入复习':'移出复习')}));
+  const label = message('{expression} · {status}（整个词条）', {expression,status:message(VOCAB_STATUS_LABEL[current])});
+  const control = choiceMenu('saved', label, labels, current, async value => {
     control.trigger.setAttribute('aria-busy','true');
     const saved = await choose(value);
     control.trigger.removeAttribute('aria-busy');
     if (!saved) return;
-    control.trigger.innerHTML = uiIcon(value);
-    const updated = message('{expression} · {status}', {expression,status:message(VOCAB_STATUS_LABEL[value])});
+    const updated = message('{expression} · {status}（整个词条）', {expression,status:message(VOCAB_STATUS_LABEL[value])});
     setLocalizedAttribute(control.trigger,'title',updated);
     setLocalizedAttribute(control.trigger,'aria-label',updated);
     labels.forEach(({value: item}, index) => control.menu.children[index]?.setAttribute('aria-pressed',String(item===value)));

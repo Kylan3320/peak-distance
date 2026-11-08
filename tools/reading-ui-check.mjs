@@ -39,7 +39,7 @@ try {
   assert.equal((await send({type:'listEntries'})).entries[0].note,'自己的新理解');
   assert.equal(await row.locator('.context').evaluate(n=>n.firstElementChild.className),'sentence');
   const picker=row.locator('.learning-status');
-  assert.equal(await picker.getAttribute('aria-label'),'hilarious · 已收藏');
+  assert.equal(await picker.getAttribute('aria-label'),'hilarious · 参与复习（整个词条）');
   assert.deepEqual(await row.locator('.ui-action-menu button').evaluateAll(buttons=>buttons.map(button=>button.value)),['saved','known']);
   await picker.press('Enter');
   await panel.screenshot({path:join(tmpdir(),'peak-distance-picker.png')});
@@ -56,11 +56,21 @@ try {
     assert.equal(await panel.locator('.review-navigation select').inputValue(),'0');
     await panel.getByRole('button',{name:'显示单词',exact:true}).click();
     assert.equal(await panel.getByRole('button',{name:'学习中',exact:true}).count(),0);
-    assert.equal(await panel.getByRole('button',{name:'已掌握',exact:true}).count(),1);
+    assert.equal(await panel.getByRole('button',{name:'将整个词条移出复习',exact:true}).count(),1);
     assert.equal((await send({type:'listEntries'})).entries[0].status,'learning');
-    await panel.getByRole('button',{name:'下一条',exact:true}).click();
-    await panel.locator('[data-i18n="本轮复习完成 🎉"]').waitFor();
-    console.log('PASS legacy status remains stored, appears as saved and advances in review');
+    await panel.getByRole('button',{name:'将整个词条移出复习',exact:true}).click();
+    await panel.locator('#review-body .empty').waitFor();
+    await control.waitForFunction(async()=>(await chrome.runtime.sendMessage({type:'listEntries'})).entries[0].status==='known');
+    const added=await send({type:'save',snapshot:{source:'web',expression:'hilarious',sentence:'Another hilarious example.',url,title:'Reading source',lang:'en'}});
+    assert.equal(added.status,'known');
+    assert.equal((await send({type:'listEntries'})).entries[0].contexts.length,2);
+    await panel.locator('#views [data-view="list"]').click();
+    await row.getByRole('button',{name:'hilarious · 暂不复习（整个词条）',exact:true}).waitFor();
+    assert.equal(await panel.locator('#review-library').isDisabled(),true);
+    await picker.click();await row.locator('button[value=saved]').click();
+    await control.waitForFunction(async()=>(await chrome.runtime.sendMessage({type:'listEntries'})).entries[0].status==='saved');
+    await panel.locator('#review-library:not([disabled])').waitFor();
+    console.log('PASS legacy review inclusion, explicit whole-word removal, new context preserves opt-out, and explicit rejoin restores review');
   } else if(process.argv.includes('--learning-only')) {
     const web=await context.newPage();await web.goto(url);await web.locator('html[data-blc-web="1"]').waitFor();
     await panel.locator('#views [data-view="subs"]').click();await web.bringToFront();

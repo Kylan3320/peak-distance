@@ -1,4 +1,3 @@
-import { iconButton, learningStatus } from './uiControls';
 import { applyAppearance } from './appearance';
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 import { brandTokens, sharedControls } from './brand';
@@ -23,9 +22,6 @@ import {
   type LookupSnapshot,
   type LearningResult,
   type ContextExplanation,
-  type VocabStatus,
-  VOCAB_STATUS_LABEL,
-  visibleVocabStatus,
 } from '@/shared/vocab';
 import { entryKeyOf } from './languages';
 import { readingIcon, readingIconStyles, animateBookmark } from './readingIcons';
@@ -83,9 +79,6 @@ interface PinnedState {
   note: string | undefined;
   lookupError: string | undefined;
   degraded?: Extract<OnlineLookupResult, { ok: true }>['degraded'];
-  status: VocabStatus | null;
-  /** 保存成功后回填的词条键；后续状态查询 / 更新优先用它。 */
-  entryKey?: string;
 }
 
 const ERROR_LABEL: Record<string, string> = {
@@ -299,27 +292,18 @@ export function createLookupPopup(opts: {
     const row = document.createElement('div');
     row.className = 'row actions';
 
-    if (p.savedContextId !== null && p.status) {
-      const status = learningStatus(p.snapshot.expression,p.status,doStatus);
-      status.querySelector('button')!.classList.add('save');
-      row.append(status);
-    } else {
-      const save = document.createElement('button');
-      save.className = 'act reading-icon save';
-      save.innerHTML = readingIcon('bookmark');
-      const saveLabel = message(p.saving ? '保存中…' : '保存');
-      setLocalizedAttribute(save, 'title', saveLabel);
-      setLocalizedAttribute(save, 'aria-label', saveLabel);
-      save.setAttribute('aria-busy', String(!!p.saving));
-      save.disabled = !!p.saving;
-      save.addEventListener('click', () => void doSave());
-      row.append(save);
+    const saved = p.savedContextId !== null;
+    const save = document.createElement('button');
+    save.className = 'act reading-icon save' + (saved ? ' is-saved' : '');
+    save.innerHTML = readingIcon(saved ? 'saved' : 'bookmark');
+    const saveLabel = message(p.saving ? '保存中…' : saved ? '已收藏' : '保存');
+    setLocalizedAttribute(save, 'title', saveLabel);
+    setLocalizedAttribute(save, 'aria-label', saveLabel);
+    save.setAttribute('aria-busy', String(!!p.saving));
+    save.disabled = !!p.saving || saved;
+    save.addEventListener('click', () => void doSave());
+    row.append(save);
 
-      const master = iconButton('known',message('已掌握'));
-      master.disabled = !!p.saving;
-      master.addEventListener('click', () => void doSave('known'));
-      row.append(master);
-    }
     if (!p.compact && typeof p.onContinueAsk === 'function') {
       const ask = document.createElement('button');
       ask.className = 'act reading-icon';
@@ -435,26 +419,18 @@ export function createLookupPopup(opts: {
 
   // ---- 与 background 的交互 ---------------------------------------------------
 
-  // 词卡侧查询键：保存返回的词条键优先；否则按快照语言算作用域键
-  //（M11 词条键为 `${lang}::${表达}`）；无语言快照沿用裸键（迁移前记录）。
-  function entryQueryKey(p: PinnedState): string {
-    return p.entryKey
-      ?? (p.snapshot.lang
-        ? entryKeyOf(p.snapshot.lang, p.snapshot.expression)
-        : normalizeExpression(p.snapshot.expression));
-  }
-
-  async function queryStatus(): Promise<void> {
+  async function querySavedContext(): Promise<void> {
     if (!pinned) return;
     const my = pinned.nonce;
-    const key = entryQueryKey(pinned);
+    const key = pinned.snapshot.lang
+      ? entryKeyOf(pinned.snapshot.lang, pinned.snapshot.expression)
+      : normalizeExpression(pinned.snapshot.expression);
     const r = await send<{ ok: boolean; entry?: EntryView | null }>({
       type: 'getEntry',
       key,
     });
     if (!pinned || pinned.nonce !== my) return; // 弹窗已被替换
     if (r?.ok && r.entry) {
-      pinned.status = r.entry.status;
       const snap = pinned.snapshot;
       const entry = r.entry;
       const saved = entry.contexts.find(c => {
@@ -513,10 +489,9 @@ export function createLookupPopup(opts: {
     if (pinned === p) renderPopup();
   }
 
-  async function doSave(status?: VocabStatus): Promise<void> {
-    if (!pinned || pinned.saving || (!status && pinned.savedContextId !== null)) return;
+  async function doSave(): Promise<void> {
+    if (!pinned || pinned.saving || pinned.savedContextId !== null) return;
     const p = pinned;
-    const wasSaved = p.savedContextId !== null;
     p.saving = true;
     p.saveError = false;
     renderPopup();
@@ -524,40 +499,22 @@ export function createLookupPopup(opts: {
     try { r = await send<SaveResult | BgcError>({
       type: 'save',
       snapshot: p.snapshot,
-      status,
       result: p.result,
       explanation: p.explanation,
     }); } catch { r = undefined; }
     p.saving = false;
     if (r && r.ok) {
       p.savedContextId = r.contextId;
-      p.entryKey = r.key; // 保存返回的词条键（可能是作用域键）
       // The save reply already confirms the local database write.
       void backfill(p);
       if (pinned !== p) return;
-      p.status = r.status;
       renderPopup();
-      const button = document.getElementById(POPUP_ID)?.shadowRoot?.querySelector<HTMLButtonElement>('.learning-status');
-      if (button && !wasSaved) animateBookmark(button);
+      const button = document.getElementById(POPUP_ID)?.shadowRoot?.querySelector<HTMLButtonElement>('.save');
+      if (button) animateBookmark(button);
     } else {
       p.saveError = true;
       if (pinned === p) renderPopup();
     }
-  }
-
-  async function doStatus(status: VocabStatus): Promise<boolean> {
-    if (!pinned) return false;
-    const p = pinned;
-    const key = entryQueryKey(p);
-    const r = await send<{ ok: boolean }>({ type: 'setStatus', key, status });
-    if (pinned !== p) return false;
-    if (r?.ok) {
-      pinned.status = status;
-      setFeedback(true,message(VOCAB_STATUS_LABEL[visibleVocabStatus(status)]));
-      return true;
-    }
-    setFeedback(false, message('状态更新失败'));
-    return false;
   }
 
   // ---- 开 / 关 -----------------------------------------------------------------
@@ -614,10 +571,9 @@ export function createLookupPopup(opts: {
         definition: null,
         note: undefined,
         lookupError: undefined,
-        status: null,
       };
       renderPopup();
-      void queryStatus();
+      void querySavedContext();
       void requestLookup();
     },
     isCompact() { return !!pinned?.compact; },

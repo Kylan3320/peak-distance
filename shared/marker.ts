@@ -187,12 +187,9 @@ export function createMarker(opts: {
   function markerStyles() {
     return `
       span.blc-mark[${MARK_ATTR}] { all: unset; }
-      span.blc-mark[${MARK_ATTR}].saved {
+      span.blc-mark[${MARK_ATTR}].saved, span.blc-mark[${MARK_ATTR}].known {
         background: color-mix(in srgb,${accent} 10%,transparent) !important;
         border-bottom: 1px solid ${accent} !important;
-      }
-      span.blc-mark[${MARK_ATTR}].known {
-        border-bottom: 1px dotted ${accent} !important;
       }
     `;
   }

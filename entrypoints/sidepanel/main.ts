@@ -1011,7 +1011,7 @@ function renderReview(): void {
 
   if (!length) {
     body.appendChild(
-      el('div', 'empty', message(knowledge?'本范围内没有知识点':'没有可复习的词条。收藏的 saved / learning 词条会出现在这里。')),
+      el('div', 'empty', message(knowledge?'本范围内没有知识点':'本范围内暂无待复习的词条')),
     );
     return;
   }
@@ -1104,7 +1104,7 @@ function renderReview(): void {
     });
     card.append(reveal);
   } else {
-    const known = iconButton('known',message('已掌握'));
+    const known = iconButton('pause',message('将整个词条移出复习'));
     known.classList.add('learning-status');
     known.addEventListener('click', () => void reviewStatus('known'));
     actions.appendChild(known);

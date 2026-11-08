@@ -1,5 +1,12 @@
 /** Product copy only. Source keys stay stable across wording changes and saved material labels. */
 export const UI_MESSAGES: Record<string, readonly [string, string, string, string, string]> = {
+  '本范围内暂无待复习的词条': ['本范围内暂无待复习的词条。', '本範圍內暫無待複習的詞條。', 'No words to review in this scope.', 'Keine Wörter in diesem Bereich zu wiederholen.', 'Aucun mot à réviser dans ce périmètre.'],
+  "参与复习": ["参与复习", "參與複習", "In review", "In Wiederholung", "En révision"],
+  "暂不复习": ["暂不复习", "暫不複習", "Out of review", "Nicht in Wiederholung", "Hors révision"],
+  "重新加入复习": ["重新加入复习", "重新加入複習", "Add back to review", "Wieder zur Wiederholung hinzufügen", "Réintégrer aux révisions"],
+  "移出复习": ["移出复习", "移出複習", "Remove from review", "Aus Wiederholung entfernen", "Retirer des révisions"],
+  "将整个词条移出复习": ["将整个词条移出复习", "將整個詞條移出複習", "Remove this word from review", "Dieses Wort aus der Wiederholung entfernen", "Retirer ce mot des révisions"],
+  "{expression} · {status}（整个词条）": ["{expression} · {status}（整个词条）", "{expression} · {status}（整個詞條）", "{expression} · {status} (whole word)", "{expression} · {status} (gesamtes Wort)", "{expression} · {status} (mot entier)"],
   "文件夹操作失败：{error}": ["文件夹操作失败：{error}", "資料夾操作失敗：{error}", "Folder operation failed: {error}", "Ordneraktion fehlgeschlagen: {error}", "Échec de l’opération sur le dossier : {error}"],
   "文件夹不可用，请确认位置或更换文件夹": ["文件夹不可用，请确认位置或更换文件夹。", "資料夾無法使用，請確認位置或更換資料夾。", "Folder unavailable. Check its location or choose another folder.", "Ordner nicht verfügbar. Speicherort prüfen oder anderen Ordner wählen.", "Dossier indisponible. Vérifiez son emplacement ou choisissez un autre dossier."],
   "请在独立设置页允许文件夹访问": ["请在独立设置页允许文件夹访问。", "請在獨立設定頁允許資料夾存取。", "Allow folder access in the separate settings tab.", "Ordnerzugriff im separaten Einstellungstab erlauben.", "Autorisez l’accès au dossier dans l’onglet des paramètres."],

@@ -44,7 +44,7 @@ const css = `
   .meta { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:8px; color:var(--pd-muted); font-size:12px; }
   .meta button {font-size:var(--pd-text-meta);padding:2px 7px} .meta button[data-playback] {min-height:28px;padding:2px 4px;border:0;background:transparent;color:var(--pd-muted);font-variant-numeric:tabular-nums} .meta button[data-playback]:hover {background:var(--pd-selected);color:var(--pd-blue)} .muted { color:var(--pd-muted); padding:12px; }
   .w { cursor:pointer; border-radius:3px; } .w:hover { background:var(--pd-selected); }
-  .saved { border-bottom:2px solid var(--pd-blue); } .known { border-bottom:1px dotted var(--pd-blue); }
+  .saved,.known { border-bottom:2px solid var(--pd-blue); }
   .word-heading {display:flex;align-items:baseline;gap:8px;min-width:0}
   button.word-action {min-width:0;max-width:100%;padding:2px 0;border:0;background:transparent;text-align:start;font:400 22px/1.35 var(--pd-font-reading);overflow-wrap:anywhere}
   button.word-action:hover {background:transparent;color:var(--pd-blue)}

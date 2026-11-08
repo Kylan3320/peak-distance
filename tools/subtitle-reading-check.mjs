@@ -113,8 +113,8 @@ try {
   await card.getByText('保存失败，请重试。',{exact:true}).waitFor();
   await page.evaluate(()=>{window.lookupFail=false;});
   await card.getByRole('button',{name:'收藏',exact:true}).evaluate(el=>{el.click();el.click();});
-  await card.locator('.learning-status').waitFor();
-  check('lookup repeated click commits once and success uses bookmark state',await page.evaluate(()=>window.lookupCalls===2)&&await card.locator('.learning-status').getAttribute('aria-label')==='learning · 已收藏');
+  await card.locator('.save.is-saved').waitFor();
+  check('lookup repeated click commits once and success uses bookmark state',await page.evaluate(()=>window.lookupCalls===2)&&await card.locator('.save.is-saved').getAttribute('aria-label')==='已收藏');
   check('lookup has no green save-success line',!(await card.locator('#blc-feedback').textContent()).trim());
   await page.screenshot({path:resolve(output,'lookup-saved.png')});
   console.log(`${results.length} focused runtime checks passed.`);
