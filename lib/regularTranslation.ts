@@ -148,5 +148,5 @@ export async function translateRegularCues(
     }
   }
   if (!translations.length && failure) return failure;
-  return {ok:true as const, translations, ...(failure ? {failure} : {})};
+  return {ok:true as const, source:service, translations, ...(failure ? {failure} : {})};
 }

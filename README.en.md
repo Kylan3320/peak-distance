@@ -57,4 +57,10 @@ With Node.js 22.12 or newer, run `npm ci` and `npm run build`. Load `.output/bui
 
 </details>
 
+## Development checks
+
+Choose checks for the change: verify facts and affected links for documentation; reproduce logic defects and check adjacent behavior; use the current build for affected UI/browser actions, testing both browsers when their behavior differs. Reuse results for the same commit and artifact. Full suites and hash comparisons are not routine requirements.
+
+`verify-local` checks a release artifact and does not build it. Run `npm run zip` first, then point checks at the extracted package as described in ROADMAP. Historical test commands are not mandatory checklists. `e2e-check` is a machine-dependent live check and may use a Key copied through `BLC_SETTINGS_PATH` for real AI requests; it is not a routine offline check.
+
 [MIT](LICENSE)

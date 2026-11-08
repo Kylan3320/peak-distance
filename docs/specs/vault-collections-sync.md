@@ -36,7 +36,7 @@
 ## 验证
 
 - `npm run typecheck`、`npm run build`、`npm run regress`。
-- `npx tsx tools/m11-vault-format-check.ts`：记录往返、未知内容保留与合并规则。
+- `npx tsx tools/m11-vault-format-check.ts`：记录往返、未知内容保留与合并规则；已包含于 `regress`，仅作定向入口，不需重复运行。
 - `node tools/vault-sync-check.mjs`：真实 Chrome / Edge 独立 IndexedDB、生产同步与格式代码共用一份磁盘目录；只有目录句柄边界采用适配。覆盖词语／完整释义／视频句子交换、重复同步、不同字段合并、旧快照与新待办竞争、删除提交、并发保存保护、句子笔记、损坏文档和迁移备份。
 - `node tools/m11-vault-e2e.mjs`：构建后的真实扩展、原生 OPFS 目录句柄和实际消息路由；通过设置页点击同步读回句子，并检查权限拒绝、格式损坏与冲突反馈。
 - 本次范围内的独立源码与确定性竞争复查已完成，当时未发现剩余阻断项；不覆盖上文列出的后续审查缺陷。

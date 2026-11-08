@@ -25,7 +25,7 @@
 - 知识点独立持久化标题、正文、来源与必要引文副本；从同轮实际材料快照确定归属，聊天 ID 仅作追溯／判重。聊天及独占材料删除不能破坏知识点读取。
 - 知识点沿用 `lib/db.ts` 事务、活动库数据集合和待办机制；新增 `知识点.md` 集合并贯通 `shared/vault.ts`、`lib/vault/` 的映射、序列化、恢复、首次导入、双向合并、删除与换库归属。字段、增量升级和格式版本由实施代码定义，不另建同步引擎；共享新类别的两端需使用支持版本，不支持新格式时不能静默删写未知记录。
 
-- 独立记录及同轮来源提取在 `shared/knowledge.ts`；知识点 Markdown 往返在 `lib/vault/knowledgeFormat.ts`。文章 UI 在 `entrypoints/sidepanel/articleLearning.ts`，回答保存／编辑复用 `knowledgeView.ts`；显示和保存不调用 AI。库格式升级后，旧端按原有版本检查拒绝访问，不做双写兼容。
+- 独立记录及同轮来源提取在 `shared/knowledge.ts`；知识点 Markdown 往返在 `lib/vault/knowledgeFormat.ts`。文章 UI 在 `entrypoints/sidepanel/articleLearning.ts`，回答保存／编辑复用 `knowledgeView.ts`；显示和保存不调用 AI。目录格式号升级时旧端按版本检查拒绝访问，不做双写兼容；同格式号下新增来源的实际兼容限制见[混用版本限制](specs/vault-collections-sync.md#混用版本限制)。
 - 翻译摘录复用同一知识点事务与集合，独立保存输入、译文、语言模式和来源位置。`lib/translationLearning.ts` 只承载当前查询与保存记录的后台关联；关闭 UI 后可完成受编辑／删除／库归属保护的回填，不建立持久翻译任务队列。收藏写库状态按该记录修订的成功回执确认。
 - 知识点正文先按成对包络识别，集合仅在正文之外识别记录分隔；正文中的标记示例不能产生新记录。损坏或无法确定边界的输入报告格式错误，不当作空集合。
 
