@@ -1,5 +1,7 @@
 /** Product copy only. Source keys stay stable across wording changes and saved material labels. */
 export const UI_MESSAGES: Record<string, readonly [string, string, string, string, string]> = {
+  '词典发音': ['词典发音', '詞典發音', 'Dictionary pronunciation', 'Wörterbuchaussprache', 'Prononciation du dictionnaire'],
+  '音频加载失败': ['音频加载失败', '音訊載入失敗', 'Audio could not load', 'Audio konnte nicht geladen werden', 'Impossible de charger l’audio'],
   '本范围内暂无待复习的词条': ['本范围内暂无待复习的词条。', '本範圍內暫無待複習的詞條。', 'No words to review in this scope.', 'Keine Wörter in diesem Bereich zu wiederholen.', 'Aucun mot à réviser dans ce périmètre.'],
   "参与复习": ["参与复习", "參與複習", "In review", "In Wiederholung", "En révision"],
   "暂不复习": ["暂不复习", "暫不複習", "Out of review", "Nicht in Wiederholung", "Hors révision"],
