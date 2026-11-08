@@ -54,7 +54,7 @@ console.log('PASS concurrent cache misses and expired-channel probes send only o
 
 api=reset();respond=async()=>calls===1?success():new Response('',{status:429});
 const partial=await api.translateRegularCues(items,signal(),langs);
-assert.equal(partial.ok,true);assert.equal(partial.translations.length,1);assert.equal(partial.translations[0].id,10);
+assert.equal(partial.ok,true);assert.equal(partial.source,'google-gtx');assert.equal(partial.translations.length,1);assert.equal(partial.translations[0].id,10);
 assert.equal(partial.failure.httpStatus,429);assert.equal(calls,2);
 const cacheOnly=await api.translateRegularCues([items[0]],signal(),langs);assert.equal(cacheOnly.ok,true);assert.equal(calls,2);
 console.log('PASS partial success keeps exact cue IDs, carries restriction and stops remaining requests');

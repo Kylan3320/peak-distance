@@ -121,6 +121,41 @@ try {
     ['de', 'Ein deutscher Untertitel.'], ['fr', 'Un sous-titre français.'],
   ]);
   console.log('PASS source language overrides clear only changed targets, cache hits restore the correct language, and stale responses stay rejected');
+  const control = await context.newPage();
+  await control.goto(new URL('options.html',worker.url()).href);
+  await worker.evaluate(() => {
+    chrome.runtime.getContexts = async () => [{}];
+    chrome.runtime.connect = () => {
+      let receive;
+      return {onMessage:{addListener:fn=>{receive=fn;}},onDisconnect:{addListener(){},removeListener(){}},
+        disconnect(){},postMessage:()=>queueMicrotask(()=>receive({ok:true,source:'browser-native',text:'内置字幕译文'}))};
+    };
+    globalThis.fetch = async url => {
+      if (!String(url).includes('translate.googleapis.com')) throw Error('Unexpected subtitle test request');
+      return Response.json([[['Google 字幕译文']],null,'en']);
+    };
+  });
+  for (const [service,target,label,text] of [
+    ['browser-native','es','浏览器内置翻译','内置字幕译文'],
+    ['google-gtx','it','Google 翻译','Google 字幕译文'],
+  ]) {
+    const count=(await requests()).length;
+    await changeSettings({regularTranslation:service,displayLanguage:'zh-Hans',comprehensionOverrides:{en:target}});
+    await video.waitForFunction(n=>window.translationRequests.length>n,count);
+    await reply(count,'');
+    const state=await waitForState(s=>s.cues[0].zh===text,'Regular fallback should translate');
+    const ack=await worker.evaluate(({tabId,state})=>chrome.tabs.sendMessage(tabId,{
+      type:'pd-video-action',action:'save',index:0,text:state.cues[0].text,
+      videoId:state.videoId,trackId:state.trackId,generation:state.generation,
+    }),{tabId,state});
+    assert.equal(ack.ok,true);
+    const saved=await control.evaluate(()=>chrome.runtime.sendMessage({type:'listSentences'}));
+    assert.equal(saved.sentences.length,1);
+    assert.equal(saved.sentences[0].translationSource,label);
+    assert.equal(saved.sentences[0].zh,text);
+    assert.equal((await control.evaluate(id=>chrome.runtime.sendMessage({type:'deleteSentence',id}),saved.sentences[0].id)).ok,true);
+  }
+  console.log('PASS native and Google fallback receipts keep their actual source when captions are bookmarked through the video row action');
 } finally {
   await context?.close();
   if (resolve(profile).startsWith(temporaryRoot + sep)) await rm(profile, { recursive: true, force: true });

@@ -1302,7 +1302,7 @@ export default defineContentScript({
       queueRender();
       const epoch = translationEpoch;
       requestId = crypto.randomUUID();
-      void send<{ ok: boolean; translations?: { id: number; text: string }[] }>({
+      void send<{ ok: boolean; source?: import('@/shared/translationService').TranslationService; translations?: { id: number; text: string }[] }>({
         type: 'translateCues', mode: translationMode, requestId, videoId: currentVideoId, trackId: lastTrackId,
         sourceLang: lastTrackLang || undefined, targetLang: targetLangOf(),
         items,
@@ -1318,7 +1318,8 @@ export default defineContentScript({
           pending.delete(target.index);
           if (translated) {
             output.set(target.index, translated); failed.delete(target.index);
-            if (target.view === 'groups') translationSources.set(target.index, translationMode === 'ai' ? tr('AI 翻译') : tr('Google 常规翻译'));
+            if (target.view === 'groups') translationSources.set(target.index, translationMode === 'ai' ? tr('AI 翻译')
+              : r?.source === 'browser-native' ? tr('浏览器内置翻译') : tr('Google 常规翻译'));
           } else failed.add(target.index);
         }
         queueRender();
