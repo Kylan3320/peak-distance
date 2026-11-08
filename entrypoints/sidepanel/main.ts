@@ -2,7 +2,7 @@ import { applyAppearance } from '@/shared/appearance';
 import { t as tr, localize, onDisplayLanguageChange, initDisplayLanguage, getDisplayLocale , message, setText, setLocalizedAttribute, languageLabel, type UiText } from '@/shared/i18n';
 import '@/shared/theme.css';
 import { mountSettings } from '@/shared/settingsView';
-import { createYoutubeWorkspace, type WorkspaceState } from '@/shared/youtubeWorkspace';
+import { createYoutubeWorkspace, stableWorkspaceMap, type WorkspaceState } from '@/shared/youtubeWorkspace';
 import { isPanelView, panelStateKey, panelTransportFailure, type SelectionSnapshot, type PanelFrameState } from '@/shared/panel';
 import { createTranslationPopup } from '@/shared/translationPopup';
 import { createLookupPopup } from '@/shared/lookupPopup';
@@ -661,7 +661,7 @@ function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['c
     :state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0,from:c.from,to:c.to})));
   return {videoId:state.videoId,generation:state.generation,videoRef:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang,startMs:0},
     trackLang:state.trackLang||undefined,
-    cues,current:state.currentIndex,translations:new Map(state.cues.filter(c=>c.zh).map(c=>[c.id,c.zh!])),
+    cues,current:state.currentIndex,translations:stableWorkspaceMap(cachedVideo?.translations,new Map(state.cues.filter(c=>c.zh).map(c=>[c.id,c.zh!]))),
     statuses:library?.statuses??cachedVideo?.statuses??new Map<string,string>(),
     sentences:library?.sentences??cachedVideo?.sentences??[],
     entries:library?.entries??cachedVideo?.entries??[],
@@ -856,7 +856,7 @@ async function refreshSubsLibrary(state:SubViewState):Promise<void> {
   const cues=state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0,from:c.from,to:c.to}));
   cachedVideo=rebuildCachedVideo(state,{
     cues:cachedVideo?.videoId===state.videoId?stable(cachedVideo.cues,cues):cues,
-    statuses:buildMarkBuckets(index?.items??[]).get((state.trackLang||'en').split('-')[0]!)?.statusByKey??new Map<string,string>(),
+    statuses:stableWorkspaceMap(cachedVideo?.statuses,buildMarkBuckets(index?.items??[]).get((state.trackLang||'en').split('-')[0]!)?.statusByKey??new Map<string,string>()),
     sentences:stable(cachedVideo?.sentences??[],saved?.sentences??[]),entries:stable(cachedVideo?.entries??[],vocab?.entries??[])});
   videoWorkspace.update(cachedVideo);
 }

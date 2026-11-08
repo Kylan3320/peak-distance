@@ -27,6 +27,11 @@ export interface WorkspaceState {
   trackLang?: string;
 }
 
+/** Preserve view input identity when a fresh snapshot contains the same entries. */
+export function stableWorkspaceMap<K, V>(old: Map<K, V> | undefined, next: Map<K, V>): Map<K, V> {
+  return old && (old === next || (old.size === next.size && [...next].every(([key, value]) => old.has(key) && old.get(key) === value))) ? old : next;
+}
+
 const css = `
   ${brandTokens}:host { display:block;height:100%;min-height:0;color-scheme:light; font:var(--pd-text-body)/1.6 var(--pd-font-ui);color:var(--pd-ink); } ${brandControls}
   * { box-sizing:border-box; } [hidden] { display:none!important; }
@@ -99,6 +104,9 @@ export function createYoutubeWorkspace(actions: {
   let tab = 'subs', renderedTab = '', lastCues: Cue[] | null = null;
   let lastSentences: SavedSentence[] | null = null, lastEntries: EntryView[] | null = null;
   let lastStatuses: Map<string, string> | null = null;
+  let lastTranslations: Map<number, string> | undefined;
+  let lastChinese: boolean | undefined;
+  let lastSavedSentences: SavedSentence[] | undefined;
   let lastCurrent = -1;
   let lastIdentity = '';
   const rowRefs = new WeakMap<Element, SubtitleRowRef>();
@@ -114,7 +122,10 @@ export function createYoutubeWorkspace(actions: {
     const b = button(parent, '', action); b.className = 'reading-icon'; b.innerHTML = readingIcon(name);
     setLocalizedAttribute(b, 'title', label); setLocalizedAttribute(b, 'aria-label', label); return b;
   };
-  const setScroll = (top: number) => { body.scrollTop = top; expectedScrollTop = body.scrollTop; };
+  const setScroll = (top: number) => {
+    if (Math.abs(body.scrollTop - top) < 1) return;
+    body.scrollTop = top; expectedScrollTop = body.scrollTop;
+  };
   const identity = () => state.generation;
   const rowRef = (index: number): SubtitleRowRef => ({
     index, text: state.cues[index]!.text, videoId: state.videoId, trackId: state.videoRef.trackId, generation: state.generation,
@@ -127,6 +138,7 @@ export function createYoutubeWorkspace(actions: {
   const isSaved = (index:number) => confirmedSaves.get(cueId(index)) ?? storedSaved(index);
   function updateSaveButton(index:number, b:HTMLButtonElement) {
     const saved=isSaved(index), busy=pendingSaves.has(cueId(index));
+    if (b.getAttribute('aria-pressed') === String(saved) && b.getAttribute('aria-busy') === String(busy)) return;
     b.classList.toggle('is-saved',saved); b.disabled=busy; b.setAttribute('aria-busy',String(busy)); b.setAttribute('aria-pressed',String(saved));
     const label=message(busy?'保存中…':saved?'取消收藏':'收藏整句');
     setLocalizedAttribute(b,'title',label);setLocalizedAttribute(b,'aria-label',label);
@@ -160,7 +172,7 @@ export function createYoutubeWorkspace(actions: {
   const back = icon(controls, 'locate', message('回到当前句'), () => {
     if(shadowSelection(root))getSelection()?.removeAllRanges();
     host.dispatchEvent(new CustomEvent('pd-subtitle-selection-clear'));
-    selectionHeld=false; follow=true; highlight(true);
+    selectionHeld=false; follow=true; userScrollUntil=0; highlight(true);
   });
   back.hidden = true;
   body.addEventListener('scroll', () => {
@@ -201,11 +213,12 @@ export function createYoutubeWorkspace(actions: {
     if (!state) return;
     head.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     controls.hidden = tab !== 'subs';
-    const contentChanged=lastIdentity!==identity()||!lastCues||lastCues.length!==state.cues.length||lastCues.some((cue,i)=>{const next=state.cues[i]!;return cue.start!==next.start||cue.dur!==next.dur||cue.text!==next.text;});
+    const contentChanged=lastIdentity!==identity()||!lastCues||(lastCues!==state.cues&&(lastCues.length!==state.cues.length||lastCues.some((cue,i)=>{const next=state.cues[i]!;return cue.start!==next.start||cue.dur!==next.dur||cue.text!==next.text;})));
     const rebuild = renderedTab !== tab || contentChanged ||
       (tab === 'saved' && (lastSentences !== state.sentences || lastEntries !== state.entries));
+    let restoreTop: number | undefined;
     if (rebuild) {
-      const top = renderedTab === tab ? body.scrollTop : scrollPositions.get(tab) ?? 0;
+      restoreTop = renderedTab === tab ? body.scrollTop : scrollPositions.get(tab) ?? 0;
       body.replaceChildren();
       saveButtons.clear();
       if(contentChanged){selectionHeld=false;host.dispatchEvent(new CustomEvent('pd-subtitle-selection-clear'));}
@@ -278,38 +291,46 @@ export function createYoutubeWorkspace(actions: {
         }
         if (!count) empty(message('本视频还没有收藏。可在词卡保存词语，或在字幕行收藏整句。'));
       }
-      setScroll(top);
       renderedTab = tab; lastCues = state.cues; lastSentences = state.sentences; lastEntries = state.entries;
       lastIdentity=identity();
     }
     if (rebuild || lastStatuses !== state.statuses) {
       const lang = (state.trackLang || 'en').split('-')[0]!;
       body.querySelectorAll<HTMLElement>('.w,[data-word]').forEach(el => {
-        el.classList.remove('saved', 'learning', 'known');
         const word = el.dataset.word ?? el.textContent ?? '';
-        const status = state.statuses.get(normalizeExpressionInLanguage(word, lang));
+        const key = normalizeExpressionInLanguage(word, lang), status = state.statuses.get(key);
+        if (!rebuild && lastStatuses?.get(key) === status) return;
+        el.classList.remove('saved', 'learning', 'known');
         if (status) el.classList.add(status);
       });
       lastStatuses = state.statuses;
     }
-    const readingTop=body.scrollTop;
+    const readingTop=restoreTop??body.scrollTop;
     if(!state.cues.length&&(tab==='subs'||tab==='words')){
       const notice=body.querySelector<HTMLElement>(':scope > .muted');
       if(notice)setText(notice,message(state.notice||(tab==='subs'?'正在读取字幕…':'字幕尚未就绪')));
     }
-    if (tab === 'subs') body.querySelectorAll<HTMLElement>('[data-cue]').forEach(row => {
+    const translationsChanged = rebuild || lastTranslations !== state.translations || lastChinese !== state.chinese;
+    if (tab === 'subs' && translationsChanged) body.querySelectorAll<HTMLElement>('[data-cue]').forEach(row => {
       const zh = row.querySelector<HTMLElement>('.zh')!; const value = state.translations.get(Number(row.dataset.cue)) ?? '';
       if (zh.textContent !== value) zh.textContent = value; zh.hidden = !state.chinese || !value;
     });
-    if(tab==='subs'){saveButtons.forEach((b,i)=>{const key=cueId(i);if(confirmedSaves.get(key)===storedSaved(i))confirmedSaves.delete(key);updateSaveButton(i,b);});setScroll(readingTop);}
+    if (tab === 'subs') {
+      if (rebuild || lastSavedSentences !== state.sentences) saveButtons.forEach((b,i)=>{const key=cueId(i);if(confirmedSaves.get(key)===storedSaved(i))confirmedSaves.delete(key);updateSaveButton(i,b);});
+      lastSavedSentences = state.sentences;
+      lastTranslations = state.translations; lastChinese = state.chinese;
+      if (translationsChanged && !rebuild) setScroll(readingTop);
+    }
     highlight(rebuild);
+    // Restore after translations and bold current-row styling establish final geometry.
+    if (rebuild && (tab !== 'subs' || !follow || selectionHeld)) setScroll(restoreTop!);
   }
   function highlight(force = false) {
-    back.hidden = follow;
+    if (back.hidden !== follow) back.hidden = follow;
     if (tab !== 'subs' || (!force && lastCurrent === state.current)) return;
     body.querySelector('.current')?.classList.remove('current');
     const row = body.querySelector<HTMLElement>(`[data-cue="${state.current}"]`); row?.classList.add('current');
-    if (row && follow && !selectionHeld) setScroll(body.scrollTop + row.getBoundingClientRect().top - body.getBoundingClientRect().top - body.clientHeight / 3);
+    if (row && follow && !selectionHeld && !scrollbarDragging && performance.now() >= userScrollUntil) setScroll(body.scrollTop + row.getBoundingClientRect().top - body.getBoundingClientRect().top - body.clientHeight / 3);
     lastCurrent = state.current;
   }
   return {
@@ -317,13 +338,14 @@ export function createYoutubeWorkspace(actions: {
     snapshot: () => ({ tab, follow, top:body.scrollTop }),
     restore(value: {tab?:string;follow?:boolean;top?:number}) { if(value.tab && ['subs','words','saved'].includes(value.tab))tab=value.tab;follow=value.follow!==false;render();setScroll(value.top??0); },
     update(next: WorkspaceState) {
+      next = {...next, statuses:stableWorkspaceMap(state?.statuses, next.statuses), translations:stableWorkspaceMap(state?.translations, next.translations)};
       if (!state || next.generation !== state.generation || next.cues !== state.cues || next.sentences !== state.sentences) {
         bookmarks = matchSentenceBookmarks(next.videoRef, next.cues, next.sentences);
       }
       state = next;
       render();
     },
-    clearSavedFeedback() {confirmedSaves.clear();},
+    clearSavedFeedback() {confirmedSaves.clear();lastSavedSentences=undefined;},
     destroy() {document.removeEventListener('selectionchange',selectionChanged);document.removeEventListener('pointerup',endScrollbar);document.removeEventListener('pointercancel',endScrollbar);unbindWords();unlocalize();host.remove();},
   };
 }
