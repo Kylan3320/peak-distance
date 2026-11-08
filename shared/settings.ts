@@ -37,7 +37,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   appearanceTheme: 'classic',
   displayLanguage: 'auto',
-  markingEnabled: true, primaryDictionary: 'youdao', backupDictionary: 'cambridge',
+  markingEnabled: true, primaryDictionary: 'cambridge', backupDictionary: 'youdao',
   regularTranslation: 'browser-native', translationMode: 'regular',
   bilingualEnabled: true, chineseVisible: true, cacheLimit: 200, subtitleSize: 'standard',
   defaultComprehensionLang: DEFAULT_COMPREHENSION_LANG,

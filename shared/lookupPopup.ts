@@ -103,6 +103,7 @@ export function createLookupPopup(opts: {
 }): LookupPopup {
   onDisplayLanguageChange(()=>{const root=document.getElementById(POPUP_ID)?.shadowRoot;if(root)localize(root);});
   const send = opts.send;
+  const playerUrl = browser.runtime.getURL('/dictionary-audio.html');
   let pinned: PinnedState | null = null;
   let nonce = 0;
   let requestCounter = 0;
@@ -181,7 +182,8 @@ export function createLookupPopup(opts: {
         .sense input {accent-color:var(--pd-blue);margin:0;flex:none}
         .example {font:17px/1.65 var(--pd-font-reading);margin:12px 0 6px}
         details {margin-top:8px} summary {cursor:pointer;color:var(--pd-muted);font-size:13px;padding:6px 0}
-        audio {width:100%;margin-top:8px}
+        .lookup-media:empty {display:none}
+        .lookup-media iframe {display:block;width:100%;height:86px;border:0;margin-top:8px;color-scheme:light}
         .link-btn {cursor:pointer;color:var(--pd-blue);font:13px/1.5 system-ui;border:0;background:transparent;border-radius:6px;padding:6px 8px;min-height:32px}
         .link-btn:hover {background:var(--pd-selected)}
         .row { margin-top: 12px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
@@ -207,6 +209,9 @@ export function createLookupPopup(opts: {
       root.appendChild(style);
       const body = document.createElement('div');
       body.className = 'card';
+      for (const name of ['lookup-content', 'lookup-media', 'lookup-footer']) {
+        const region = document.createElement('div'); region.className = name; body.append(region);
+      }
       root.appendChild(body);
       localize(root);
       // 页面内点击弹窗本身不冒泡成“新选区”
@@ -259,10 +264,13 @@ export function createLookupPopup(opts: {
 
   function renderPopup(): void {
     if (!pinned) return;
-    const body = ensurePopupHost();
+    const card = ensurePopupHost();
+    const body = card.querySelector<HTMLDivElement>('.lookup-content')!;
+    const footer = card.querySelector<HTMLDivElement>('.lookup-footer')!;
     const p = pinned;
-    body.classList.toggle('compact', !!p.compact);
+    card.classList.toggle('compact', !!p.compact);
     body.textContent = '';
+    footer.textContent = '';
 
     const head = document.createElement('p');
     head.className = 'expr';
@@ -285,8 +293,18 @@ export function createLookupPopup(opts: {
     // 释义区
     const defBox = document.createElement('div');
     defBox.className = 'def-box';
-    renderDefinition(defBox);
+    renderDefinition(defBox, footer);
     body.appendChild(defBox);
+    const media = card.querySelector<HTMLDivElement>('.lookup-media')!;
+    const audioUrl = !p.compact && p.result?.kind === 'dictionary' ? p.result.entry.audioUrl : undefined;
+    const existing = media.querySelector('iframe');
+    if (!audioUrl) media.replaceChildren();
+    else if (existing?.dataset.audioUrl !== audioUrl) {
+      const frame = document.createElement('iframe');
+      setLocalizedAttribute(frame, 'title', message('词典发音')); frame.dataset.audioUrl = audioUrl;
+      frame.src = `${playerUrl}?src=${encodeURIComponent(audioUrl)}`;
+      media.replaceChildren(frame);
+    }
 
     // 操作区
     const row = document.createElement('div');
@@ -328,27 +346,28 @@ export function createLookupPopup(opts: {
     setLocalizedAttribute(close, 'aria-label', message('关闭'));
     close.addEventListener('click', () => closePopup());
     row.appendChild(close);
-    body.appendChild(row);
+    footer.appendChild(row);
 
     // 数据库结果的反馈（非乐观）
     const fb = document.createElement('div');
     fb.className = 'feedback';
     fb.id = 'blc-feedback';
     fb.setAttribute('role', 'status');
-    body.appendChild(fb);
+    footer.appendChild(fb);
     if (p.saveError) setFeedback(false, message('保存失败，请重试'));
-    applyDragPos(body);
+    applyDragPos(card);
   }
 
-  function renderDefinition(box: HTMLDivElement): void {
+  function renderDefinition(box: HTMLDivElement, footer: HTMLDivElement): void {
     if (!pinned) return;
     const p = pinned;
     const text = (value: string | UiText, cls = 'def-text') => {
-      const n = document.createElement('p'); n.className = cls; setText(n,value); box.appendChild(n); return n;
+      const n = document.createElement('p'); n.className = cls; setText(n,value); target.appendChild(n); return n;
     };
     const button = (label: string | UiText, action: () => void) => {
-      const b = document.createElement('button'); b.className = 'link-btn'; setText(b,label); b.addEventListener('click', action); box.appendChild(b); return b;
+      const b = document.createElement('button'); b.className = 'link-btn'; setText(b,label); b.addEventListener('click', action); target.appendChild(b); return b;
     };
+    let target: HTMLElement = box;
     if (p.degraded) text(message({
       'dictionary-failure': '词典暂不可用，当前显示免费译文',
       'ai-failed': 'AI 释义失败，当前显示免费译文',
@@ -386,7 +405,6 @@ export function createLookupPopup(opts: {
       }
       if (entry.forms?.length) text(message('来源词形：{forms}',{forms:entry.forms.join('、')}), 'def-label');
       if (entry.lemmaCandidates?.length) text(message('原形候选：{forms}',{forms:entry.lemmaCandidates.join('、')}), 'def-label');
-      if (entry.audioUrl && /^https:\/\//.test(entry.audioUrl)) { const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = entry.audioUrl; box.appendChild(audio); }
     } else if (p.result?.kind === 'translation') {
       text(message(p.result.source === 'browser-native' ? '浏览器内置翻译' : '翻译 · Google'), 'def-label'); text(p.result.text);
     } else if (p.result?.kind === 'ai-definition') {
@@ -411,7 +429,8 @@ export function createLookupPopup(opts: {
       path.setAttribute('d', 'M6 3H3v10h10v-3M9 3h4v4M7 9l6-6');
       icon.appendChild(path); sourceLink.appendChild(icon);
     }
-    box.appendChild(row);
+    footer.appendChild(row);
+    target = footer;
     const ai = button(p.aiRequest ? message('正在解释语境…') : message('解释语境'), () => void explainContext()); ai.disabled = !!p.aiRequest;
     if (p.explanation) { text(message('AI 语境解释 · 当前原句'), 'def-label'); text(p.explanation.text); }
     if (p.aiError) { text(message(ERROR_LABEL[p.aiError] ?? '解释失败，请重试'), 'def-state'); if (p.aiError === 'no-key') button(message('打开设置填写 API key'), () => void send({ type: 'openSettings', ai: true })); }
@@ -538,6 +557,10 @@ export function createLookupPopup(opts: {
   document.addEventListener('pd-popup-outside', e => {
     const at = (e as CustomEvent<{at?:number}>).detail?.at;
     if (at === undefined || at >= openedAt) closePopup();
+  });
+  window.addEventListener('message', e => {
+    const frame = document.getElementById(POPUP_ID)?.shadowRoot?.querySelector<HTMLIFrameElement>('.lookup-media iframe');
+    if (frame && e.source === frame.contentWindow && e.origin === playerUrl.split('/').slice(0, 3).join('/') && e.data?.type === 'pd-audio-close') closePopup();
   });
   window.addEventListener('resize', () => { const card = document.getElementById(POPUP_ID)?.shadowRoot?.querySelector<HTMLDivElement>('.card'); if (card) applyDragPos(card); });
   document.addEventListener('scroll', () => {

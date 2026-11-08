@@ -15,7 +15,7 @@ export default defineConfig({
       default_title: '__MSG_openExtension__',
     },
     icons: { 16:'brand/peak-icon.png',32:'brand/peak-icon.png',48:'brand/peak-icon.png',128:'brand/peak-icon.png' },
-    web_accessible_resources: [{resources:['sidepanel.html','assets/*','chunks/*','brand/*'],matches:['https://*/*']}],
+    web_accessible_resources: [{resources:['sidepanel.html','dictionary-audio.html','assets/*','chunks/*','brand/*'],matches:['https://*/*']}],
     // side_panel.default_path 由 entrypoints/sidepanel 自动生成。
   },
 });
