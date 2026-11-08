@@ -29,7 +29,7 @@ try {
         if(window.failSave)return {ok:false,error:'io'};
         const id=window.lookupEntry.contexts.length+1;
         window.lookupEntry.contexts.push({id,url:m.snapshot.url,sentence:m.snapshot.sentence});
-        window.lookupEntry.status=m.status??'saved';
+        window.lookupEntry.status=m.status??window.lookupEntry.status;
         return {ok:true,key:'en::pragmatic',contextId:id,status:window.lookupEntry.status,appended:true};
       }
       return {ok:true};
@@ -38,38 +38,35 @@ try {
     lookup.open({snapshot:{source:'web',expression:'pragmatic',sentence:"Uh they’re so they’re quite pragmatic",url:'https://example.com',title:'Example',lang:'en'},subLine:'YouTube · 28:00 · en',onContinueAsk:()=>{}});
   });
   const card=page.locator('#blc-lookup-popup .card');
-  const status=card.locator('.learning-status');
+  const status=card.locator('.save.is-saved');
   await status.waitFor();
   await card.locator('.example').waitFor();
   assert.ok(await status.evaluate(el=>el.closest('.actions').querySelector('button')===el));
   assert.equal(await card.locator('.save-complete').count(),0);
-  assert.equal(await status.getAttribute('aria-label'),'pragmatic · 已收藏');
-  assert.deepEqual(await card.locator('.ui-action-menu button').evaluateAll(buttons=>buttons.map(button=>button.value)),['saved','known']);
+  assert.equal(await status.getAttribute('aria-label'),'已收藏');
+  assert.equal(await card.locator('.ui-action-menu').count(),0);
+  assert.equal(await status.isDisabled(),true);
   for(const width of [800,320]) {
     await page.setViewportSize({width,height:800});
     const geometry=await card.evaluate(el=>{const row=el.querySelector('.actions').getBoundingClientRect(),close=el.querySelector('.close').getBoundingClientRect();return {rightGap:row.right-close.right,overflow:el.scrollWidth>el.clientWidth};});
     assert.ok(Math.abs(geometry.rightGap)<1 && !geometry.overflow,JSON.stringify(geometry));
     if(width===800) await card.screenshot({path:join(tmpdir(),'pd-lookup-status.png')});
   }
-  await status.click();await card.locator('button[value=known]').click();
-  await page.waitForFunction(()=>window.statusWrites.includes('known'));
-  await card.getByRole('button',{name:'pragmatic · 已掌握',exact:true}).waitFor();
-  await status.click();await card.locator('button[value=saved]').click();
-  await page.waitForFunction(()=>window.statusWrites.includes('saved'));
   await card.locator('.close').click();
   await page.locator('#blc-lookup-popup').waitFor({state:'detached'});
 
   const open=sentence=>page.evaluate(sentence=>window.lookup.open({snapshot:{source:'web',expression:'pragmatic',sentence,url:'https://example.com',title:'Example',lang:'en'},onContinueAsk:()=>{}}),sentence);
+  await page.evaluate(()=>{window.lookupEntry.status='known';});
   await open('A new pragmatic approach.');
   await card.locator('.example').waitFor();
-  assert.equal(await card.locator('.learning-status').count(),0);
+  assert.equal(await card.locator('.save.is-saved').count(),0);
   const save=card.locator('.save');
   const before=await save.boundingBox();
   await page.evaluate(()=>{window.failSave=true;});
   await save.click();
   await card.locator('.feedback.err').waitFor();
   assert.equal(await save.isEnabled(),true);
-  assert.equal(await card.locator('.learning-status').count(),0);
+  assert.equal(await card.locator('.save.is-saved').count(),0);
   await page.evaluate(()=>{
     window.failSave=false;window.bookmarkAnimations=[];
     document.getElementById('blc-lookup-popup').shadowRoot.addEventListener('animationstart',event=>window.bookmarkAnimations.push(event.animationName));
@@ -82,11 +79,13 @@ try {
   assert.equal(await card.locator('.save').count(),1);
   assert.ok(await status.evaluate(el=>el.closest('.actions').querySelector('button')===el));
   assert.equal(await page.evaluate(()=>window.lookupCalls),2);
+  assert.equal(await page.evaluate(()=>window.lookupEntry.status),'known');
+  assert.deepEqual(await page.evaluate(()=>window.statusWrites),[]);
   await page.waitForFunction(()=>!document.getElementById('blc-lookup-popup').shadowRoot.querySelector('.save-complete'));
   await page.evaluate(()=>window.lookup.close());
   await open('A new pragmatic approach.');
   await status.waitFor();
-  assert.equal(await card.locator('.act.save').count(),0);
+  assert.equal(await card.locator('.act.save:not(:disabled)').count(),0);
   assert.equal(await card.locator('.save-complete').count(),0);
   const output=resolve('.upstream/lookup-bookmark');await mkdir(output,{recursive:true});
   await card.screenshot({path:join(output,'saved.png')});
@@ -95,5 +94,5 @@ try {
   await open('Another pragmatic approach.');
   await card.locator('.act.save').click();await status.waitFor();
   assert.equal(await status.locator('svg').evaluate(el=>getComputedStyle(el).animationName),'none');
-  console.log('PASS first-slot bookmark, saved/known transitions, failed save/retry, duplicate click, new-context save, reopen without replay, reduced motion and narrow layout');
+  console.log('PASS first-slot bookmark, collection-only state, failed save/retry, duplicate click, new-context save, reopen without replay, reduced motion and narrow layout');
 } finally {await browser.close();}

@@ -6,7 +6,7 @@ import { t as tr, localize, onDisplayLanguageChange, initDisplayLanguage , messa
 //   选中词或短语 → 选区旁出现“查词”入口（shared/selectionPill.ts，与
 //   YouTube 页面正文共用）→ 分类驱动 查词/翻译/添加到对话 → 打开共用弹窗
 //   并固定快照（表达、所在正文片段、URL、标题）→ 请求 AI 释义（无 key 时
-//   给设置入口）→ 展示释义与语境说明 → 保存 / 已掌握 / 继续问。
+//   给设置入口）→ 展示释义与语境说明 → 收藏 / 继续问。
 // 弹窗本体在 shared/lookupPopup.ts（与 YouTube 字幕共用）。
 // M3：已存词条在正文中按状态标出（shared/marker.ts），可经设置关闭。
 // M5：问答材料提取（选区所在文章 / 页面主文章区 / X 目标帖子；无法确认时

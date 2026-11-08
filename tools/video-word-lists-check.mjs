@@ -42,7 +42,7 @@ try {
   await panel.locator('[data-tab="saved"]').click();
   const saved=panel.locator('.saved-heading').first();
   const status=saved.locator('.learning-status');
-  assert.equal(await status.getAttribute('aria-label'),'pragmatic · 已收藏');
+  assert.equal(await status.getAttribute('aria-label'),'pragmatic · 参与复习（整个词条）');
   assert.equal(await status.evaluate(el=>getComputedStyle(el).borderTopWidth),'0px');
   await status.click();
   await saved.locator('button[value="known"]').click();

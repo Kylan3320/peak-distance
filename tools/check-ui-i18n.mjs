@@ -175,10 +175,10 @@ try {
   await options.locator('#displayLanguage').selectOption('de');
   await web.waitForFunction(()=>document.querySelector('#blc-lookup-pill')?.shadowRoot?.querySelector('#lookup')?.getAttribute('aria-label')==='Nachschlagen');
   await web.locator('#blc-lookup-pill #lookup').click();
-  await web.locator('#blc-lookup-popup .learning-status').waitFor();
-  assert.equal(await web.locator('#blc-lookup-popup .learning-status').getAttribute('aria-label'), 'Learning · Gespeichert');
+  await web.locator('#blc-lookup-popup .save.is-saved').waitFor();
+  assert.equal(await web.locator('#blc-lookup-popup .save.is-saved').getAttribute('aria-label'), 'Gespeichert');
   await options.locator('#displayLanguage').selectOption('fr');
-  await web.waitForFunction(()=>document.querySelector('#blc-lookup-popup')?.shadowRoot?.querySelector('.learning-status')?.getAttribute('aria-label')==='Learning · Enregistré');
+  await web.waitForFunction(()=>document.querySelector('#blc-lookup-popup')?.shadowRoot?.querySelector('.save.is-saved')?.getAttribute('aria-label')==='Enregistré');
   assert.equal(await web.locator('#blc-lookup-popup .ctx').innerText(),'Learning makes reading easier.');
   assert.equal(await web.locator('html').getAttribute('lang'),'en');
   await web.locator('#blc-lookup-popup[data-pd-theme=classic]').waitFor();

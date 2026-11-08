@@ -211,7 +211,11 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
     JSON.stringify(marks),
   );
   check('标记：saved 样式', byText.get('abandon')?.cls === 'blc-mark saved');
-  check('标记：known 低强调样式', byText.get('probe')?.cls === 'blc-mark known');
+  check('标记：暂不复习与参与复习的收藏标记一致', await page.evaluate(()=>{
+    const saved=getComputedStyle(document.querySelector('#para2 .saved'));
+    const paused=getComputedStyle(document.querySelector('#para2 .known'));
+    return saved.backgroundColor===paused.backgroundColor&&saved.borderBottom===paused.borderBottom;
+  }));
   check('标记：旧 learning 按已收藏显示', byText.get('committee')?.cls === 'blc-mark saved');
   check(
     '标记：短语最长优先（give up 整体，give 不单独拆）',
@@ -327,7 +331,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
     '操作按钮齐全',
     !!popup &&
       popup.buttons.includes('收藏') &&
-      popup.buttons.includes('已掌握') &&
+      !popup.buttons.includes('已掌握') &&
       popup.buttons.includes('关闭'),
     '',
   );
@@ -397,7 +401,7 @@ of doing so. In ancient Egypt, procrastination was considered a virtue.</p>
       JSON.stringify(savedMsgs[0].result?.entry?.forms) === '["go"]' && savedMsgs[0].forms === undefined,
     JSON.stringify(savedMsgs[0] ?? null).slice(0, 160),
   );
-  check('保存成功呈现已收藏状态且不重复提示', feedback === '' && await page.locator('#blc-lookup-popup .learning-status').getAttribute('aria-label').then(label=>label.includes('已收藏')), JSON.stringify(feedback));
+  check('保存成功呈现已收藏状态且不重复提示', feedback === '' && await page.locator('#blc-lookup-popup .save.is-saved').getAttribute('aria-label').then(label=>label.includes('已收藏')), JSON.stringify(feedback));
 
   // ---- M5 继续问：弹窗转入问答（chatEnsure 带材料与引用） -------------------------
   await page.evaluate(() => {

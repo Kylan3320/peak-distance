@@ -45,11 +45,11 @@ export function visibleVocabStatus(status: VocabStatus): 'saved' | 'known' {
   return status === 'known' ? 'known' : 'saved';
 }
 
-/** 状态的界面显示名（词卡与侧栏共用）。 */
+/** 词条复习选择的界面显示名。 */
 export const VOCAB_STATUS_LABEL: Record<VocabStatus, string> = {
-  saved: '已收藏',
-  learning: '在学',
-  known: '已掌握',
+  saved: '参与复习',
+  learning: '参与复习',
+  known: '暂不复习',
 };
 
 export function isVocabStatus(v: unknown): v is VocabStatus {
@@ -245,7 +245,7 @@ export interface SavePlan {
 /**
  * 一次保存的全部决策（网页 / 视频共用）：
  * - 词条不存在 → 以 status ?? 'saved' 新建；
- * - 词条已存在 → 保持当前状态；仅当请求携带显式状态（“已掌握”等用户操作）时更新；
+ * - 词条已存在 → 保持复习选择；仅当请求携带显式状态时更新；
  * - 网页上下文按 (entryKey, url, sentence) 去重；视频上下文按
  *   (entryKey, videoId, trackId, startMs, sentence) 去重；
  * - 已存在且此前无释义时补上本次释义。
@@ -269,7 +269,7 @@ export function planSave(
   let entry: VocabEntryRecord;
   if (existingEntry) {
     entry = { ...existingEntry };
-    // 重复保存保持当前状态；仅显式操作（如“已掌握”）改变它。
+    // 新增或重复保存均保留复习选择；仅显式操作改变它。
     if (opts.status) entry.status = opts.status;
   } else {
     entry = {

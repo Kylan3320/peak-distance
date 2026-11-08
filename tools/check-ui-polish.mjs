@@ -135,7 +135,7 @@ try {
   check('展开和选择其他义项可用', await page.locator('#blc-lookup-popup input[type=radio]').nth(1).isChecked());
   check('来源链接保留地址和打开方式', await page.getByRole('link', { name: '词典原页' }).getAttribute('target') === '_blank');
   await page.getByRole('button', { name: '收藏', exact: true }).click();
-  await page.locator('#blc-lookup-popup .learning-status').waitFor();
+  await page.locator('#blc-lookup-popup .save.is-saved').waitFor();
   check('新词卡显示实心书签状态', true);
   check('无页面脚本异常', !errors.length);
 } finally {
