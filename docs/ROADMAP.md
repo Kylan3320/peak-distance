@@ -24,5 +24,6 @@
 | 已登录 YouTube | 待实机验证字幕读取、重试、换轨、整句收藏、逐句暂停、侧栏跨项选区与正文添加到对话。见[字幕阅读](specs/subtitle-reading-fixes.md)和[选区验收](specs/selection-chat-actions-verification.md) |
 | X 选区 | 待在真实帖子验证选取正文并添加到对话，材料须属于目标帖子。见[选区验收](specs/selection-chat-actions-verification.md) |
 | 工作区 | 待在 Chrome 验证固定／浮动往返保留输入与材料，两种模式的选区入口均可点击。偶发浮动白屏暂缓定位，已有[恢复入口](specs/m10-followup-verification.md) |
-| 共享学习库 | 待用原生目录验证 Chrome／Edge 授权恢复、Obsidian 编辑读回及跨程序冲突保留。冲突版本选择和分叉续聊另行排期，目标见 [M11](specs/m11-multilingual-local-vault.md#44-合并与并发) |
-| 词条原文语言 | P1 修复后再排期。补齐词卡手动选择与已存词条纠正；同语言同形词合并保留双方原句、笔记，复习选择冲突交给用户。见 [M11](specs/m11-multilingual-local-vault.md#32-内容语言与理解语言) |
+| 共享学习库实机 | 用原生目录确认 Chrome／Edge 恢复授权后能提交待办且不重复写入。Obsidian 修改的笔记和状态能读回；同字段并发修改时两边内容保留且冲突可见。 |
+| 冲突版本选择、分叉续聊 | 待排期，见 [M11 验收条件](specs/m11-multilingual-local-vault.md#6-待实现目标)。 |
+| 词条原文语言 | P1 修复后再排期，见 [M11 验收条件](specs/m11-multilingual-local-vault.md#6-待实现目标)。 |
