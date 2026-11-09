@@ -68,8 +68,8 @@ function initKeyboardHints() {
     const host = root instanceof ShadowRoot ? root.host : document.documentElement;
     if (!(host instanceof HTMLElement) || !scopes.has(host) || !target.title) return;
     const focus = revision;
-    // The browser can focus an invoker while an automatic popover is still opening.
-    queueMicrotask(() => {
+    // Focus events can run before the browser finishes changing the popover stack.
+    requestAnimationFrame(() => {
       if (focus !== revision || !target.isConnected || !target.matches(':focus-visible')) return;
       const bubble = document.createElement('span');
       bubble.popover = 'manual';

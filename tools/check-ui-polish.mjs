@@ -85,7 +85,7 @@ try {
   await panel.locator('#chat-head [data-i18n-aria-label="历史"]').click();
   await panel.locator('.chat-recent-row').first().waitFor();
   await panel.screenshot({ path: join(output, 'chat-history-320.png') });
-  check('历史会话操作可达', await panel.locator('.chat-recent-row .native-delete-main').first().isVisible());
+  check('历史会话操作可达', await panel.locator('.chat-recent-row .delete-confirm-action').first().isVisible());
 
   // Use the shipped web content script with controlled dictionary responses.
   await worker.evaluate(()=>{

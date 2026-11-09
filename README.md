@@ -29,7 +29,7 @@ Peak Distance 是我做给自己用的浏览器扩展。读网页、刷 X 或看
 2. 打开 `chrome://extensions`（Edge 用 `edge://extensions`），开启「开发者模式」。
 3. 点「加载已解压的扩展程序」，选择包含 `manifest.json` 的文件夹。
 
-装好后刷新网页，选中一个词试试。以后升级，把新版解压到原安装目录，再在扩展页点「重新加载」。
+装好后刷新网页，选中一个词试试。升级时把新版解压到空目录，用完整文件清单替换原安装目录中的扩展文件，保留原安装路径。到扩展页点「重新加载」，再刷新网页。
 
 ## 记录存在哪里
 
@@ -48,7 +48,7 @@ Peak Distance 是我做给自己用的浏览器扩展。读网页、刷 X 或看
 | --- | --- |
 | [产品说明](docs/PRD.md) | 功能和支持范围 |
 | [开发](docs/ARCHITECTURE.md) | 代码入口和模块 |
-| [路线图](docs/ROADMAP.md) | 进展、已知问题和发布流程 |
+| [路线图](docs/ROADMAP.md) | 下一项、缺陷与待验条件 |
 
 <details>
 <summary>从源码构建</summary>
@@ -59,8 +59,14 @@ Peak Distance 是我做给自己用的浏览器扩展。读网页、刷 X 或看
 
 ## 开发检查
 
-按改动选择验证：文档只核对事实与受影响引用；逻辑修复运行对应复现及相邻回归；界面和浏览器行为使用当前构建检查受影响操作，涉及浏览器差异时再检查 Chrome／Edge。已有结果对应同一提交和产物时复用，不默认全量重跑或校验哈希。
+文档核对事实和受影响的链接；逻辑修复检查复现及相邻回归；界面改动用当前构建检查相关操作。涉及浏览器差异时分别检查 Chrome／Edge。
 
-`verify-local` 是发布检查入口，不负责构建；先 `npm run zip`，再按 ROADMAP 指向解包后的待发布产物。定向脚本见相关规格，历史报告中的命令不是每次必跑清单。`e2e-check` 是依赖本机环境的历史实机入口，可能使用 `BLC_SETTINGS_PATH` 中的 Key 发出真实 AI 请求；不作为日常离线检查。
+### 发布
+
+1. 新功能递增次版本，修复递增补丁版本。同步提交 `package.json` 和 `package-lock.json`。在版本提交上运行 `npm ci` 和 `npm run zip`。
+2. 将 `.output/build` 中的待发布 ZIP 解压到空目录，确认该目录的 `manifest.json` 版本与包名一致。将 `PEAK_DISTANCE_UI_EXTENSION` 指向该目录，再运行 `npm run verify-local`；浏览器专项使用同一目录。改动界面语言或设置交互时加跑 `npm run check-ui-i18n`。
+3. 通过后给版本提交打 `v<version>` 标签，上传已验收的 ZIP 为 Release 附件。Release 写本版变化，中英文 README 更新下载版本。完整工程可检出该标签。
+
+`e2e-check` 用于实机检查；提供 `BLC_SETTINGS_PATH` 时会读取其中的 Key 并可发送真实 AI 请求。
 
 [MIT](LICENSE)

@@ -254,8 +254,8 @@ try {
   await uiSend('删除中生成');
   await panel.waitForFunction(() => !document.getElementById('chat-stop').hidden);
   await panel.locator('#chat-actions > button').click();
-  await panel.locator('#chat-actions .native-delete-main').click();
-  await panel.locator('#chat-actions .native-delete-main').click();
+  await panel.locator('#chat-actions .delete-confirm-action').click();
+  await panel.locator('#chat-actions .delete-confirm-action').click();
   await panel.waitForTimeout(4500);
   check('清空后迟到结果不能恢复旧消息', (await send({ type: 'chatGet', chatId: second.id })).chat === null && (await send({type:'chatActive',windowId})).chat.id==='');
   await uiSend('保留停止记录');

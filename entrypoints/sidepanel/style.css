@@ -156,8 +156,8 @@ main {min-height:0;min-width:0;overflow:auto;padding:16px var(--content-inset);f
 #chat-starters {display:flex;gap:6px;flex-wrap:wrap}
 #chat-starters:empty {display:none}
 #chat-starters .starter {background:var(--pd-paper);border:0;font-size:12px;padding:4px 8px}
-#chat-head .native-delete,#chat-head .native-delete button {min-height:32px;height:32px}
-#chat-head .native-delete .native-delete-main {padding:4px 10px;font-size:12px}
+#chat-head .delete-confirmation,#chat-head .delete-confirmation button {min-height:32px;height:32px}
+#chat-head .delete-confirmation .delete-confirm-action {padding:4px 10px;font-size:12px}
 .chat-recent-list {display:flex;flex-direction:column;gap:4px;margin-top:12px;font-size:13px;color:var(--pd-muted)}
 .chat-recent-row {display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 0;border-bottom:1px solid var(--pd-line)}
 #view-chat .chat-recent-row .chat-tool:first-child {flex:1;min-width:0;text-align:left;white-space:normal;overflow-wrap:anywhere;color:var(--pd-ink)}
@@ -165,7 +165,7 @@ main {min-height:0;min-width:0;overflow:auto;padding:16px var(--content-inset);f
 .chat-recent-row > .chat-tool {flex-basis:140px!important}
 .chat-delete-error {flex-basis:100%;color:var(--pd-danger);font-size:12px}
 .chat-history-meta {display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--pd-muted)}
-@container(max-width:380px) {.chat-recent-row > .chat-tool {flex-basis:100%!important}.chat-recent-row > .native-delete {margin-bottom:4px}}
+@container(max-width:380px) {.chat-recent-row > .chat-tool {flex-basis:100%!important}.chat-recent-row > .delete-confirmation {margin-bottom:4px}}
 
 #list,#knowledge-list,#sentences-list,#library-tools > * {max-width:720px;margin-inline:auto}
 .meta {align-items:center;column-gap:8px;row-gap:4px}

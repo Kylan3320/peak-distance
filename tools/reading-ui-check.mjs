@@ -136,10 +136,10 @@ try {
   await panel.locator('#chat-input').fill('Check configuration');await panel.locator('#chat-send').click();await panel.locator('#chat-settings').waitFor();
   await panel.getByRole('button',{name:'新建对话',exact:true}).click();assert.equal(await panel.locator('#chat-settings').isVisible(),false);
   await panel.locator('#chat-input').fill('A draft question');await panel.locator('#chat-actions > button').click();await panel.locator('#chat-actions [popover]').waitFor();
-  await panel.locator('#chat-actions .native-delete-main').click();await panel.keyboard.press('Escape');
-  await panel.locator('#chat-actions > button').click();assert.equal(await panel.locator('#chat-actions .native-delete-main').getAttribute('aria-label'),'删除对话');
+  await panel.locator('#chat-actions .delete-confirm-action').click();await panel.keyboard.press('Escape');
+  await panel.locator('#chat-actions > button').click();assert.equal(await panel.locator('#chat-actions .delete-confirm-action').getAttribute('aria-label'),'删除对话');
   const menuBounds=await panel.locator('#chat-actions [popover]').boundingBox();assert.ok(menuBounds.x>=0&&menuBounds.x+menuBounds.width<=1100);
-  await panel.locator('#chat-actions .native-delete-main').click();await panel.getByRole('button',{name:'取消删除',exact:true}).click();
+  await panel.locator('#chat-actions .delete-confirm-action').click();await panel.getByRole('button',{name:'取消删除',exact:true}).click();
   assert.equal(await panel.locator('#chat-input').inputValue(),'A draft question');
   await panel.keyboard.press('Escape');await panel.locator('#chat-input').fill('');assert.equal(await panel.locator('#chat-actions').isVisible(),false);
   assert.equal(await panel.locator('#view-chat').evaluate(n=>getComputedStyle(n).backgroundColor),'rgba(0, 0, 0, 0)');
