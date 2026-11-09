@@ -29,7 +29,7 @@ The current release is [v0.72.4](https://github.com/Kylan3320/peak-distance/rele
 2. Open `chrome://extensions` (or `edge://extensions` in Edge) and turn on **Developer mode**.
 3. Choose **Load unpacked**, then select the folder that contains `manifest.json`.
 
-Refresh a webpage and select a word to try it. To update, extract the new files into the original install folder and click **Reload** on the extensions page.
+Refresh a webpage and select a word to try it. To update, extract the new package into an empty folder and replace the files at the original installation path. Click **Reload** on the extensions page, then refresh webpages.
 
 ## Where your notes live
 
@@ -48,7 +48,7 @@ Regular lookups and translations work without an API key. To ask questions about
 | --- | --- |
 | [Product](docs/PRD.md) | Features and supported use cases |
 | [Development](docs/ARCHITECTURE.md) | Code entry points and modules |
-| [Roadmap](docs/ROADMAP.md) | Progress, known issues, and releases |
+| [Roadmap](docs/ROADMAP.md) | Next task, known issues, and acceptance criteria |
 
 <details>
 <summary>Build from source</summary>
@@ -59,8 +59,8 @@ With Node.js 22.12 or newer, run `npm ci` and `npm run build`. Load `.output/bui
 
 ## Development checks
 
-Choose checks for the change: verify facts and affected links for documentation; reproduce logic defects and check adjacent behavior; use the current build for affected UI/browser actions, testing both browsers when their behavior differs. Reuse results for the same commit and artifact. Full suites and hash comparisons are not routine requirements.
+Choose checks for the change: verify facts and affected links for documentation; reproduce logic defects and check adjacent behavior; use the current build for affected UI/browser actions, testing both browsers when their behavior differs. Reuse results for the same commit and artifact.
 
-`verify-local` checks a release artifact and does not build it. Run `npm run zip` first, then point checks at the extracted package as described in ROADMAP. Historical test commands are not mandatory checklists. `e2e-check` is a machine-dependent live check and may use a Key copied through `BLC_SETTINGS_PATH` for real AI requests; it is not a routine offline check.
+For a release, follow the [packaging and validation steps](README.md#发布). Check out the version tag for the full source tree. `e2e-check` can send real AI requests using the key in `BLC_SETTINGS_PATH`.
 
 [MIT](LICENSE)

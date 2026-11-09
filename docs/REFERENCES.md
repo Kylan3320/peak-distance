@@ -10,32 +10,15 @@
 | [asbplayer](https://github.com/asbplayer/asbplayer) | 字幕学习与播放交互参考 |
 | [WXT](https://wxt.dev/guide/installation.html) | 扩展工程文档 |
 
-## M10 删除交互移植
+## 历史来源：删除按钮
 
-- 作者：Moumen Soliman；组件：[21st.dev / NativeDelete](https://21st.dev/@moumensoliman/components/delete-button)。发布日期 2026-01-19。对应源码版本与许可待补。
-- 2026-10-03 用户在本次对话提供完整 `NativeDelete` 组件；仅归档为 [native-delete.tsx.txt](references/native-delete.tsx.txt)，不参与构建。原路径由使用示例指向 `components/ui/delete-button.tsx`；本地 DOM / CSS 实现为 `shared/deleteButton.ts` 与 `shared/deleteButton.css`，复用到历史行删除及清空。
-- [公开演示](https://cdn.21st.dev/moumensoliman/delete-button/default/bundle.1768800782521.html) 已核对 Delete → Confirm＋取消按钮及默认／确认态计算样式；动画数值以用户提供的源码为准。用户授权纸感和红色适配，结构、尺寸与动效保留，详见 [M10 spec](specs/m10-chat-and-popup-interactions.md)。原英文文案随后按[界面语言规范](specs/ui-i18n.md)改为当前显示语言。
+旧实现适配自 Moumen Soliman 的 [NativeDelete](https://21st.dev/@moumensoliman/components/delete-button)。官方页面未提供对应旧源码的版本与许可，当前使用项目自有的 [删除确认](../shared/deleteButton.ts)；[旧移植记录](https://github.com/Rayyy3320/peak-distance/blob/41398a81381312a142e0a8029dab4621c194921e/docs/REFERENCES.md#m10-删除交互移植)保留作者、来源和历史落点。
 
-- 当前确认交互和动效约定见 [design.md](../design.md#工作区与通用操作)，原始数值可从归档源码追溯。
+## 品牌与设计素材
 
-## Peak Distance 品牌素材
-
-用户提供的 ChatGPT 生图，原始像素保留，仅移动并重命名；未复制第三方项目图像。
-
-| 原文件 | 本地落点 |
-| --- | --- |
-| ChatGPT 图像 2026年10月2日 22_50_41.png | [山海插画](../public/brand/mountain-coast.png) |
-| ChatGPT 图像 2026年10月2日 22_50_56.png | [纸纹](../public/brand/paper-tile.png) |
-| ChatGPT 图像 2026年10月2日 22_52_34.png | [山峰标志](../public/brand/peak-mark.png) |
-
-2026-10-03 生成本地派生素材（未引入第三方图像，脚本 [tools/make-brand-assets.py](../tools/make-brand-assets.py) 可复现，原图 peak-mark.png 保留）：
-
-- [peak-icon.png](../public/brand/peak-icon.png)：为深色工具栏可见度新增的扩展图标，paper-tile 纸纹底 + 墨灰山形，`#DDD9CF` 轻边框圆角。
-- [peak-mark-crop.png](../public/brand/peak-mark-crop.png)：peak-mark 按可见山形（alpha>16 边界加 6px 余量）裁掉四周透明留白与淡晕影的副本；用于历史品牌区与问答空态，当前界面停用。
-
-## 2026-11-06 整体前端确认稿
-
-[五张确认稿](specs/ui-refresh.md#确认稿)由本地 Codex 会话中的内置 ImageGen 基于用户提供的旧方案生成，用户确认后原样复制到 `design/ui-refresh/`，未复制第三方产品图片。用于布局和视觉参考，不参与扩展运行，不作为新功能或图片内文字的权威来源。当前素材用途以 [design.md](../design.md#素材)为准；上方山峰／山海的使用位置是旧版来源记录。
+- 用户提供的 ChatGPT 生图包括[山峰原图](../design/brand/peak-mark.png)、[纸纹](../public/brand/paper-tile.png)及[停用的山海插画](https://github.com/Rayyy3320/peak-distance/blob/41398a81381312a142e0a8029dab4621c194921e/public/brand/mountain-coast.png)。
+- [图标生成脚本](../tools/make-brand-assets.py)用山峰原图与纸纹生成[工具栏图标](../public/brand/peak-icon.png)。
+- [五张界面确认稿](specs/ui-refresh.md#确认稿)由 ImageGen 基于用户提供的旧方案生成，经用户确认后保存在 `design/ui-refresh/`。
 
 ## 已移植：yt-dual-subs
 

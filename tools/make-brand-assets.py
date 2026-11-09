@@ -1,13 +1,5 @@
 # -*- coding: utf-8 -*-
-"""由现有品牌素材生成派生资源；原图（peak-mark / paper-tile）保留不动。
-
-- peak-mark-crop.png  山形可见部分贴边裁剪：peak-mark.png 四周有大量透明留白与
-  淡晕影，界面用 object-fit:contain 展示该副本即可任意尺寸完整居中。
-- peak-icon.png       扩展图标：米白纸纹底 + 墨灰山形 + 轻边框圆角，
-  manifest 16/32/48/128 共用。
-
-用法：python tools/make-brand-assets.py
-"""
+"""生成扩展工具栏图标。用法：python tools/make-brand-assets.py。"""
 from PIL import Image, ImageDraw
 
 CANVAS = 512          # 图标工作分辨率，最后缩到 256
@@ -16,24 +8,8 @@ MARK_RATIO = 0.66     # 山形宽度占图标画布比例
 RADIUS_RATIO = 0.18   # 图标圆角比例
 BORDER_W = 4          # 512 画布上的描边宽（输出后约 2px）
 BORDER_COLOR = (221, 217, 207, 255)  # 分隔线 #DDD9CF
-CROP_PAD = 6          # 山形裁剪在 alpha>16 边界外留的余量，避免切出硬边
-
 root = 'public/brand'
-
-# ---- 山形裁剪副本 -------------------------------------------------------------
-mark = Image.open(f'{root}/peak-mark.png').convert('RGBA')
-bbox = mark.getchannel('A').point(lambda v: 255 if v > 16 else 0).getbbox()
-box = (
-    max(bbox[0] - CROP_PAD, 0),
-    max(bbox[1] - CROP_PAD, 0),
-    min(bbox[2] + CROP_PAD, mark.width),
-    min(bbox[3] + CROP_PAD, mark.height),
-)
-crop = mark.crop(box)
-crop.save(f'{root}/peak-mark-crop.png', optimize=True)
-print(f'peak-mark-crop.png {crop.size} bbox={box}')
-
-# ---- 扩展图标 -----------------------------------------------------------------
+mark = Image.open('design/brand/peak-mark.png').convert('RGBA')
 paper = Image.open(f'{root}/paper-tile.png').convert('RGB')
 paper = paper.resize((CANVAS, CANVAS), Image.LANCZOS)
 

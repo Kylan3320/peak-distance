@@ -117,54 +117,10 @@
 
 用 `npx tsx tools/translation-learning-check.ts` 检查来源、缓存和格式合同，用 `node tools/translation-learning-ui-check.mjs` 检查生产扩展中的选区、浮窗及收藏回填。知识点同步可定向执行 `node tools/vault-sync-check.mjs --translation-only`。
 
-## 8. 实施与必要检查（2026-10-22）
+## 浏览器内置翻译
 
-2026-10-22 的阶段检查覆盖翻译卡、独立摘录、后台回填、学习库升级和查询缓存。
+- 选区翻译、词语译文兜底和常规字幕使用已选来源。默认内置翻译，保留已有的 Google 选择及词典／平台字幕优先级。内置失败时保留原文并提供准备或重试入口。
+- 首次下载从可见准备页启动。翻译保持输入的换行和字幕 ID；关闭未收藏的卡片取消请求，已收藏的记录继续回填。缓存和记录按实际来源隔离。
+- `npx tsx tools/native-translation-check.ts` 检查会话与取消；`node tools/native-translation-runtime-check.mjs` 检查 Chrome／Edge 的真实模型，可用 `--browser=chrome` 或 `--browser=edge` 定向运行。
 
-已运行并通过：
-
-- `npm run typecheck`、`npm run build`。
-- `npx tsx tools/translation-learning-check.ts`：输入与语言模式、网页／X／字幕去重身份、旧 AI 与新摘录集合往返；受控时钟下的持久读回、30 天边界、条数／UTF-8 字节淘汰、清除／重试回写隔离、消费者取消、存储延迟／失败和默认／显式词典路由；新增文案五语言完整性。
-- `node tools/translation-learning-ui-check.mjs`：生产构建 Chromium 的选区→拖动／键盘移动／保持展开→查询中收藏→关闭→后台回填→重开及定位收藏链路；关闭承载页后继续回填、重复保存、编辑／删除／重存／换库保护、保存事务失败、翻译失败后主动重试、缓存清理后收藏完整；延迟设置 A／B 乱序、语言覆盖与手动目标保留、显示语言切换、窄视口长译文及底部操作可达。服务响应受控，不代替真实站点或网络验证。
-- `node tools/vault-sync-check.mjs --translation-only`：实际临时磁盘目录中的混合知识点首次写入、独立浏览器配置读回、编辑／删除传播与重存，v3→v4 升级及 v3 版本门禁拒绝新库；回执与记录修订匹配。目录句柄边界经过适配；本机两份配置均运行 Chromium，不能记为原生授权或 Chrome／Edge 双浏览器实机通过。
-- `npx tsx tools/current-content-learning-check.ts`：复用知识点行／编辑器后的文章范围、历史 AI 知识点格式与列表异步保护检查。
-
-当前布局和设置规则见 [design.md](../../design.md)，实机待验项见 [ROADMAP](../ROADMAP.md)。
-
-### 8.4 v0.6.9 发布检查（2026-10-22）
-
-按用户后续发布指令，将本次实现及此前当前文章学习与独立知识点纳入 v0.6.9；已发布到 GitHub，版本号同步到 package 与 lockfile。Release 附件仅保留 Chrome 安装包，不另制作源码附件。
-
-`npm ci` 后执行发布检查：`verify-local` 的类型、构建、回归、AI 协议、五语言文案、可靠性与学习库同步检查全部通过。首轮发现旧缓存回归夹具缺少 local 写入及异步落盘等待、文案检查误判固定中文文件名；已修正并通过对应重跑。五语言生产 UI 检查的缓存入口同步到新折叠分组。
-
-生产构建补充通过 `check-ui-i18n`（指定 `PEAK_DISTANCE_UI_EXTENSION=.output/chrome-mv3`）、`translation-learning-check.ts`、`translation-learning-ui-check.mjs`、`reading-ui-check.mjs`、`settings-actions-ui-check.mjs` 及 `check-current-content`。这些检查覆盖翻译收藏／回填、语言与缓存、知识点与文章复习、编辑删除、设置反馈和窄布局。原生侧栏转移、用户目录授权及登录态站点等既有未验范围保持不变，不以受控检查代验。
-
-### 8.5 Google 限流修复与浏览器内置翻译实测（2026-10-24）
-
-Google 429／403 及验证页触发共享冷却，字幕批次停止后续请求，全部失败返回失败。定向检查为 `tools/translation-reliability-check.ts` 和 `tools/translation-reliability-runtime-check.mjs`。
-
-Chrome／Edge 英中真实模型探针确认了首次下载、离线模拟及重启复用能力，也发现自动化配置与执行上下文差异。产品承载及生命周期的后续验证见第 8.6 节。探针仍可通过 `node tools/probe-native-translation.mjs --headed` 按需执行，原始样例及环境记录见[历史版本](https://github.com/Kylan3320/peak-distance/blob/b1f2ab02fd907e2b8f4e3aa2804194d3a85ef8cc/docs/specs/translation-learning.md#85-google-限流修复与浏览器内置翻译实测2026-10-24)。
-
-### 8.6 内置翻译接入与默认渠道（2026-10-24）
-
-接续 8.5 的探针，现已接入生产扩展：选区翻译、查词的普通译文兜底及常规字幕遵循所选来源，默认使用浏览器内置翻译，已经存储的 Google 选择不覆盖。Google 与 AI 不作为内置失败后的隐式兜底。词典优先级和已有字幕／平台翻译路径保持原行为。
-
-首次模型下载需要真实用户点击，在设置及翻译卡中提供“准备内置翻译”入口。准备页可取消、关闭；准备后回到原文重试。实际翻译放在独立于面板的扩展 offscreen 文档及同源 iframe，不依赖宿主网页的权限策略。每次任务在结束或取消后销毁会话，逐行保持原有换行，字幕 ID 由现有批次保留；成功缓存按来源隔离。收藏后关闭继续补全译文，未收藏任务关闭时取消；收藏及学习文件记录真实来源。
-
-最终生产构建在已安装 Chrome 155.0.8059.85 与 Edge 156.0.4314.42 中，使用隔离配置和真实模型通过：
-
-- 初次可见准备、英→中实际译文与段落换行；未配置来源时实际采用内置翻译。
-- 取消返回失败／aborted，关闭进行中的翻译卡后重新打开新文本，旧结果不覆盖新卡。
-- 译文仍未完成时收藏、关闭，后台完成并回填同一记录，来源为内置翻译。
-- 字幕保留输入 ID；关闭阅读页并主动销毁隐藏文档后，在浏览器离线模拟下重建、翻译未缓存的新句子。
-- 整个内置流程没有 Google 翻译或 AI 请求；译文保持 14px。
-
-旧 Chrome 探针配置仍出现“服务数量限制”提示；检查其本地测试目录发现翻译运行库目录缺失、登记路径为相对路径，干净配置正常下载运行库后通过。未修改用户配置，也未把浏览器提示直接认定为扩展泄漏；该异常保留为环境边界。这里只证明上述版本和英中用例的实际结果，不代表所有设备、语言、长文质量或长期压力均已验证。
-
-可重复入口：`npx tsx tools/native-translation-check.ts`（会话释放、在途／排队取消、换行、识别、准备失败与来源往返）；`node tools/native-translation-runtime-check.mjs`（两款真实浏览器，支持 `--browser=chrome`／`--browser=edge`）。后者恢复 Playwright 默认关闭的 Translate、OptimizationHints 和组件网络行为，通过官方 DevTools 扩展安装接口安装当前构建；只在探针目录的隔离配置中重装测试扩展，使用浏览器沙盒，未强开实验 AI 特性。受控网页仅提供测试选文，译文来自真实模型。结果留在 `.upstream/native-translation-probe/integration-results.json` 及分浏览器记录。类型、构建、上述定向检查及既有翻译可靠性／缓存检查通过；该阶段未运行全量回归，后续发布检查见 8.7。
-
-### 8.7 v0.69.1 发布检查（2026-10-24）
-
-发布标签 `v0.69.1` 指向 `2b6be9b`，安装包从该提交的独立源码归档构建。执行 `npm ci` 后，类型、生产构建、数据回归、学习库格式、聊天生命周期、六家 AI 协议及五语言文案检查通过。Playwright 自带 Chromium 在本机启动报 `spawn UNKNOWN`；使用检查已有的 `BLC_CHROME` 入口指定已安装 Edge 后，可靠性、双浏览器学习库同步、字幕目标语言与词卡跨库保护、翻译限流及内置翻译逻辑检查全部通过。
-
-生产构建另通过五语言 UI 检查（`PEAK_DISTANCE_UI_EXTENSION=.output/chrome-mv3`）、`translation-learning-check.ts` 和 `translation-reliability-runtime-check.mjs`。本次没有重复 8.6 的真实模型下载／离线模拟测试，也不扩大其已验范围。Release 仅上传 `peak-distance-0.69.1-chrome.zip`；发布包上传后的大小及 SHA-256 与本地包一致。
+[初次接入、英中模型实测及发布证据](https://github.com/Rayyy3320/peak-distance/blob/41398a81381312a142e0a8029dab4621c194921e/docs/specs/translation-learning.md#8-实施与必要检查2026-10-22)。
