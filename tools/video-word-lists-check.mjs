@@ -19,10 +19,9 @@ try {
     window.calls=[];
     const video={videoId:'fixture',trackId:'en',trackKind:'manual',trackLang:'en',startMs:28000};
     const cues=[{start:28000,dur:2000,lastOff:30000,text:'A pragmatic approach is pragmatic.'},{start:42000,dur:2000,lastOff:44000,text:'A second pragmatic example.'},{start:60000,dur:2000,lastOff:62000,text:'Extraordinarilylongunbrokenterm appears here.'}].map((cue,i)=>({...cue,from:i*60,to:i*60+cue.text.length}));
-    const entries=[{key:'en::pragmatic',expression:'pragmatic',status:'saved',contexts:[{video,sentence:cues[0].text,url:'https://example.com'}]},{key:'en::long',expression:'Extraordinarilylongunbrokenterm',status:'known',contexts:[{video:{...video,startMs:60000},sentence:cues[2].text,url:'https://example.com'}]}];
-    const actions={bindWords:()=>()=>{},words:(el,text)=>{el.textContent=text;},seek:({index})=>calls.push(['seek',index]),lookup:(word,{index})=>calls.push(['lookup',word,index]),save:async()=>({ok:true}),remove:async()=>({ok:true}),ask:()=>{},open:view=>calls.push(['open',view]),status:(key,value)=>calls.push(['status',key,value])};
+    const actions={bindWords:()=>()=>{},words:(el,text)=>{el.textContent=text;},seek:({index})=>calls.push(['seek',index]),lookup:(word,{index})=>calls.push(['lookup',word,index]),save:async()=>({ok:true}),ask:()=>{}};
     window.workspace=VideoWordsTest.createYoutubeWorkspace(actions,document.getElementById('mount'));
-    workspace.update({generation:'fixture',videoId:'fixture',videoRef:video,cues,current:0,translations:new Map(),statuses:new Map([['pragmatic','saved']]),sentences:[],entries,notice:'',chinese:true,trackLang:'en'});
+    workspace.update({generation:'fixture',videoId:'fixture',videoRef:video,cues,current:0,translations:new Map(),statuses:new Map([['pragmatic','saved']]),sentences:[],savedCount:2,notice:'',chinese:true,trackLang:'en'});
   });
   const panel=page.locator('#blc-learning-panel');
   await panel.locator('[data-tab="words"]').click();
@@ -39,19 +38,7 @@ try {
   assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['lookup','pragmatic',0]);
   await row.locator('summary').click();
   await panel.screenshot({path:join(tmpdir(),'pd-video-words.png')});
-  await panel.locator('[data-tab="saved"]').click();
-  const saved=panel.locator('.saved-heading').first();
-  const status=saved.locator('.learning-status');
-  assert.equal(await status.getAttribute('aria-label'),'pragmatic · 参与复习（整个词条）');
-  assert.equal(await status.evaluate(el=>getComputedStyle(el).borderTopWidth),'0px');
-  await status.click();
-  await saved.locator('button[value="known"]').click();
-  assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['status','en::pragmatic','known']);
-  await saved.locator('.word-action').click();
-  assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['lookup','pragmatic',0]);
-  await saved.locator('..').locator('.saved-time').click();
-  assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['seek',0]);
-  await panel.screenshot({path:join(tmpdir(),'pd-video-saved.png')});
+  assert.equal(await panel.locator('[data-tab="saved"]').innerText(),'已收藏 2');
   await page.evaluate(()=>VideoWordsTest.setDisplayLanguage('de','de'));
   await page.setViewportSize({width:260,height:780});
   for(const tab of ['saved','words']) {
@@ -59,5 +46,5 @@ try {
     assert.equal(await panel.locator('.body').evaluate(el=>el.scrollWidth<=el.clientWidth),true,`${tab} overflows`);
   }
   assert.equal(await panel.locator('.word-heading').filter({has:page.locator('[data-word="pragmatic"]')}).locator('.word-count').innerText(),'3 Treffer');
-  console.log('PASS video word and saved lists: lookup, occurrences, seeking, status, localization and narrow layout');
+  console.log('PASS video word list: lookup, occurrences, seeking, saved tab count, localization and narrow layout');
 } finally {await browser.close();}

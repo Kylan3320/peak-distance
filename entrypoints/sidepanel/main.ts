@@ -8,7 +8,7 @@ import { createTranslationPopup } from '@/shared/translationPopup';
 import { createLookupPopup } from '@/shared/lookupPopup';
 import { shadowSelection, classifyRangeIn } from '@/shared/selection';
 import { buildMarkBuckets } from '@/shared/marker';
-import { effectiveEntryLanguage, isRtlLanguage, langDisplayName, normalizeLangTag } from '@/shared/languages';
+import { effectiveEntryLanguage, isRtlLanguage, langDisplayName } from '@/shared/languages';
 import { segmentWords } from '@/shared/tokenize';
 import { materialFromCandidate, type SelectionCandidate } from '@/shared/chat';
 import { CHAT_ADD_ICON } from '@/shared/brand';
@@ -19,9 +19,9 @@ import { CHAT_ADD_ICON } from '@/shared/brand';
 
 import { choiceMenu, iconButton, learningStatus, uiIcon } from '@/shared/uiControls';
 import type { EntryView, SubViewState, ChatSourceInfo, SubtitleRowAction, SubtitleRowOperation, SubtitleRowRef } from '@/shared/messages';
-import { videoContextUrl, blankExpression, generalMeaning, VOCAB_STATUS_LABEL, visibleVocabStatus, type LearningResult, type SavedSentence, type VocabStatus } from '@/shared/vocab';
+import { videoContextUrl, blankExpression, generalMeaning, VOCAB_STATUS_LABEL, visibleVocabStatus, type LearningResult, type SavedSentence, type VideoRef, type VocabStatus } from '@/shared/vocab';
 import { buildReviewQueue, refreshQueue, scopeEntries, type LearningScope, type ReviewItem } from '@/shared/review';
-import { createArticleLearning, articleSource, type ArticleLearningSnapshot, type LearningCategory } from './articleLearning';
+import { createArticleLearning, articleSource, collectionTab, type ArticleLearningSnapshot, type LearningCategory } from './articleLearning';
 import { appendKnowledgeBody, knowledgeRow } from './knowledgeView';
 import type { KnowledgeRecord } from '@/shared/knowledge';
 import { vaultRecordJson } from '@/shared/vault';
@@ -268,7 +268,7 @@ document.addEventListener('scroll',()=>{
 
 async function refreshSentences(): Promise<void> {
   const generation = ++listGeneration;
-  const r = await send<{ ok:boolean; sentences:SavedSentence[] }>({ type:'listSentences' });
+  const r = await send<{ ok:boolean; sentences:SavedSentence[]; vaultId:string|null }>({ type:'listSentences' });
   if (currentView !== 'sentences' || generation !== listGeneration) return;
   const body = document.getElementById('sentences-list')!;
   if (!r?.ok) { body.querySelector('.list-retry')?.remove();body.prepend(retryRow(refreshSentences));return; }
@@ -291,22 +291,50 @@ async function refreshSentences(): Promise<void> {
     }
     body.append(empty);
   }
-  for (const saved of sentences) {
-    const card = el('article', 'entry'); card.append(el('p', 'sentence', saved.text));
-    if (saved.zh) card.append(el('p', 'definition', saved.zh));
-    const meta = el('div', 'meta');
-    const link = el('a', 'source', `${saved.title} · ${fmtClock(saved.video.startMs)}`);
-    link.href = videoContextUrl(saved.video.videoId, saved.video.startMs); link.target = '_blank'; link.rel = 'noopener'; meta.append(link);
-    const remove = iconButton('saved', message('取消收藏'));
-    remove.classList.add('sentence-bookmark');
-    const error=el('span','sentence-save-error');error.hidden=true;error.setAttribute('role','status');
-    remove.addEventListener('click', async () => {
-      if(remove.disabled)return;remove.disabled=true;remove.setAttribute('aria-busy','true');error.hidden=true;
-      const result = await send<{ ok:boolean }>({ type:'deleteSentence', id:saved.id });
-      if (!result?.ok) {setText(error, message('删除失败，重试'));error.hidden=false;remove.disabled=false;remove.setAttribute('aria-busy','false');}
-    });
-    meta.append(remove,error); card.append(meta); body.append(card);
+  for (const saved of sentences) body.append(renderSavedSentence(saved,r.vaultId));
+}
+
+function renderSavedSentence(saved: SavedSentence, vaultId: string|null, inVideo = false): HTMLElement {
+  const card = el('article', 'entry'); card.append(el('p', 'sentence', saved.text));
+  if (saved.zh) card.append(el('p', 'definition', saved.zh));
+  const meta = el('div', 'meta');
+  const link = savedVideoLink(saved.video);
+  if (!inVideo) {
+    link.onclick=null;
+    link.textContent=`${saved.title} · ${fmtClock(saved.video.startMs)}`;
   }
+  meta.append(link); appendUnsave(meta,{type:'deleteSentence',id:saved.id,vaultId});
+  card.append(meta); return card;
+}
+
+function appendUnsave(parent: HTMLElement, request: {type:'deleteSentence';id:string;vaultId:string|null} |
+  {type:'deleteVocabContext';contextId:number;vaultId:string|null}) {
+  const remove = iconButton('saved', message('取消收藏'));
+  remove.classList.add('sentence-bookmark');
+  const error=el('span','sentence-save-error');error.hidden=true;error.setAttribute('role','status');
+  remove.onclick = async () => {
+    remove.disabled=true;remove.setAttribute('aria-busy','true');error.hidden=true;
+    const result = await send<{ok:boolean}>(request);
+    if (!result?.ok) {
+      setText(error,message('删除失败，重试'));error.hidden=false;
+      remove.disabled=false;remove.setAttribute('aria-busy','false');
+    }
+  };
+  parent.append(remove,error);
+}
+
+function savedVideoLink(video: Pick<VideoRef,'videoId'|'startMs'>): HTMLAnchorElement {
+  const link=el('a','source',fmtClock(video.startMs));
+  link.href=videoContextUrl(video.videoId,video.startMs); link.target='_blank'; link.rel='noopener';
+  link.onclick=async event=>{
+    const tabId=subsTabId;
+    if(tabId===null||subsState?.videoId!==video.videoId||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
+    event.preventDefault();
+    const result=await tabSend<{ok:boolean}>(tabId,{type:'blc-sub-control',videoId:video.videoId,action:'seek',timeMs:video.startMs});
+    if(result?.ok)await browser.tabs.update(tabId,{active:true});
+    else await browser.tabs.create({url:link.href});
+  };
+  return link;
 }
 
 // ---- 生词本 ----------------------------------------------------------------------
@@ -366,7 +394,7 @@ function meaningSource(result: LearningResult): UiText {
   return message('{source} · {text}', {source: message('一般释义参考'), text: message(source)});
 }
 
-function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): HTMLElement {
+function renderEntry(entry: EntryView, vaultId: string | null, scoped = false, inVideo = false): HTMLElement {
   const card = el('article', 'entry');
   card.dataset.key = entry.key;
 
@@ -419,10 +447,8 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
   const reference=generalMeaning(first?.result);
   const meaning=scoped ? contextual || reference : reference || first?.definition;
   if(meaning){
-    if(scoped&&!contextual&&first?.result)card.append(el('p','hint',meaningSource(first.result)));
     card.append(el('p','entry-preview',!scoped&&first?.result?.kind==='ai-definition'?meaning.split('\n')[0]:meaning));
   }
-  else if(scoped)card.append(el('p','hint',message('未保存释义')));
 
   // Existing notes stay readable; editing is an explicit, compact state.
   let savedNote = entry.note ?? '';
@@ -496,7 +522,6 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
   for (const c of entry.contexts) {
     const box = el('div', 'context');
     box.appendChild(el('p', 'sentence', c.sentence));
-    if(scoped && c.result)box.append(el('p','hint',message('一般释义参考')));
     if (c.result?.kind === 'dictionary') {
       const result = c.result;
       const sense = result.entry.senses[result.selectedSense ?? 0];
@@ -505,8 +530,10 @@ function renderEntry(entry: EntryView, vaultId: string | null, scoped = false): 
     else if (c.result?.kind === 'ai-definition') box.appendChild(el('p', 'definition', message('{source} · {text}',{source:message('AI 释义'),text:c.result.text})));
     if (c.explanation) box.appendChild(el('p', 'definition', message('{source} · {text}',{source:message('AI 语境解释'),text:c.explanation.text})));
     else if (c.definition) box.appendChild(el('p', 'definition', message('{source} · {text}',{source:message('已存语境释义'),text:c.definition})));
-    else if(scoped)box.append(el('p','hint',message('未保存释义')));
-    box.appendChild(renderContextMeta(c));
+    const meta = inVideo && c.video ? el('div','meta') : renderContextMeta(c);
+    if (inVideo && c.video) meta.append(savedVideoLink(c.video));
+    if (inVideo) appendUnsave(meta,{type:'deleteVocabContext',contextId:c.id,vaultId});
+    box.append(meta);
     detail.append(box);
   }
   const tools = el('div','entry-tools');
@@ -647,15 +674,19 @@ let subsState: SubViewState | null = null;
 let subsPollGeneration=0;
 let subsTabId: number | null = null;
 let cachedVideo: WorkspaceState | null=null;
+type VideoCollectionCategory = 'vocab' | 'sentences' | 'knowledge';
+interface VideoCollection {videoId:string;vaultId:string|null;entries:EntryView[];sentences:SavedSentence[];knowledge:KnowledgeRecord[]}
+let videoCategory: VideoCollectionCategory = 'vocab';
+let videoCollection: VideoCollection | null = null;
 // 字幕视图轮询分快慢路径：快路径（1s）只做 blc-sub-get 与译文/当前句/提示的
 // 轻量更新，签名不变直接跳过；慢路径（视频身份变化立即，平时 ≥5s 一次，或
-// vocab/sentences 广播置脏）才做三连 IDB 拉取与 statuses/sentences/entries 重建。
+// 收藏广播置脏）才重新读取学习记录。
 let subsLibraryDirty=true;
 let subsLibraryAt=0;
 const SUBS_LIBRARY_INTERVAL_MS=5000;
 let subsSignatureCached='';
 const subsSignature=(s:SubViewState)=>JSON.stringify([s.videoId,s.trackId,s.generation,s.cues,s.currentIndex,s.notice,s.chineseVisible!==false]);
-function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['cues'];statuses:WorkspaceState['statuses'];sentences:WorkspaceState['sentences'];entries:WorkspaceState['entries']}):WorkspaceState{
+function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['cues'];statuses:WorkspaceState['statuses'];sentences:WorkspaceState['sentences']}):WorkspaceState{
   const cues=library?.cues??(cachedVideo&&cachedVideo.generation===state.generation&&cachedVideo.cues.length===state.cues.length
     ?cachedVideo.cues
     :state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0,from:c.from,to:c.to})));
@@ -664,7 +695,8 @@ function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['c
     cues,current:state.currentIndex,translations:stableWorkspaceMap(cachedVideo?.translations,new Map(state.cues.filter(c=>c.zh).map(c=>[c.id,c.zh!]))),
     statuses:library?.statuses??cachedVideo?.statuses??new Map<string,string>(),
     sentences:library?.sentences??cachedVideo?.sentences??[],
-    entries:library?.entries??cachedVideo?.entries??[],
+    savedCount:videoCollection?.videoId===state.videoId
+      ? videoCollection.entries.length+videoCollection.sentences.length+videoCollection.knowledge.length : 0,
     notice:state.notice,chinese:state.chineseVisible!==false};
 }
 const videoWorkspace=createYoutubeWorkspace({
@@ -797,13 +829,60 @@ const videoWorkspace=createYoutubeWorkspace({
   },
   words:(parent,text)=>{const lang=((cachedVideo?.trackLang||subsState?.trackLang)||'en').split('-')[0]!;let last=0;for(const s of segmentWords(text,lang)){if(s.start>last)parent.append(document.createTextNode(text.slice(last,s.start)));const w=el('span','w',s.text);w.tabIndex=0;w.setAttribute('role','button');w.style.userSelect='text';parent.append(w);last=s.end;}if(last<text.length)parent.append(document.createTextNode(text.slice(last)));},
   seek:(ref,play)=>void videoAction(ref,{action:'seek',play}),lookup:(word,ref,anchor)=>void openPanelWord(word,ref,anchor,false),
-  save:ref=>videoAction(ref,{action:'save'}),remove:async id=>{const result=await send<{ok:boolean}>({type:'deleteSentence',id});if(result?.ok){subsLibraryDirty=true;await pollSubs();}return {ok:!!result?.ok};},
-  ask:ref=>void askFromRow(ref),open:view=>{
-    if(view==='review' && subsState?.videoId && subsTabId!==null)beginReview({ category:'vocab', sourceKey:`yt:${subsState.videoId}`, language:normalizeLangTag(subsState.trackLang||'und'), returnTo:'video', video:{state:{...subsState,cues:[]},tabId:subsTabId,workspace:videoWorkspace.snapshot()}, source:{sourceType:'youtube',sourceKey:`yt:${subsState.videoId}`,title:subsState.title,url:videoContextUrl(subsState.videoId,0)} });
-    else switchView(view);
-  },
-  status:async(key,status)=>{const result=await send<{ok:boolean}>({type:'setStatus',key,status});if(result?.ok)void pollSubs();return !!result?.ok;},
+  save:ref=>videoAction(ref,{action:'save'}),ask:ref=>void askFromRow(ref),
 },document.getElementById('video-workspace')!);
+const videoSaved = el('div','video-saved');
+videoWorkspace.host.append(videoSaved);
+let renderedCollection: VideoCollection | null = null;
+let renderedCategory: VideoCollectionCategory | null = null;
+
+function renderVideoCollection() {
+  const collection=videoCollection;
+  if (!collection) {videoSaved.replaceChildren();renderedCollection=null;return;}
+  if (renderedCollection===collection && renderedCategory===videoCategory) return;
+  const sameVideo=renderedCollection?.videoId===collection.videoId && renderedCollection?.vaultId===collection.vaultId;
+  if(sameVideo && renderedCategory===videoCategory && videoSaved.querySelector('.note-editor,.knowledge-editor'))return;
+  const expanded=new Set(sameVideo ? [...videoSaved.querySelectorAll<HTMLElement>('.entry:has(.entry-expand[aria-expanded=true])')].map(row=>row.dataset.key) : []);
+  const expandedKnowledge=new Set(sameVideo ? [...videoSaved.querySelectorAll<HTMLDetailsElement>('.knowledge-row[open]')].map(row=>row.dataset.id) : []);
+  renderedCollection=collection;renderedCategory=videoCategory;
+  const {entries,sentences,knowledge,vaultId}=collection;
+  const toolbar=el('div','article-tools');
+  for(const [category,label,count] of [['vocab','生词',entries.length],['sentences','整句〔分类〕',sentences.length],['knowledge','知识点',knowledge.length]] as const){
+    toolbar.append(collectionTab(category,message(label),count,category===videoCategory,()=>{
+      if(category===videoCategory)return;
+      videoCategory=category;renderVideoCollection();
+    }));
+  }
+  videoSaved.replaceChildren(toolbar);
+  if(videoCategory==='vocab'){
+    const review=iconButton('review',message('复习'));
+    const reviewable=entries.filter(entry=>entry.status==='saved'||entry.status==='learning');
+    review.hidden=!reviewable.length;
+    review.onclick=()=>{
+      if(subsState?.videoId!==collection.videoId||subsTabId===null)return;
+      const sourceKey=`yt:${collection.videoId}`;
+      const languages=[...new Set(reviewable.map(entry=>effectiveEntryLanguage(entry)??'und'))];
+      beginReview({category:'vocab',sourceKey,language:languages.length===1?languages[0]:undefined,returnTo:'video',
+        video:{state:{...subsState,cues:[]},tabId:subsTabId,workspace:videoWorkspace.snapshot()},
+        source:{sourceType:'youtube',sourceKey,title:subsState.title,url:videoContextUrl(collection.videoId,0)}});
+    };
+    toolbar.append(review);
+    for(const entry of entries){
+      const row=renderEntry(entry,vaultId,true,true);
+      if(expanded.has(entry.key))row.querySelector<HTMLButtonElement>('.entry-expand')?.click();
+      videoSaved.append(row);
+    }
+  } else if(videoCategory==='sentences'){
+    for(const sentence of sentences)videoSaved.append(renderSavedSentence(sentence,vaultId,true));
+  } else {
+    for(const record of knowledge){
+      const position=record.origin.type==='translation'?record.origin.position:undefined;
+      const row=knowledgeRow(record,vaultId,send,()=>{subsLibraryDirty=true;void pollSubs();},position?savedVideoLink(position):undefined);
+      row.open=expandedKnowledge.has(record.id);videoSaved.append(row);
+    }
+  }
+  if(videoSaved.childElementCount===1)videoSaved.append(el('p','empty',message('本视频暂无此类收藏')));
+}
 const articleLearning = createArticleLearning(document.getElementById('web-selection')!, {
   send, title:renderArticleTitle, entry: (entry,vaultId) => renderEntry(entry, vaultId,true), translate: snapshot => selectionPopup.open(snapshot), changed: () => void persistPanel(),
   review: article => beginReview({ category: article.category, sourceKey:article.source?.sourceKey, source:article.source ?? undefined, language:article.language==='all'?undefined:article.language, returnTo:'article', article }),
@@ -850,14 +929,32 @@ async function videoAction(ref: SubtitleRowRef, operation: SubtitleRowOperation)
 }
 async function refreshSubsLibrary(state:SubViewState):Promise<void> {
   subsLibraryAt=Date.now();subsLibraryDirty=false;
-  const [vocab,saved,index]=await Promise.all([send<{ok:boolean;entries:EntryView[]}>({type:'listEntries'}),send<{ok:boolean;sentences:SavedSentence[]}>({type:'listSentences'}),send<{ok:boolean;items:import('@/shared/vocab').VocabIndexItem[]}>({type:'vocabIndex'})]);
+  const [vocab,saved,index,knowledge]=await Promise.all([
+    send<{ok:boolean;entries:EntryView[];vaultId:string|null}>({type:'listEntries'}),
+    send<{ok:boolean;sentences:SavedSentence[];vaultId:string|null}>({type:'listSentences'}),
+    send<{ok:boolean;items:import('@/shared/vocab').VocabIndexItem[]}>({type:'vocabIndex'}),
+    send<{ok:boolean;records:KnowledgeRecord[];vaultId:string|null}>({type:'listKnowledge'}),
+  ]);
   if(currentView!=='subs'||subsState!==state)return;
   const stable=<T>(old:T,next:T):T=>JSON.stringify(old)===JSON.stringify(next)?old:next;
+  if(vocab?.ok&&saved?.ok&&knowledge?.ok&&vocab.vaultId===saved.vaultId&&vocab.vaultId===knowledge.vaultId){
+    const sourceKey=`yt:${state.videoId}`;
+    videoCollection=stable(videoCollection,{
+      videoId:state.videoId,vaultId:vocab.vaultId,
+      entries:scopeEntries(vocab.entries,{sourceKey}),
+      sentences:saved.sentences.filter(s=>s.video.videoId===state.videoId),
+      knowledge:knowledge.records.filter(record=>record.source.sourceKey===sourceKey),
+    });
+  } else {
+    subsLibraryDirty=true;
+  }
   const cues=state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0,from:c.from,to:c.to}));
   cachedVideo=rebuildCachedVideo(state,{
     cues:cachedVideo?.videoId===state.videoId?stable(cachedVideo.cues,cues):cues,
     statuses:stableWorkspaceMap(cachedVideo?.statuses,buildMarkBuckets(index?.items??[]).get((state.trackLang||'en').split('-')[0]!)?.statusByKey??new Map<string,string>()),
-    sentences:stable(cachedVideo?.sentences??[],saved?.sentences??[]),entries:stable(cachedVideo?.entries??[],vocab?.entries??[])});
+    sentences:stable(cachedVideo?.sentences??[],videoCollection?.sentences??[])});
+  renderVideoCollection();
+  if(!videoCollection)videoSaved.replaceChildren(retryRow(()=>void pollSubs()));
   videoWorkspace.update(cachedVideo);
 }
 async function pollSubs():Promise<void> {
@@ -873,7 +970,7 @@ async function pollSubs():Promise<void> {
     subsTabId=videoReturn.tabId;subsState=videoReturn.state;
     renderVideoTitle(subsState.title);
     document.getElementById('video-workspace')!.hidden=false;document.getElementById('web-selection')!.hidden=true;
-    if(!cachedVideo||subsLibraryDirty||Date.now()-subsLibraryAt>=SUBS_LIBRARY_INTERVAL_MS)await refreshSubsLibrary(subsState);
+    if(cachedVideo?.videoId!==subsState.videoId||subsLibraryDirty||Date.now()-subsLibraryAt>=SUBS_LIBRARY_INTERVAL_MS)await refreshSubsLibrary(subsState);
     if(currentView!=='subs'||returnedVideo!==videoReturn||generation!==subsPollGeneration)return;
     if(restoreReturnedVideo){videoWorkspace.restore(videoReturn.workspace);restoreReturnedVideo=false;}
     else videoReturn.workspace=videoWorkspace.snapshot();return;
@@ -887,6 +984,7 @@ async function pollSubs():Promise<void> {
   if(switched || subsState?.generation !== st?.generation){
     lookupPopup.close();selectionPopup.close();closePanelSelectionActions();subsLibraryDirty=true;
   }
+  if(switched){videoCategory='vocab';videoCollection=null;renderVideoCollection();}
   subsTabId=id;subsState=st?.type==='blc-sub-state'?st:null;
   document.getElementById('video-workspace')!.hidden=!subsState?.videoId;
   const web=document.getElementById('web-selection')!;web.hidden=!!subsState?.videoId;
@@ -1182,6 +1280,7 @@ browser.runtime.onMessage.addListener((msg: unknown) => {
   if(t==='knowledge-changed') {
     if(currentView==='knowledge')void refreshKnowledge();
     articleLearning.invalidate();
+    subsLibraryDirty=true;
     if(currentView==='subs')void pollSubs();
     if(currentView==='review'&&reviewSession.category==='knowledge')void refreshReviewQueue();
   }
@@ -1201,7 +1300,7 @@ async function checkLearningLibrary() {
   const r=await send<{ok:boolean;records:KnowledgeRecord[];vaultId:string|null}>({type:'listKnowledge'});
   if(!r?.ok||r.vaultId===libraryId)return;
   libraryId=r.vaultId;videoWorkspace.clearSavedFeedback();reviewOperation++;subsPollGeneration++;reviewQueue=[];knowledgeQueue=[];reviewIdx=0;revealed=false;definitionRevealed=false;reviewSession={category:'vocab',returnTo:'list'};
-  articleLearning.reset();returnedVideo=null;subsLibraryDirty=true;cachedVideo=null;
+  articleLearning.reset();returnedVideo=null;subsLibraryDirty=true;cachedVideo=null;videoCollection=null;renderVideoCollection();
   if(currentView==='review')switchView('list');else if(currentView==='subs')void pollSubs();else if(currentView==='knowledge')void refreshKnowledge();
   void persistPanel();
 }

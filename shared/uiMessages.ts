@@ -379,6 +379,8 @@ export const UI_MESSAGES: Record<string, readonly [string, string, string, strin
   '全部句子': ['全部句子', '全部句子', 'All sentences', 'Alle Sätze', 'Toutes les phrases'],
   '取消收藏': ['取消收藏', '取消收藏', 'Unsave', 'Nicht mehr speichern', 'Retirer des favoris'],
   '整句': ['句子', '句子', 'Sentence', 'Satz', 'Phrase'],
+  '整句〔分类〕': ['整句', '整句', 'Sentences', 'Sätze', 'Phrases'],
+  '本视频暂无此类收藏': ['本视频暂无此类收藏', '本影片暫無此類收藏', 'Nothing saved in this category.', 'In dieser Kategorie ist nichts gespeichert.', 'Aucun élément enregistré dans cette catégorie.'],
   '重试字幕': ['重读字幕', '重讀字幕', 'Reload subtitles', 'Untertitel neu laden', 'Recharger les sous-titres'],
   '刷新页面': ['刷新页面', '重新整理', 'Reload page', 'Seite neu laden', 'Recharger la page'],
   '用 AI 翻译': ['AI翻译', 'AI翻譯', 'Use AI translation', 'Mit KI übersetzen', 'Traduire avec l’IA'],

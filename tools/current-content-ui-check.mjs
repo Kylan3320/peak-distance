@@ -85,7 +85,7 @@ try {
   for(const [expression,result] of results){
     const row=panel.locator(`.entry[data-key="en::${expression}"]`);
     assert.equal(await row.locator('.entry-preview').innerText(),result.kind==='dictionary'?result.entry.senses[1].definition:result.text);
-    assert.ok((await row.innerText()).includes('一般释义参考'));
+    assert.ok(!(await row.innerText()).includes('一般释义参考'));
   }
   await filterArticle('en');
   await panel.getByRole('button',{name:'复习本篇',exact:true}).click();
@@ -303,6 +303,7 @@ try {
   await videoPage.bringToFront();await panel.locator('#views [data-view="list"]').click();await panel.locator('#views [data-view="subs"]').click();
   await panel.locator('#blc-learning-panel [data-tab="saved"]').click();
   await panel.locator('#blc-learning-panel [data-i18n-aria-label="复习"]').click();
+  await panel.locator('#review-body button').filter({hasText:'英语'}).click();
   await panel.locator('#review-body [data-i18n-aria-label="显示单词"]').click();
   assert.ok(!(await panel.locator('#review-body').innerText()).includes('Video A meaning'));
   await panel.locator('#review-body [data-i18n-aria-label="显示释义"]').click();
@@ -313,7 +314,8 @@ try {
   await panel.locator('#review-body [data-i18n-aria-label="显示释义"]').click();assert.ok((await panel.locator('#review-body').innerText()).includes('Video A meaning'));
   await panel.locator('#workspace-back').click();
   await panel.locator('#blc-learning-panel [data-tab="saved"].active').waitFor();
-  assert.ok((await panel.locator('#blc-learning-panel .body').innerText()).includes('A video-word in this video.'));
+  await panel.locator('.video-saved [data-key="en::video-word"] .entry-expand').click();
+  assert.ok((await panel.locator('.video-saved').innerText()).includes('A video-word in this video.'));
   await panel.screenshot({path:join(output,'video-review-return.png'),fullPage:true});
   console.log('PASS controlled video: saved vocabulary review fixes video/language; repeat after a tab switch keeps A context and returns to the saved tab');
 
@@ -377,7 +379,7 @@ try {
       const target=panel.locator('#web-selection .entry').filter({has:panel.getByRole('heading',{name:'targets',exact:true})});
       await target.waitFor();await target.locator('.entry-preview').waitFor();
       const savedMeaning=await target.locator('.entry-preview').innerText();
-      assert.ok(savedMeaning.trim());assert.ok((await target.innerText()).includes('一般释义参考'));
+      assert.ok(savedMeaning.trim());assert.ok(!(await target.innerText()).includes('一般释义参考'));
       await target.getByRole('button',{name:'定位原句',exact:true}).first().click();
       await bbc.waitForFunction(()=>document.getAnimations().some(animation=>animation.id==='pd-source-highlight'));
       const sentence=await target.locator(':scope > .sentence').innerText();

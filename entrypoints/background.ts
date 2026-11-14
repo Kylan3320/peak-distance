@@ -19,7 +19,7 @@ import type { LearningResult, ContextExplanation } from '@/shared/vocab';
 //（设置项由本文件代读，key 永不下发）。
 
 import {
-  saveSentence, listSentences, deleteSentence,
+  saveSentence, listSentencesState, deleteSentence,
   backfillDefinition,
   backfillResult,
   deleteEntry,
@@ -337,7 +337,7 @@ async function handle(
         return { ok: true, ...result };
       } catch (error) { return bad(vaultErrorCode(error)); }
     }
-    case 'listSentences': return { ok: true, sentences: await listSentences() };
+    case 'listSentences': return { ok: true, ...await listSentencesState() };
     case 'saveSentence': {
       const s = m.sentence;
       const video = parseVideoRef(s?.video);
@@ -356,9 +356,9 @@ async function handle(
       return { ok: true };
     }
     case 'deleteSentence': {
-      if (typeof m.id !== 'string') return bad('bad-payload');
+      if (typeof m.id !== 'string' || (m.vaultId !== undefined && m.vaultId !== null && typeof m.vaultId !== 'string')) return bad('bad-payload');
       const id = m.id;
-      await deleteSentence(id);
+      if (!await deleteSentence(id,true,undefined,m.vaultId)) return bad('conflict');
       queueVaultWriteAfterSave();
       broadcast({ type: 'sentences-changed' });
       return { ok: true };

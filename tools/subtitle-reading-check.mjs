@@ -273,6 +273,43 @@ try {
   const workspace=frame.locator('#blc-learning-panel'), body=workspace.locator('.body');
   const row=i=>workspace.locator('[data-cue="'+i+'"]');
   const button=name=>workspace.getByRole('button',{name,exact:true});
+  const runtime=message=>control.evaluate(message=>chrome.runtime.sendMessage(message),message);
+  const videoRef={videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind,trackLang:state.trackLang,startMs:0};
+  const storedWord='binary';
+  for(const [startMs,sentence] of [[0,sentences[0]],[3000,'The binary choice comes up again.']]){
+    assert.ok((await runtime({type:'save',snapshot:{source:'video',expression:storedWord,sentence,title:state.title,lang:'en',video:{...videoRef,startMs}},definition:'二元的'})).ok);
+  }
+  const excerpt=sentences[2],requestId='video-saved-excerpt';
+  const translated=await runtime({type:'translateSelection',requestId,text:excerpt,sourceLang:'en',targetLang:'en',snapshot:{
+    text:excerpt,url:'https://www.youtube.com/watch?v='+videoRef.videoId+'&t=2s',title:state.title,position:{...videoRef,startMs:2000,endMs:4000}}});
+  assert.ok(translated.ok,JSON.stringify(translated));
+  assert.ok((await runtime({type:'saveSelectionKnowledge',requestId,vaultId:null})).ok);
+  const total=workspace.locator('[data-tab="saved"] .word-count');
+  const collection=workspace.locator('.video-saved');
+  const savedTab=workspace.locator('[data-tab="saved"]');
+  const expectTotal=count=>total.filter({hasText:new RegExp('^'+count+'$')}).waitFor();
+  assert.equal(await workspace.locator('[data-tab].active').getAttribute('data-tab'),'subs');
+  await expectTotal(2);
+  await savedTab.click();
+  await collection.locator('.entry-expand').click();
+  assert.equal(await collection.locator('.entry').count(),1);
+  assert.equal(await collection.locator('.context:visible').count(),2);
+  await collection.locator('a.source').filter({hasText:'0:03'}).click();
+  await page.waitForFunction(()=>Math.abs(document.querySelector('video').currentTime-3)<0.5);
+  await collection.locator('.context').filter({hasText:'comes up again'}).getByRole('button',{name:'取消收藏'}).click();
+  await collection.getByText('The binary choice comes up again.',{exact:true}).waitFor({state:'detached'});
+  await expectTotal(2);
+  await collection.getByRole('button',{name:'取消收藏'}).click();
+  await expectTotal(1);
+  await collection.locator('[data-category="knowledge"]').click();
+  await collection.locator('.knowledge-row summary').click();
+  await collection.locator('a.source').filter({hasText:'0:02'}).click();
+  await page.waitForFunction(()=>Math.abs(document.querySelector('video').currentTime-2)<0.5);
+  assert.ok((await runtime({type:'save',snapshot:{source:'video',expression:storedWord,sentence:sentences[0],title:state.title,lang:'en',video:videoRef},definition:'二元的'})).ok);
+  await workspace.locator('[data-tab="subs"]').click();
+  await page.evaluate(()=>{document.querySelector('video').currentTime=0;});
+  await expectIndex(0);
+  check('video collection counts distinct words, scopes per-context unsave and jumps to stored times',true);
   check('sidebar shows the fixed sample as three distinct rows',
     JSON.stringify(await workspace.locator('.en').allTextContents().then(a=>a.slice(0,3)))===JSON.stringify(sentences));
   check('cross-fragment complete sentence uses the two exact platform translations',
@@ -313,6 +350,7 @@ try {
   await row(1).getByRole('button',{name:'取消收藏',exact:true}).waitFor();
   const records=()=>control.evaluate(()=>chrome.runtime.sendMessage({type:'listSentences'}));
   const saved=(await records()).sentences;
+  await expectTotal(3);
   check('saving the second row persists only its visible text, track and interval and keeps reading state',
     saved.length===1&&saved[0].text===sentences[1]&&saved[0].video.trackId===state.trackId&&
     saved[0].video.startMs===0&&saved[0].endMs===2000&&await readingPreserved());
@@ -414,9 +452,30 @@ try {
   await gate('old','aborted');
   await control.waitForFunction(async({tabId,generation})=>(await chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'})).generation!==generation,{tabId,generation:state.generation});
   const anchored=await getState();
-  check('late old-row save is rejected after a track change',!(await action({...rowRef(state,0),action:'save'})).ok&&
-    (await records()).sentences.length===1);
   await release('old');
+  await savedTab.click();
+  await expectTotal(3);
+  await collection.locator('[data-category="sentences"]').click();
+  await collection.getByText(sentences[1],{exact:true}).waitFor();
+  await runtime({type:'setSetting',name:'bilingualEnabled',value:false});
+  await page.locator('#blc-subs').waitFor({state:'hidden'});
+  await expectTotal(3);
+  await collection.getByText(sentences[1],{exact:true}).waitFor();
+  await collection.locator('[data-category="knowledge"]').click();
+  await collection.locator('.knowledge-row').waitFor();
+  await collection.locator('[data-category="vocab"]').click();
+  await collection.locator('.entry-expand').click();
+  await collection.getByText(sentences[0],{exact:true}).waitFor();
+  await collection.locator('[data-category="sentences"]').click();
+  await collection.getByRole('button',{name:'取消收藏'}).click();
+  await expectTotal(2);
+  await collection.getByText(sentences[1],{exact:true}).waitFor({state:'detached'});
+  await runtime({type:'setSetting',name:'bilingualEnabled',value:true});
+  await page.locator('#blc-subs .en').waitFor();
+  await workspace.locator('[data-tab="subs"]').click();
+  check('all three saved categories remain available across track change and subtitles off; removing a sentence updates the total',true);
+  check('late old-row save is rejected after a track change',!(await action({...rowRef(state,0),action:'save'})).ok&&
+    (await records()).sentences.length===0);
   check('anchored track has the same text with two separately playable intervals',
     anchored.trackId!==state.trackId&&anchored.cues[0].endMs===850&&anchored.cues[1].startMs===850&&anchored.cues[1].endMs===2000);
   await action({...rowRef(anchored,0),action:'seek',play:true});await waitPause(.85);

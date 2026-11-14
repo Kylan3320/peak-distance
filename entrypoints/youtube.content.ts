@@ -1432,7 +1432,8 @@ export default defineContentScript({
           return true;
         }
         if (m.type === 'blc-sub-control') {
-          const c = m as SubControlMessage;          if (!c || c.videoId !== currentVideoId) {
+          const c = m as SubControlMessage;
+          if (c.videoId !== currentVideoId || c.videoId !== videoIdFromLocation()) {
             sendResponse({ ok: false, error: 'video-mismatch' });
             return true;
           }
@@ -1456,7 +1457,8 @@ export default defineContentScript({
               seekCue(target);
             }
           } catch {
-            /* ignore */
+            sendResponse({ok:false,error:'not-ready'});
+            return true;
           }
           sendResponse({ ok: true });
           return true;
