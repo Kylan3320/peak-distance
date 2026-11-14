@@ -71,7 +71,7 @@ export type BgcRequest =
   | { type: 'knowledgeWritePending'; id: string; vaultId: string }
   | { type: 'updateKnowledge'; id: string; title: string; body: string; vaultId: string | null }
   | { type: 'deleteKnowledge'; id: string; vaultId: string | null }
-  | { type: 'deleteSentence'; id: string }
+  | { type: 'deleteSentence'; id: string; vaultId?: string | null }
   | { type: 'openLearning'; view: 'list' | 'sentences' | 'review' }
   | { type: 'captionCache'; key: string; cues?: import('./protocol').Cue[] }
   | { type: 'getEntry'; key: string } // background 侧做词形关联解析

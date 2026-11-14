@@ -1,12 +1,12 @@
 import { applyAppearance } from './appearance';
-import { learningStatus, uiIcon } from './uiControls';
+import { uiIcon } from './uiControls';
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 import { brandTokens, brandControls } from './brand';
 import type { Cue } from './protocol';
 import type { Settings } from './settings';
-import type { EntryView, SubtitleRowRef } from './messages';
+import type { SubtitleRowRef } from './messages';
 import { cueWords, fmtClock } from './cues';
-import { matchSentenceBookmarks, type VocabStatus, type SavedSentence, type SentenceRange, type VideoRef } from './vocab';
+import { matchSentenceBookmarks, type SavedSentence, type SentenceRange, type VideoRef } from './vocab';
 import { normalizeExpressionInLanguage } from './languages';
 import { shadowSelection } from './selection';
 import { readingIcon, readingIconStyles, animateBookmark, type ReadingIcon } from './readingIcons';
@@ -20,7 +20,7 @@ export interface WorkspaceState {
   translations: Map<number, string>;
   statuses: Map<string, string>;
   sentences: SavedSentence[];
-  entries: EntryView[];
+  savedCount: number;
   notice: string;
   chinese: boolean;
   /** 当前轨道语言（词次分词与查词边界用；缺省按英文兼容） */
@@ -63,11 +63,6 @@ const css = `
   .word-details .meta {align-items:baseline;margin-top:4px}
   .word-details .occurrence {min-width:0;max-width:100%;padding:2px 4px;border:0;background:transparent;text-align:start;overflow-wrap:anywhere}
   .word-details .occurrence:hover {background:var(--pd-selected)}
-  .saved-heading {display:flex;align-items:center;gap:8px;min-width:0}
-  .saved-heading .word-action {flex:1}
-  .saved-context {margin-top:3px;line-height:1.6;overflow-wrap:anywhere}
-  .saved-time {display:inline-flex;min-height:28px;align-items:center;color:var(--pd-muted);font-size:12px;font-variant-numeric:tabular-nums;text-decoration:none}
-  .saved-time:hover {color:var(--pd-blue);text-decoration:underline}
   ${readingIconStyles}
   .save-error {color:var(--pd-danger);font-size:12px;flex-basis:100%}
   ::selection {background:var(--pd-selected);color:var(--pd-ink)}
@@ -79,10 +74,7 @@ export function createYoutubeWorkspace(actions: {
   seek: (row: SubtitleRowRef, play?: boolean) => void;
   lookup: (word: string, row: SubtitleRowRef, anchor: HTMLElement) => void;
   save: (row: SubtitleRowRef) => Promise<{ok:boolean}>;
-  remove: (id: string) => Promise<{ok:boolean}>;
   ask: (row: SubtitleRowRef) => void;
-  open: (view: 'list' | 'sentences' | 'review') => void;
-  status: (key:string, status:VocabStatus) => Promise<boolean>;
 }, mount: HTMLElement) {
   const host = document.createElement('aside'); host.id = 'blc-learning-panel';
   applyAppearance(host);
@@ -102,7 +94,7 @@ export function createYoutubeWorkspace(actions: {
   let scrollbarDragging = false;
   const scrollPositions = new Map<string, number>();
   let tab = 'subs', renderedTab = '', lastCues: Cue[] | null = null;
-  let lastSentences: SavedSentence[] | null = null, lastEntries: EntryView[] | null = null;
+  const savedSlot = document.createElement('slot');
   let lastStatuses: Map<string, string> | null = null;
   let lastTranslations: Map<number, string> | undefined;
   let lastChinese: boolean | undefined;
@@ -161,8 +153,10 @@ export function createYoutubeWorkspace(actions: {
     }else {updateSaveButton(index,b);setText(error,message('保存失败，请重试'));error.hidden=false;}
     b.disabled=false;b.setAttribute('aria-busy','false');
   }
+  const savedCount = document.createElement('span'); savedCount.className = 'word-count';
   for (const [id, label] of [['subs', message('字幕')], ['words', message('词语')], ['saved', message('已保存〔视频〕')]] as const) {
     const b = button(head, label!, () => { scrollPositions.set(tab, body.scrollTop); tab = id!; render(); }); b.dataset.tab = id;
+    if (id === 'saved') { const caption=document.createElement('span');setText(caption,label);b.removeAttribute('data-i18n');b.replaceChildren(caption,' ',savedCount); }
   }
 
   icon(controls, 'previous', message('上一句'), () => seek(Math.max(0, state.current - 1)));
@@ -213,9 +207,10 @@ export function createYoutubeWorkspace(actions: {
     if (!state) return;
     head.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     controls.hidden = tab !== 'subs';
+    const count=String(state.savedCount ?? 0);
+    if(savedCount.textContent!==count)savedCount.textContent=count;
     const contentChanged=lastIdentity!==identity()||!lastCues||(lastCues!==state.cues&&(lastCues.length!==state.cues.length||lastCues.some((cue,i)=>{const next=state.cues[i]!;return cue.start!==next.start||cue.dur!==next.dur||cue.text!==next.text;})));
-    const rebuild = renderedTab !== tab || contentChanged ||
-      (tab === 'saved' && (lastSentences !== state.sentences || lastEntries !== state.entries));
+    const rebuild = renderedTab !== tab || (tab !== 'saved' && contentChanged);
     let restoreTop: number | undefined;
     if (rebuild) {
       restoreTop = renderedTab === tab ? body.scrollTop : scrollPositions.get(tab) ?? 0;
@@ -252,46 +247,9 @@ export function createYoutubeWorkspace(actions: {
           row.append(details); body.append(row);
         }
       } else {
-        const nav = document.createElement('div'); nav.className = 'controls'; body.append(nav);
-        icon(nav, 'words', message('全部词语'), () => actions.open('list')); icon(nav, 'sentences', message('全部句子'), () => actions.open('sentences')); icon(nav, 'review', message('复习'), () => actions.open('review'));
-        let count = 0;
-        for (const entry of state.entries) for (const c of entry.contexts.filter(c => c.video?.videoId === state.videoId)) {
-          count++;
-          const row = document.createElement('div'); row.className = 'row';
-          const heading = document.createElement('div'); heading.className = 'saved-heading'; row.append(heading);
-          const expr = button(heading, entry.expression, () => { const i = state.cues.findIndex(cue => cue.start === c.video?.startMs && cue.text === c.sentence); if (i >= 0) actions.lookup(entry.expression, rowRef(i), expr); else actions.open('list'); }); expr.className = 'word-action'; expr.dataset.word = entry.expression;
-          const error=document.createElement('span');error.className='save-error';error.hidden=true;error.setAttribute('role','status');
-          heading.append(learningStatus(entry.expression,entry.status,async value=>{
-            const ok=await actions.status(entry.key,value);
-            error.hidden=ok;
-            setText(error,ok?'':message('状态更新失败'));
-            return ok;
-          }));
-          row.append(error);
-          const sentence = document.createElement('div'); sentence.className = 'saved-context'; sentence.textContent = c.sentence; row.append(sentence);
-          const link = document.createElement('a'); link.className = 'saved-time'; link.href = c.url; link.textContent = fmtClock(c.video!.startMs);
-          link.dataset.playback = ''; link.addEventListener('click', e => { const i = state.cues.findIndex(cue => cue.start === c.video!.startMs && cue.text === c.sentence); if (i >= 0) { e.preventDefault(); seek(i); } });
-          row.append(link); body.append(row);
-        }
-        for (const saved of state.sentences.filter(s => s.video.videoId === state.videoId)) {
-          count++;
-          const row = document.createElement('div'); row.className = 'row';
-          const text = document.createElement('div'); text.textContent = saved.text; row.append(text);
-          if (saved.zh) { const zh = document.createElement('div'); zh.className = 'zh'; zh.textContent = saved.zh; row.append(zh); }
-          const tools = meta(row);
-          const link = document.createElement('a'); link.href = `https://www.youtube.com/watch?v=${encodeURIComponent(saved.video.videoId)}&t=${saved.video.startMs / 1000}s`; setText(link,message('{source} · {text}',{source:message('整句'),text:fmtClock(saved.video.startMs)})); link.style.color = 'var(--pd-blue)';
-          link.dataset.playback = ''; link.addEventListener('click', e => { const i = bookmarks.findIndex(bookmark => bookmark.saved?.id === saved.id); if (i >= 0) { e.preventDefault(); seek(i); } });
-          tools.append(link);
-          const error=document.createElement('span');error.className='save-error';error.hidden=true;error.setAttribute('role','status');
-          const remove=icon(tools,'bookmark',message('取消收藏'),async()=>{
-            if(remove.disabled)return;remove.disabled=true;remove.setAttribute('aria-busy','true');error.hidden=true;
-            let result:{ok:boolean};try {result=await actions.remove(saved.id);}catch {result={ok:false};}
-            if(!result.ok){setText(error,message('删除失败，重试'));error.hidden=false;remove.disabled=false;remove.setAttribute('aria-busy','false');}
-          });remove.classList.add('is-saved');tools.append(error);body.append(row);
-        }
-        if (!count) empty(message('本视频还没有收藏。可在词卡保存词语，或在字幕行收藏整句。'));
+        body.append(savedSlot);
       }
-      renderedTab = tab; lastCues = state.cues; lastSentences = state.sentences; lastEntries = state.entries;
+      renderedTab = tab; lastCues = state.cues;
       lastIdentity=identity();
     }
     if (rebuild || lastStatuses !== state.statuses) {
@@ -334,6 +292,7 @@ export function createYoutubeWorkspace(actions: {
     lastCurrent = state.current;
   }
   return {
+    host,
     rowRef: (element: Element) => rowRefs.get(element),
     snapshot: () => ({ tab, follow, top:body.scrollTop }),
     restore(value: {tab?:string;follow?:boolean;top?:number}) { if(value.tab && ['subs','words','saved'].includes(value.tab))tab=value.tab;follow=value.follow!==false;render();setScroll(value.top??0); },

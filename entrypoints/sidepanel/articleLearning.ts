@@ -8,6 +8,14 @@ import type { SelectionSnapshot } from '@/shared/panel';
 import { knowledgeRow } from './knowledgeView';
 import { choiceMenu, iconButton } from '@/shared/uiControls';
 
+export function collectionTab(category: string, label: UiText, count: number, selected: boolean, select: () => void): HTMLButtonElement {
+  const button = document.createElement('button'); button.dataset.category = category;
+  const caption = document.createElement('span'); setText(caption,label);
+  const counter = document.createElement('span'); counter.className = 'article-count'; counter.textContent = String(count);
+  button.append(caption,counter); button.setAttribute('aria-pressed', String(selected)); button.onclick = select;
+  return button;
+}
+
 export type LearningCategory = 'vocab' | 'knowledge';
 export interface ArticleLearningSnapshot { source: SourceDescriptor | null; category: LearningCategory; language: string; pinned: boolean }
 export function articleSource(url: string, title: string): SourceDescriptor | null {
@@ -75,11 +83,9 @@ export function createArticleLearning(mount: HTMLElement, actions: {
     const records = allKnowledge.filter(k => captured.language === 'all' || k.language === captured.language);
     const toolbar = document.createElement('div'); toolbar.className = 'article-tools';
     for (const [category, key, count] of [['vocab', '生词', entries.length], ['knowledge', '知识点', records.length]] as const) {
-      const b = document.createElement('button'); b.dataset.category = category;
-      const caption = document.createElement('span'); setText(caption,message(key));
-      const counter = document.createElement('span'); counter.className = 'article-count'; counter.textContent = String(count);
-      b.append(caption,counter); b.setAttribute('aria-pressed', String(captured.category === category));
-      b.onclick = () => { state.category = category; signature = ''; void update(source, selection); actions.changed(); }; toolbar.append(b);
+      toolbar.append(collectionTab(category,message(key),count,captured.category===category,() => {
+        state.category = category; signature = ''; void update(source, selection); actions.changed();
+      }));
     }
     const languageCounts = new Map<string,number>();
     const languages = captured.category==='vocab' ? allEntries.map(entry=>effectiveEntryLanguage(entry) ?? 'und') : allKnowledge.map(record=>record.language);

@@ -194,6 +194,8 @@ main {min-height:0;min-width:0;overflow:auto;padding:16px var(--content-inset);f
 .article-tools {display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin:8px 0 0;border-bottom:1px solid var(--pd-line)}
 .article-tools > button[data-category] {display:inline-flex;align-items:baseline;gap:4px}
 .article-count {font-size:12px;color:var(--pd-muted)}
+.video-saved {padding-inline:2px;overflow-wrap:anywhere}
+.video-saved .article-tools > .ui-icon-button {margin-inline-start:auto}
 .article-filter {margin-inline-start:auto}
 .article-empty {padding:16px 0;color:var(--pd-muted);font-size:13px}
 .article-empty p {margin:0}

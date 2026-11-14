@@ -32,13 +32,13 @@ export function appendKnowledgeBody(parent: HTMLElement, record: KnowledgeRecord
   }
 }
 
-export function knowledgeRow(record: KnowledgeRecord, vaultId: string | null, send: <T>(message: unknown) => Promise<T>, changed: () => void): HTMLDetailsElement {
+export function knowledgeRow(record: KnowledgeRecord, vaultId: string | null, send: <T>(message: unknown) => Promise<T>, changed: () => void, sourceLink?: HTMLAnchorElement): HTMLDetailsElement {
   const row = document.createElement('details'); row.className = 'knowledge-row'; row.dataset.id = record.id;
   const summary = document.createElement('summary');
   const title = document.createElement('span'); title.className='knowledge-title';title.textContent=record.title;
   const caption = document.createElement('span'); caption.className='knowledge-origin';caption.textContent=record.source.title || record.source.url;
   const arrow=document.createElement('span');arrow.className='knowledge-expand';arrow.innerHTML=uiIcon('expand');
-  summary.append(title,caption,arrow);row.append(summary);
+  summary.append(title);if(!sourceLink)summary.append(caption);summary.append(arrow);row.append(summary);
   appendKnowledgeBody(row, record);
   const tools = document.createElement('div'); tools.className='entry-tools';
   const origin = document.createElement('a'); origin.className='ui-icon-button';origin.href=record.source.url;origin.target='_blank';origin.rel='noopener';origin.innerHTML=uiIcon('external');
@@ -66,7 +66,7 @@ export function knowledgeRow(record: KnowledgeRecord, vaultId: string | null, se
     if (result?.ok) changed(); else {confirm.disabled=false;setText(status,message('删除失败，请重试'));}
   };
   confirmRow.append(cancel,confirm);
-  tools.append(origin,edit,remove);
+  tools.append(sourceLink ?? origin,edit,remove);
   row.append(tools,confirmRow,status);
   return row;
 }

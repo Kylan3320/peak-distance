@@ -956,16 +956,26 @@ export async function saveSentence(sentence: SavedSentence): Promise<void> {
 }
 
 export async function listSentences(): Promise<SavedSentence[]> {
+  return (await listSentencesState()).sentences;
+}
+
+export async function listSentencesState(): Promise<{sentences: SavedSentence[]; vaultId: string | null}> {
   return withDb(async db => {
-    const tx = db.transaction('sentences', 'readonly');
+    const tx = db.transaction(['sentences', VAULT], 'readonly');
     const items = await px(tx.objectStore('sentences').getAll()) as SavedSentence[];
-    return items.sort((a, b) => b.createdAt - a.createdAt);
+    const vaultId = await dataVaultId(tx);
+    await txDone(tx);
+    return {sentences: items.sort((a, b) => b.createdAt - a.createdAt), vaultId};
   });
 }
 
-export async function deleteSentence(id: string, enqueueDeletion = true, expected?: SavedSentence | null): Promise<boolean> {
+export async function deleteSentence(id: string, enqueueDeletion = true, expected?: SavedSentence | null, vaultId?: string | null): Promise<boolean> {
   return withDb(async db => {
     const tx = db.transaction(['sentences', VAULT, VAULT_QUEUE], 'readwrite');
+    if (vaultId !== undefined && vaultId !== await dataVaultId(tx)) {
+      await txDone(tx);
+      return false;
+    }
     if (!enqueueDeletion) {
       const pending = await pendingVaultRecord(tx, 'sentence', id);
       const current = await px(tx.objectStore('sentences').get(id)) as SavedSentence | undefined;
