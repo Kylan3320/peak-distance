@@ -5,12 +5,12 @@ import type { DictionarySource } from '@/lib/onlineDictionary';
 // 共用查词弹窗（网页与 YouTube 字幕共用，M1 行为原样提取）：
 //   Shadow DOM 卡片、宿主 fixed+inset:0+满 z-index（不被页面悬浮层盖住）、
 //   标题行拖动、Esc 关闭、快照在打开时固定（保存/释义都用这一份）、
-//   旧请求按 nonce 丢弃、保存结果以数据库响应为准（非乐观）。
+//   弹窗替换后丢弃旧响应，保存结果以数据库响应为准。
 // 来源差异（网页 URL / 视频轨道+时间）只体现在 snapshot 类型与 subLine 附加行。
 
 import type {
   BgcError,
-  EntryView,
+  GetEntryResult,
   LookupResult,
   OnlineLookupResult,
   SaveResult,
@@ -63,10 +63,11 @@ interface PinnedState {
   compact?: boolean;
   snapshot: LookupSnapshot;
   subLine: string | undefined;
-  nonce: number;
   onClose: (() => void) | undefined;
   onContinueAsk: PopupOpenArgs['onContinueAsk'];
   savedContextId: number | null;
+  vaultId?: string | null;
+  checkingSaved: boolean;
   saving?: boolean;
   saveError?: boolean;
   definition: string | null;
@@ -112,7 +113,6 @@ export function createLookupPopup(opts: {
   const send = opts.send;
   const playerUrl = browser.runtime.getURL('/dictionary-audio.html');
   let pinned: PinnedState | null = null;
-  let nonce = 0;
   let requestCounter = 0;
   // 拖动后的卡片位置（null = 仍锚定右上角），跨渲染保留
   let anchorRect: DOMRect | null = null;
@@ -321,12 +321,13 @@ export function createLookupPopup(opts: {
     const save = document.createElement('button');
     save.className = 'act reading-icon save' + (saved ? ' is-saved' : '');
     save.innerHTML = readingIcon(saved ? 'saved' : 'bookmark');
-    const saveLabel = message(p.saving ? '保存中…' : saved ? '已收藏' : '保存');
+    const saveLabel = message(saved ? '取消收藏' : p.saving ? '保存中…' : '保存');
     setLocalizedAttribute(save, 'title', saveLabel);
     setLocalizedAttribute(save, 'aria-label', saveLabel);
-    save.setAttribute('aria-busy', String(!!p.saving));
-    save.disabled = !!p.saving || saved;
-    save.addEventListener('click', () => void doSave());
+    const busy = p.checkingSaved || !!p.saving;
+    save.setAttribute('aria-busy', String(busy));
+    save.disabled = busy;
+    save.addEventListener('click', () => void toggleSave());
     row.append(save);
 
     if (!p.compact && typeof p.onContinueAsk === 'function') {
@@ -361,7 +362,7 @@ export function createLookupPopup(opts: {
     fb.id = 'blc-feedback';
     fb.setAttribute('role', 'status');
     footer.appendChild(fb);
-    if (p.saveError) setFeedback(false, message('保存失败，请重试'));
+    if (p.saveError) setFeedback(false, message(saved ? '删除失败，重试' : '保存失败，请重试'));
     applyDragPos(card);
   }
 
@@ -447,27 +448,30 @@ export function createLookupPopup(opts: {
 
   async function querySavedContext(): Promise<void> {
     if (!pinned) return;
-    const my = pinned.nonce;
-    const key = pinned.snapshot.lang
-      ? entryKeyOf(pinned.snapshot.lang, pinned.snapshot.expression)
-      : normalizeExpression(pinned.snapshot.expression);
-    const r = await send<{ ok: boolean; entry?: EntryView | null }>({
-      type: 'getEntry',
-      key,
-    });
-    if (!pinned || pinned.nonce !== my) return; // 弹窗已被替换
-    if (r?.ok && r.entry) {
-      const snap = pinned.snapshot;
+    const p = pinned;
+    const snap = p.snapshot;
+    p.checkingSaved = true;
+    p.saveError = false;
+    renderPopup();
+    const key = snap.lang ? entryKeyOf(snap.lang, snap.expression) : normalizeExpression(snap.expression);
+    const r = await send<GetEntryResult>({ type: 'getEntry', key }).catch(() => undefined);
+    if (pinned !== p) return;
+    p.checkingSaved = false;
+    if (!r?.ok) p.saveError = true;
+    else {
+      p.vaultId = r.vaultId;
       const entry = r.entry;
-      const saved = entry.contexts.find(c => {
+      const saved = entry && entry.contexts.find(c => {
         const context = { ...c, entryKey: entry.key };
         return snap.source === 'video'
           ? isDuplicateVideoContext(context, entry.key, snap.video, snap.sentence)
           : isDuplicateContext(context, entry.key, snap.url, snap.sentence);
       });
-      if (saved) { pinned.savedContextId = saved.id; pinned.explanation = saved.explanation; void backfill(pinned); }
-      renderPopup();
+      p.savedContextId = saved?.id ?? null;
+      if (saved?.explanation) p.explanation = saved.explanation;
+      if (saved) void backfill(p);
     }
+    renderPopup();
   }
 
   async function backfill(p: PinnedState): Promise<void> {
@@ -515,16 +519,31 @@ export function createLookupPopup(opts: {
     if (pinned === p) renderPopup();
   }
 
-  async function doSave(): Promise<void> {
-    if (!pinned || pinned.saving || pinned.savedContextId !== null) return;
+  async function toggleSave(): Promise<void> {
+    if (!pinned || pinned.saving || pinned.checkingSaved) return;
     const p = pinned;
+    if (p.vaultId === undefined) {
+      await querySavedContext();
+      if (pinned !== p || p.vaultId === undefined || p.savedContextId !== null) return;
+    }
     p.saving = true;
     p.saveError = false;
     renderPopup();
+    if (p.savedContextId !== null) {
+      const r = await send<{ ok: boolean }>({
+        type: 'deleteVocabContext', contextId: p.savedContextId, vaultId: p.vaultId,
+      }).catch(() => undefined);
+      p.saving = false;
+      if (r?.ok) p.savedContextId = null;
+      else p.saveError = true;
+      if (pinned === p) renderPopup();
+      return;
+    }
     let r: SaveResult | BgcError | undefined;
     try { r = await send<SaveResult | BgcError>({
       type: 'save',
       snapshot: p.snapshot,
+      vaultId: p.vaultId,
       result: p.result,
       explanation: p.explanation,
     }); } catch { r = undefined; }
@@ -594,20 +613,19 @@ export function createLookupPopup(opts: {
     open(args: PopupOpenArgs): void {
       openedAt = performance.timeOrigin + performance.now();
       if (pinned) closePopup(true);
-      nonce++; anchorRect = null;
+      anchorRect = null;
       pinned = {
         snapshot: args.snapshot,
         anchor: args.anchor, compact: args.compact,
         subLine: args.subLine,
-        nonce,
         onClose: args.onClose,
         onContinueAsk: args.onContinueAsk,
         savedContextId: null,
+        checkingSaved: true,
         definition: null,
         note: undefined,
         lookupError: undefined,
       };
-      renderPopup();
       void querySavedContext();
       void requestLookup();
     },

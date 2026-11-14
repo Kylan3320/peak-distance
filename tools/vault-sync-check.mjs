@@ -259,6 +259,64 @@ try {
   assert.equal(merged.note, "在原句里理解。");
   console.log("PASS different-field changes merge across browsers without losing notes or state");
 
+  for (const [writer, reader] of [[chrome, edge], [edge, chrome]]) {
+    const expression = writer === chrome ? 'bookmarking' : 'bookmark';
+    const key = 'en::' + expression;
+    const removed = { source: 'video', expression, sentence: 'Remove this video context.', title: 'Video', lang: 'en',
+      video: { videoId: 'abcdefghijk', trackId: 'en-track', trackKind: 'manual', trackLang: 'en', startMs: 2000 } };
+    const retained = { source: 'web', expression, sentence: 'Keep this web context.', url: 'https://example.com/keep', title: 'Web', lang: 'en' };
+    const newer = { ...retained, url: 'https://example.com/new', sentence: 'Added in the other browser.' };
+    const saved = await writer.evaluate(async ({removed,retained}) => {
+      const {db} = Vault;
+      const saved = await db.saveSnapshot(removed,{status:'known'});
+      await db.saveSnapshot(retained,{});
+      await db.setEntryNote(saved.key,'Keep this note');
+      return saved;
+    }, {removed,retained});
+    for (const page of [writer,reader]) assert.equal((await page.evaluate(() => Vault.synchronizeVault())).error, undefined);
+    assert.equal(await writer.evaluate(id=>Vault.db.backfillDefinition(id,'Definition after first publish'),saved.contextId),true);
+    const retainedId = await reader.evaluate(async key=>(await Vault.db.getEntry(key)).contexts.find(c=>!c.video).id,key);
+    const deleted = await writer.evaluate(async ({key,id}) => {
+      const {db} = Vault;
+      const state = await db.getEntryState(key);
+      return [await db.deleteVocabContext(id,'different-library'), await db.deleteVocabContext(id,state.vaultId),
+        await db.backfillDefinition(id,'Late definition')];
+    }, {key,id:saved.contextId});
+    assert.deepEqual(deleted,[false,true,false]);
+    await reader.evaluate(async ({key,removed,newer}) => {
+      const {db} = Vault;
+      const entry = await db.getEntry(key);
+      const old = entry.contexts.find(c=>c.sentence===removed.sentence);
+      if (!await db.backfillDefinition(old.id,'Late definition on the other browser')) throw new Error('Missing saved context');
+      await db.saveSnapshot(newer,{});
+    }, {key,removed,newer});
+    const first = writer === chrome ? reader : writer;
+    const second = first === writer ? reader : writer;
+    for (const page of [first,second,first,second]) assert.equal((await page.evaluate(() => Vault.synchronizeVault())).error, undefined);
+    for (const page of [chrome,edge]) {
+      const entry = await page.evaluate(key=>Vault.db.getEntry(key),key);
+      assert.deepEqual(entry.contexts.map(c=>c.sentence).sort(),[newer.sentence,retained.sentence].sort());
+      assert.equal(entry.note,'Keep this note');
+      assert.equal(entry.status,'known');
+    }
+    assert.equal(await reader.evaluate(async ({key,retained}) =>
+      (await Vault.db.getEntry(key)).contexts.find(c=>c.sentence===retained.sentence).id,{key,retained}),retainedId);
+    await writer.evaluate(async ({key}) => {
+      const {db} = Vault;
+      const state = await db.getEntryState(key);
+      for (const c of state.entry.contexts) if (!await db.deleteVocabContext(c.id,state.vaultId)) throw new Error('Failed to remove context');
+    }, {key});
+    for (const page of [writer,reader]) assert.equal((await page.evaluate(() => Vault.synchronizeVault())).error, undefined);
+    assert.equal(await reader.evaluate(async key=>(await Vault.db.listIndex()).some(e=>e.key===key),key),false);
+    assert.equal((await writer.evaluate(removed=>Vault.db.saveSnapshot(removed,{}),removed)).appended,true);
+    for (const page of [writer,reader,writer]) assert.equal((await page.evaluate(() => Vault.synchronizeVault())).error, undefined);
+    const entry = await reader.evaluate(key=>Vault.db.getEntry(key),key);
+    assert.deepEqual(entry.contexts.map(c=>c.sentence),[removed.sentence]);
+    assert.equal(entry.note,'Keep this note');
+    assert.equal(entry.status,'known');
+  }
+  console.log('PASS unsaving a vocabulary context propagates from Chrome to Edge and back, preserves notes, status and concurrent additions, and allows explicit re-saving');
+
   async function seedForms(id) {
     await chrome.evaluate(async id => {
       const record = { id, language:'en', expression:id.slice(4), status:'saved', forms:['old-form','keep-form'], note:'', createdAt:1, updatedAt:1, contexts:[] };

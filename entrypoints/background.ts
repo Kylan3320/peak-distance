@@ -23,7 +23,8 @@ import {
   backfillDefinition,
   backfillResult,
   deleteEntry,
-  getEntry,
+  deleteVocabContext,
+  getEntryState,
   listEntriesState,
   listIndex,
   removeForm,
@@ -424,13 +425,14 @@ async function handle(
       if (typeof m.key !== 'string' || !m.key.trim()) return bad('bad-payload', 'key');
       const r: GetEntryResult = {
         ok: true,
-        entry: await getEntry(normalizeEntryKey(m.key)),
+        ...await getEntryState(normalizeEntryKey(m.key)),
       };
       return r;
     }
     case 'save': {
       const snapshot = parseSnapshot(m.snapshot);
       if (!snapshot) return bad('bad-payload', 'snapshot');
+      if (m.vaultId !== undefined && m.vaultId !== null && typeof m.vaultId !== 'string') return bad('bad-payload', 'vaultId');
       if (m.status !== undefined && !isVocabStatus(m.status)) {
         return bad('bad-payload', 'status');
       }
@@ -442,12 +444,21 @@ async function handle(
         definition: m.definition?.slice(0, 2000),
         result: parseResult(m.result),
         explanation: parseExplanation(m.explanation),
-      });
+      }, m.vaultId);
       if (!r) return bad('bad-payload', 'empty-expression');
       const out: SaveResult = r;
       broadcast({ type: 'vocab-changed' });
       queueVaultWriteAfterSave();
       return out;
+    }
+    case 'deleteVocabContext': {
+      if (typeof m.contextId !== 'number' || !Number.isSafeInteger(m.contextId) || m.contextId <= 0 ||
+        (m.vaultId !== null && typeof m.vaultId !== 'string')) return bad('bad-payload');
+      const removed = await deleteVocabContext(m.contextId, m.vaultId);
+      if (!removed) return bad('not-found');
+      broadcast({ type: 'vocab-changed' });
+      queueVaultWriteAfterSave();
+      return { ok: true };
     }
     case 'backfillResult': {
       if (typeof m.contextId !== 'number') return bad('bad-payload');

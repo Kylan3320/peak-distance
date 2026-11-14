@@ -78,6 +78,7 @@ export type BgcRequest =
   | {
       type: 'save';
       snapshot: LookupSnapshot;
+      vaultId?: string | null;
       status?: VocabStatus;
       definition?: string;
       result?: LearningResult;
@@ -85,6 +86,7 @@ export type BgcRequest =
       forms?: string[];
     }
   | { type: 'backfillResult'; contextId: number; result?: LearningResult; explanation?: ContextExplanation }
+  | { type: 'deleteVocabContext'; contextId: number; vaultId: string | null }
   | { type: 'backfillDefinition'; contextId: number; definition: string }
   | { type: 'setStatus'; key: string; status: VocabStatus; vaultId?: string | null } // 落到关联词条
   | { type: 'setNote'; key: string; note: string; vaultId?: string | null } // 个人笔记（学习库“我的笔记”同源）
@@ -169,7 +171,7 @@ export interface EntryView {
   contexts: ContextView[];
 }
 
-export type GetEntryResult = { ok: true; entry: EntryView | null } | BgcError;
+export type GetEntryResult = { ok: true; entry: EntryView | null; vaultId: string | null } | BgcError;
 
 export interface SaveResult {
   ok: true;

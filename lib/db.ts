@@ -36,6 +36,7 @@ import { effectiveEntryLanguage, normalizeLangTag, normalizeExpressionInLanguage
 import { planLegacyLanguage } from '@/shared/vocab';
 import { vaultRecordJson, type VaultIdentity, type VaultPendingWrite, type VaultStatus, type VaultPreferenceRecord } from '@/shared/vault';
 import { entryViewToVaultRecord, sentenceToVaultRecord } from './vault/records';
+import { contextIdentity } from './vault/format';
 import type { VaultVocabRecord } from '@/shared/vault';
 import { knowledgeFromAnswer, knowledgeFromTranslation, translationIdentity, translationBody, type KnowledgeRecord } from '@/shared/knowledge';
 
@@ -239,11 +240,16 @@ async function findEntry(
 export async function saveSnapshot(
   snapshot: LookupSnapshot,
   opts: { status?: VocabStatus; definition?: string; forms?: string[]; result?: LearningResult; explanation?: ContextExplanation },
+  vaultId?: string | null,
 ): Promise<SaveResult | null> {
   return withDb(async (db) => {
     const tx = db.transaction([ENTRIES, CONTEXTS, VAULT, VAULT_QUEUE], 'readwrite');
     const entries = tx.objectStore(ENTRIES);
     const contexts = tx.objectStore(CONTEXTS);
+    if (vaultId !== undefined && vaultId !== await dataVaultId(tx)) {
+      await txDone(tx);
+      return null;
+    }
 
     // 先做纯决策，再在同一事务内落地。键与 planSave 共用同一规范化函数。
     // 已存在词条按候选键解析：裸键（迁移前记录直连）→ 快照语言的作用域键
@@ -299,18 +305,28 @@ export async function saveSnapshot(
 }
 
 export async function getEntry(key: string): Promise<EntryView | null> {
+  return (await getEntryState(key)).entry;
+}
+
+async function dataVaultId(tx: IDBTransaction): Promise<string | null> {
+  const identity = await px(tx.objectStore(VAULT).get('lastIdentity')) as VaultIdentity | undefined;
+  return identity?.vaultId ?? null;
+}
+
+export async function getEntryState(key: string): Promise<{ entry: EntryView | null; vaultId: string | null }> {
   return withDb(async (db) => {
-    const tx = db.transaction([ENTRIES, CONTEXTS], 'readonly');
+    const tx = db.transaction([ENTRIES, CONTEXTS, VAULT], 'readonly');
     const entry = await findEntry(tx, key);
+    const vaultId = await dataVaultId(tx);
     if (!entry) {
       await txDone(tx);
-      return null;
+      return { entry: null, vaultId };
     }
     const contexts = (await px(
       tx.objectStore(CONTEXTS).index('entryKey').getAll(entry.key),
     )) as ContextRecord[];
     await txDone(tx);
-    return toEntryView(entry, contexts);
+    return { entry: toEntryView(entry, contexts), vaultId };
   });
 }
 
@@ -346,10 +362,12 @@ export async function listEntries(query?: string, language?: string): Promise<En
 /** 轻量索引：content script 标记与词形解析用，不含上下文。 */
 export async function listIndex(): Promise<VocabIndexItem[]> {
   return withDb(async (db) => {
-    const tx = db.transaction([ENTRIES], 'readonly');
+    const tx = db.transaction([ENTRIES, CONTEXTS], 'readonly');
     const entries = (await px(tx.objectStore(ENTRIES).getAll())) as VocabEntryRecord[];
+    const index = tx.objectStore(CONTEXTS).index('entryKey');
+    const collected = await Promise.all(entries.map(entry => px(index.getKey(entry.key))));
     await txDone(tx);
-    return entries.map((e) => ({
+    return entries.filter((_, i) => collected[i] !== undefined).map((e) => ({
       key: e.key,
       language: e.language,
       expression: e.expression,
@@ -424,6 +442,23 @@ export async function deleteEntry(key: string, enqueueDeletion = true, expected?
     for (const id of ids) contexts.delete(id);
     entries.delete(key);
     if (enqueueDeletion) await queueDeletedRecord(tx, 'vocab', key);
+    await txDone(tx);
+    return true;
+  });
+}
+
+/** 取消一条原句，保留词条本身的笔记、词形和复习选择。 */
+export async function deleteVocabContext(contextId: number, vaultId: string | null): Promise<boolean> {
+  return withDb(async db => {
+    const tx = db.transaction([ENTRIES, CONTEXTS, VAULT, VAULT_QUEUE], 'readwrite');
+    const contexts = tx.objectStore(CONTEXTS);
+    const context = await px(contexts.get(contextId)) as ContextRecord | undefined;
+    if (vaultId !== await dataVaultId(tx) || !context) {
+      await txDone(tx);
+      return false;
+    }
+    contexts.delete(contextId);
+    await queueCurrentRecord(tx, 'vocab', context.entryKey);
     await txDone(tx);
     return true;
   });
@@ -1173,7 +1208,7 @@ export async function getVaultStatus(): Promise<VaultStatus> {
 
 // ---- 学习库读回：外部记录落库与同步快照（三方合并的 base） ------------------------
 
-/** 外部（Obsidian）记录整体落库：词条替换 + 上下文全量重建（单一事务）。 */
+/** 同步词条，保留仍存在的原句的本机 ID。 */
 export async function importVaultEntry(
   entry: VocabEntryRecord,
   contexts: Omit<ContextRecord, 'id'>[],
@@ -1197,8 +1232,14 @@ export async function importVaultEntry(
       return false;
     }
     entries.put(entry);
-    for (const context of oldContexts) contextStore.delete(context.id!);
-    for (const c of contexts) contextStore.add({ ...c, entryKey: entry.key });
+    const oldByIdentity = new Map(oldContexts.map(context => [contextIdentity(context), context.id!]));
+    const kept = new Set<number>();
+    for (const c of contexts) {
+      const id = oldByIdentity.get(contextIdentity(c));
+      if (id === undefined) contextStore.add(c);
+      else { contextStore.put({ ...c, id }); kept.add(id); }
+    }
+    for (const context of oldContexts) if (!kept.has(context.id!)) contextStore.delete(context.id!);
     await txDone(tx);
     return true;
   });

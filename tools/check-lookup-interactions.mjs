@@ -9,7 +9,8 @@ import { chromium } from 'playwright-core';
 
 const profile = await mkdtemp(join(tmpdir(), 'pd-lookup-interactions-'));
 const context = await chromium.launchPersistentContext(profile, {
-  channel: 'chromium', headless: true,
+  ...(process.env.BLC_CHROME ? { executablePath: process.env.BLC_CHROME } : { channel: 'chromium' }),
+  headless: true,
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
 });
 context.setDefaultTimeout(8000);
@@ -45,7 +46,11 @@ try {
     await page.goto(`https://example.com/lookup?word=${word}`);
     await page.locator('html[data-blc-web]').waitFor();
     await page.locator('#sentence').evaluate((element, word) => {
-      const range = document.createRange(); range.setStart(element.firstChild, 6); range.setEnd(element.firstChild, 6 + word.length);
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let node, offset;
+      while ((node = walker.nextNode()) && (offset = node.textContent.indexOf(word)) < 0) {}
+      if (!node) throw new Error('Word missing from the fixture');
+      const range = document.createRange(); range.setStart(node, offset); range.setEnd(node, offset + word.length);
       getSelection().removeAllRanges(); getSelection().addRange(range); document.dispatchEvent(new Event('selectionchange'));
     }, word);
     await page.getByRole('button', { name: '查词', exact: true }).click();
@@ -54,6 +59,17 @@ try {
   await openWord('fit');
   await card.getByText('受控 AI 释义', { exact: false }).waitFor();
   assert.equal(await worker.evaluate(() => aiCalls), 1);
+  const bookmark = card.locator('.save');
+  await bookmark.click();
+  await card.locator('.save.is-saved:enabled').waitFor();
+  await openWord('fit');
+  await card.locator('.save.is-saved:enabled').click();
+  await card.locator('.save:not(.is-saved):enabled').waitFor();
+  await openWord('fit');
+  await card.locator('.save:not(.is-saved):enabled').waitFor();
+  const entry = await control.evaluate(() => chrome.runtime.sendMessage({type:'getEntry',key:'en::fit'}));
+  assert.equal(entry.entry.contexts.length, 0);
+  console.log('PASS selecting a word and opening its lookup card toggles the current context off; reopening stays unsaved');
   await openWord('fit');
   await card.getByText('受控 AI 释义', { exact: false }).waitFor();
   assert.equal(await worker.evaluate(() => aiCalls), 1);

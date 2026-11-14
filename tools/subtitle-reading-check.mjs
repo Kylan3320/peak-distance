@@ -102,7 +102,7 @@ try {
     window.lookupCalls=0;window.lookupFail=true;
     window.lookup=ReadingTest.createLookupPopup({send:async m=>{
       if(m.type==='save'){window.lookupCalls++;await new Promise(r=>setTimeout(r,90));return window.lookupFail?{ok:false,error:'io'}:{ok:true,key:'en::learning',contextId:1,status:'saved',appended:true};}
-      if(m.type==='getEntry')return {ok:true,entry:null};
+      if(m.type==='getEntry')return {ok:true,entry:null,vaultId:null};
       if(m.type==='lookup')return {ok:false,error:'network'};
       return {ok:true};
     }});
@@ -114,7 +114,7 @@ try {
   await page.evaluate(()=>{window.lookupFail=false;});
   await card.getByRole('button',{name:'收藏',exact:true}).evaluate(el=>{el.click();el.click();});
   await card.locator('.save.is-saved').waitFor();
-  check('lookup repeated click commits once and success uses bookmark state',await page.evaluate(()=>window.lookupCalls===2)&&await card.locator('.save.is-saved').getAttribute('aria-label')==='已收藏');
+  check('lookup repeated click commits once and success enables unsaving',await page.evaluate(()=>window.lookupCalls===2)&&await card.locator('.save.is-saved').getAttribute('aria-label')==='取消收藏');
   check('lookup has no green save-success line',!(await card.locator('#blc-feedback').textContent()).trim());
   await page.screenshot({path:resolve(output,'lookup-saved.png')});
   console.log(`${results.length} focused runtime checks passed.`);
@@ -244,6 +244,29 @@ try {
   check('packaged acquisition recovers into split and cross-fragment sentences',true);
   check('player keeps the original short unit and its platform translation',
     await playerEn.textContent()===playerLine&&await playerZh.textContent()===combinedTranslation);
+  const playerWord = playerEn.locator('.w').filter({hasText:/^society$/});
+  const playerCard = page.locator('#blc-lookup-popup');
+  await playerWord.evaluate(el=>el.click());
+  await playerCard.locator('.save:not(.is-saved):enabled').click();
+  await playerCard.locator('.save.is-saved:enabled').waitFor();
+  await playerCard.locator('.close').click();
+  await playerWord.evaluate(el=>{
+    const range=document.createRange();range.selectNodeContents(el);
+    const selection=el.getRootNode().getSelection();
+    selection.removeAllRanges();selection.addRange(range);
+    el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,composed:true}));
+  });
+  await page.locator('#pd-phrase-actions #lookup').click();
+  await playerCard.locator('.save.is-saved:enabled').click();
+  await playerCard.locator('.save:not(.is-saved):enabled').waitFor();
+  await playerCard.locator('.close').click();
+  await playerWord.evaluate(el=>el.getRootNode().getSelection().removeAllRanges());
+  await page.waitForTimeout(501);
+  await playerWord.evaluate(el=>el.click());
+  await playerCard.locator('.save:not(.is-saved):enabled').waitFor();
+  const wordEntry=await control.evaluate(()=>chrome.runtime.sendMessage({type:'getEntry',key:'en::society'}));
+  check('player word and subtitle selection share a bookmark that stays unsaved on reopen',wordEntry.entry.contexts.length===0);
+  await playerCard.locator('.close').click();
   await control.evaluate(id=>chrome.tabs.sendMessage(id,{type:'pd-panel-show',view:'subs'},{frameId:0}),tabId);
   await page.frameLocator('#pd-floating-panel iframe').locator('#blc-learning-panel .en').first().waitFor();
   const frame=page.frames().find(f=>f.url().includes('/sidepanel.html'));
