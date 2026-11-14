@@ -808,7 +808,7 @@ export function mergePreferenceRecord(base: VaultPreferenceRecord | null, local:
 export type VocabRecordWithNote = VaultVocabRecord & { note?: string | null };
 
 /** 语境身份：视频按 videoId+轨道+起始时间+原文，网页按 URL+原文（与保存去重判定一致）。 */
-export function contextIdentity(c: VaultVocabContext): string {
+export function contextIdentity(c: Pick<VaultVocabContext, 'sentence' | 'url' | 'video'> & { sourceType?: VaultVocabContext['sourceType'] }): string {
   const sentence = collapseWhitespace(c.sentence);
   if (c.sourceType === 'video' && c.video) {
     return `video:${sentenceId(c.video, sentence)}`;
@@ -821,12 +821,16 @@ function contextDetail(c: VaultVocabContext): number {
   return ((c.definition ?? '').trim() ? 1 : 0) + (c.result ? 2 : 0) + (c.explanation ? 2 : 0);
 }
 
-/** 追加型合并：本地顺序优先，文件新增追加；同身份保留信息更完整的一份。 */
-function mergeContexts(local: VaultVocabContext[], file: VaultVocabContext[]): VaultVocabContext[] {
+/** 保留双方新增的原句；任一端移除共同原句时，旧副本或迟到的释义不恢复该原句。 */
+function mergeContexts(base: VaultVocabContext[], local: VaultVocabContext[], file: VaultVocabContext[]): VaultVocabContext[] {
+  const localKeys = new Set(local.map(contextIdentity));
+  const fileKeys = new Set(file.map(contextIdentity));
+  const removed = new Set(base.map(contextIdentity).filter(key => !localKeys.has(key) || !fileKeys.has(key)));
   const merged: VaultVocabContext[] = [];
   const byKey = new Map<string, VaultVocabContext>();
   const add = (c: VaultVocabContext, fileSide: boolean) => {
     const key = contextIdentity(c);
+    if (removed.has(key)) return;
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, c);
@@ -851,7 +855,7 @@ function mergeForms(base: string[], local: string[], file: string[]): string[] {
 
 /**
  * 规则（spec 4.4）：status 双方同改不同值 → 冲突；note 双方都改且不同 → 冲突；
- * 释义/原句追加型差异 → 合并（按语境身份去重，两边都保留）；一方改一方未改 →
+ * 原句按语境身份合并新增和删除；一方改一方未改 →
  * 取改方；两边改成相同 → 一致。base 为 null（无共同祖先）时标量差异按冲突
  * 处理（不按时间或“已掌握优先”裁决）；删除由调用方（FS 层）处理。
  */
@@ -918,7 +922,7 @@ export function mergeVocabRecord(
     ...identity,
     status,
     forms: mergeForms(base?.forms ?? [], local.forms ?? [], file.forms ?? []),
-    contexts: mergeContexts(local.contexts, file.contexts),
+    contexts: mergeContexts(base?.contexts ?? [], local.contexts, file.contexts),
     createdAt: base?.createdAt ?? local.createdAt,
     updatedAt: Math.max(local.updatedAt, file.updatedAt),
   };

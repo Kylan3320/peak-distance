@@ -24,7 +24,7 @@ for(const [name,executablePath] of Object.entries({chrome:'C:/Program Files/Goog
   await page.evaluate(base=>{window.browser={runtime:{id:'test',getURL:p=>base+p,onMessage:{addListener(){}},sendMessage:async()=>({ok:true,settings:{appearanceTheme:'classic'}})}}},base);
   await page.addScriptTag({content:code});
   await page.evaluate(()=>{window.lookup=LookupTest.createLookupPopup({send:async m=>{
-   if(m.type==='getEntry')return new Promise(r=>window.finishEntry=()=>r({ok:true,entry:{key:'en::explicitly',contexts:[]}}));
+   if(m.type==='getEntry')return new Promise(r=>window.finishEntry=()=>r({ok:true,entry:{key:'en::explicitly',contexts:[]},vaultId:null}));
    if(m.type==='lookup')return {ok:true,result:{kind:'dictionary',entry:{source:'cambridge',expression:m.snapshot.expression,headword:m.snapshot.expression,url:'https://dictionary.cambridge.org/dictionary/english-chinese-simplified/explicitly',audioUrl:'https://dictionary.cambridge.org/media/'+(m.source==='youdao'?'test2':'test')+'.mp3',senses:[{definition:'明确地'}]}}};
    if(m.type==='save')return {ok:true,contextId:1};
    if(m.type==='explainContext')return {ok:false,error:'no-key'};
