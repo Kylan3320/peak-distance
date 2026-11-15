@@ -176,9 +176,9 @@ try {
   await web.waitForFunction(()=>document.querySelector('#blc-lookup-pill')?.shadowRoot?.querySelector('#lookup')?.getAttribute('aria-label')==='Nachschlagen');
   await web.locator('#blc-lookup-pill #lookup').click();
   await web.locator('#blc-lookup-popup .save.is-saved').waitFor();
-  assert.equal(await web.locator('#blc-lookup-popup .save.is-saved').getAttribute('aria-label'), 'Gespeichert');
+  assert.equal(await web.locator('#blc-lookup-popup .save.is-saved').getAttribute('aria-label'), 'Nicht mehr speichern');
   await options.locator('#displayLanguage').selectOption('fr');
-  await web.waitForFunction(()=>document.querySelector('#blc-lookup-popup')?.shadowRoot?.querySelector('.save.is-saved')?.getAttribute('aria-label')==='Enregistré');
+  await web.waitForFunction(()=>document.querySelector('#blc-lookup-popup')?.shadowRoot?.querySelector('.save.is-saved')?.getAttribute('aria-label')==='Retirer des favoris');
   assert.equal(await web.locator('#blc-lookup-popup .ctx').innerText(),'Learning makes reading easier.');
   assert.equal(await web.locator('html').getAttribute('lang'),'en');
   await web.locator('#blc-lookup-popup[data-pd-theme=classic]').waitFor();
