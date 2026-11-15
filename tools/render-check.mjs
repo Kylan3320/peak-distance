@@ -94,7 +94,7 @@ function installStub() {
         } else if (msg.type === 'setSetting') {
           window.__settings={...window.__settings,[msg.name]:msg.value};cb({ok:true});window.__broadcast({type:'settings-changed'});
         } else if (msg.type === 'getSettings') {
-          cb({ ok: true, settings: { displayLanguage:'zh-Hans', regularTranslation:'google-gtx', markingEnabled: window.__marking, translationMode: 'regular', ...window.__settings } });
+          cb({ ok: true, settings: { displayLanguage:'zh-Hans',  markingEnabled: window.__marking, translationMode: 'regular', ...window.__settings } });
         } else if (msg.type === 'captionCache') cb({ ok: true, cues: [{ start: 0, dur: 1, text: 'unused' }] });
         else if (msg.type === 'translateCues') {
           window.__translationItems.push(...msg.items);

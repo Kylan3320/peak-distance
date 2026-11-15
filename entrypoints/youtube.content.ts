@@ -52,7 +52,6 @@ import {
 import { buildMarkBuckets, type MarkBucket } from '@/shared/marker';
 import { segmentWords } from '@/shared/tokenize';
 import { normalizeExpressionInLanguage, langDisplayName } from '@/shared/languages';
-import { comprehensionLangFor } from '@/shared/settings';
 import {
   materialFromCandidate,
   sourceKeyOf,
@@ -1184,15 +1183,10 @@ export default defineContentScript({
       settingsFailed = false;
       const next: Settings = { ...DEFAULT_SETTINGS, ...r.settings };
       const previousTarget = targetLangOf();
-      const serviceChanged = translationMode === 'regular' && settings.regularTranslation !== next.regularTranslation;
       settings = next; settingsReady = true;
       const targetChanged = previousTarget !== targetLangOf();
       if (targetChanged) {
         stopTranslation(); clearTranslationResults(); platformState = 'idle';
-      } else if (serviceChanged) {
-        stopFallbackTranslation();
-        failedCues.clear(); failedFragmentCues.clear();
-        queuedInterval = queuedFragment = -1;
       }
       setDisplayLanguage(settings.displayLanguage,browser.i18n.getUILanguage());
       const wasBilingual = bilingualOn;
@@ -1203,12 +1197,11 @@ export default defineContentScript({
       if (bilingualOn) { if (!wasBilingual) sendConfig(); hideNativeCaptions(); ensureCaptionsOn(20); }
       else { if (wasBilingual) cancelSourceAcquisition(); restoreNativeCaptions(); }
       renderBar();
-      if (targetChanged || serviceChanged) { queueRender(); scheduleTranslate(); }
+      if (targetChanged) { queueRender(); scheduleTranslate(); }
     }
 
-    /** 当前内容的理解语言（M11：按源语言覆盖优先；轨道语言缺省用全局默认）。 */
     function targetLangOf(): string {
-      return comprehensionLangFor(settings, lastTrackLang || undefined);
+      return settings.defaultComprehensionLang;
     }
 
     function captionCacheKey(targetLang: string, view: 'groups' | 'fragments'): string {
@@ -1298,22 +1291,21 @@ export default defineContentScript({
       translating = true;
       queueRender();
       const epoch = fallbackEpoch;
-      const service = translationMode === 'regular' ? settings.regularTranslation : undefined;
       requestId = crypto.randomUUID();
       void send<import('@/lib/regularTranslation').RegularCueReply>({
         type: 'translateCues', mode: translationMode, requestId, videoId: currentVideoId, trackId: lastTrackId,
         sourceLang: lastTrackLang || undefined, targetLang: targetLangOf(),
-        items, service,
+        items,
       }).then(r => {
         if (epoch !== fallbackEpoch) return;
         requestId = null; translating = false;
         const deferred = new Set(r?.deferred);
         if (deferred.size) {
           const failure = r.ok ? r.failure : r;
-          fallbackRetryAt = failure?.error === 'native-needs-setup' || failure?.error === 'native-unavailable'
-            ? Infinity : Math.max(Date.now() + 1_000, failure?.retryAt ?? Date.now() + 5_000);
+          fallbackRetryAt = failure?.error === 'extension-context-invalidated' ? Infinity
+            : Math.max(Date.now() + 1_000, failure?.retryAt ?? Date.now() + 5_000);
         } else fallbackRetryAt = 0;
-        const results = new Map(r?.ok ? (r.translations ?? []).filter(result => ids.has(result.id) && result.text).map(result => [result.id, result.text]) : []);
+        const results = new Map(r?.ok ? r.translations.filter(result => ids.has(result.id) && result.text).map(result => [result.id, result]) : []);
         for (const target of targets) {
           const translated = results.get(target.id);
           const output = target.view === 'groups' ? translations : fragmentTranslations;
@@ -1322,9 +1314,9 @@ export default defineContentScript({
           if (deferred.has(target.id)) continue;
           pending.delete(target.index);
           if (translated) {
-            output.set(target.index, translated); failed.delete(target.index);
+            output.set(target.index, translated.text); failed.delete(target.index);
             if (target.view === 'groups') translationSources.set(target.index, translationMode === 'ai' ? tr('AI 翻译')
-              : r?.source === 'browser-native' ? tr('浏览器内置翻译') : tr('Google 常规翻译'));
+              : translated.source === 'browser-native' ? tr('浏览器内置翻译') : tr('Google 常规翻译'));
           } else failed.add(target.index);
         }
         queueRender();

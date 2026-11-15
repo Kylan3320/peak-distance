@@ -8,7 +8,7 @@ import {
   setDisplayLanguage, message, setText, localize, languageLabel, materialLabel, scopeLabel, translate,
 } from '../shared/i18n';
 import { buildChatMessages } from '../shared/chat';
-import { comprehensionLangFor, DEFAULT_SETTINGS, validSetting } from '../shared/settings';
+import { DEFAULT_SETTINGS, validSetting } from '../shared/settings';
 import { MAX_SELECTION_CHARS, selectionError } from '../shared/panel';
 
 for(const [browserLanguage, expected] of [
@@ -25,9 +25,8 @@ for(const locale of DISPLAY_LANGUAGES) {
 }
 assert.ok(isDisplayLanguage('auto'));
 for(const value of ['es','zh',null,42]) assert.equal(isDisplayLanguage(value),false);
-assert.equal(comprehensionLangFor({...DEFAULT_SETTINGS,comprehensionOverrides:{'zh-Hans':'en'}},'zh-TW'),'en');
-const germanSettings={...DEFAULT_SETTINGS,displayLanguage:'de' as const};
-assert.equal(comprehensionLangFor(germanSettings,'en'),'zh-Hans');
+assert.equal(DEFAULT_SETTINGS.defaultComprehensionLang,'zh-Hans');
+assert.ok(!Object.hasOwn(DEFAULT_SETTINGS,'comprehensionOverrides'));
 assert.equal(validSetting('comprehensionOverrides',{en:'en'}),false);
 assert.equal(selectionError(''),'empty-selection');
 assert.equal(selectionError('a'.repeat(MAX_SELECTION_CHARS+1)),'selection-too-long');
@@ -43,7 +42,7 @@ for(const [key, translations] of Object.entries(UI_MESSAGES)) {
   for(const text of translations.slice(2)) assert.ok(!/\p{Script=Han}/u.test(text.replaceAll('知识点.md','')),`${key}: untranslated copy`);
 }
 
-const {document,window}=parseHTML('<html><body><button id="action"></button><textarea id="note">保留解释 {literal}</textarea><select id="choice"><option value="en" selected>English</option></select><details open><summary data-i18n="单独设置"></summary></details><aside></aside></body></html>');
+const {document,window}=parseHTML('<html><body><button id="action"></button><textarea id="note">保留解释 {literal}</textarea><select id="choice"><option value="en" selected>English</option></select><details open><summary data-i18n="翻译设置"></summary></details><aside></aside></body></html>');
 Object.assign(globalThis,{ShadowRoot:window.ShadowRoot});
 const note=document.querySelector<HTMLTextAreaElement>('#note')!;
 const choice=document.querySelector<HTMLSelectElement>('#choice')!;

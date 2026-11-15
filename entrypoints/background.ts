@@ -9,7 +9,7 @@ import type { SelectionSnapshot } from '@/shared/panel';
 import { translateRegularCues } from '@/lib/regularTranslation';
 import { isTranslationService } from '@/shared/translationService';
 import { cached, cacheGet, cachePut, trimCache, clearQueryCache } from '@/lib/onlineCache';
-import { appearanceTheme, comprehensionLangFor, DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
+import { appearanceTheme, DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
 import { resolveDisplayLocale, translate } from '@/shared/i18n';
 import type { LearningResult, ContextExplanation } from '@/shared/vocab';
 // background：词汇 / 翻译消息路由、IndexedDB 存取、AI 请求、广播。
@@ -254,7 +254,7 @@ async function handle(
       if (sourceLang === null || targetLang === null) return bad('bad-payload', 'lang');
       const snapshot = parseTranslationSnapshot(m.snapshot ?? {text:m.text, url:sender.tab?.url ?? '', title:sender.tab?.title ?? ''});
       if (!snapshot || snapshot.text !== m.text) return bad('bad-payload', 'snapshot');
-      return startSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId, snapshot, sourceLang && sourceLang !== 'und' ? sourceLang : 'auto', targetLang ?? 'zh-Hans', m.fresh === true, m.replaceRequestId, () => {broadcast({type:'knowledge-changed'});queueVaultWriteAfterSave();}, getSettings().then(settings => settings.regularTranslation));
+      return startSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId, snapshot, sourceLang && sourceLang !== 'und' ? sourceLang : 'auto', targetLang ?? (await getSettings()).defaultComprehensionLang, m.fresh === true, m.replaceRequestId, () => {broadcast({type:'knowledge-changed'});queueVaultWriteAfterSave();});
     }
     case 'selectionKnowledgeState': {
       const snapshot = parseTranslationSnapshot(m.snapshot);
@@ -284,11 +284,9 @@ async function handle(
       await clearQueryCache(); return {ok:true};
     }
     case 'prepareNativeTranslation': {
-      const source = m.sourceLang === 'auto' || !m.sourceLang ? 'en' : parseLangField(m.sourceLang);
-      const target = parseLangField(m.targetLang);
-      if (!source || !target) return bad('bad-payload', 'lang');
+      if (!sender.url?.startsWith(browser.runtime.getURL(''))) return bad('forbidden-sender');
       const url = new URL(browser.runtime.getURL('/native-translator.html'));
-      url.search = new URLSearchParams({source, target}).toString();
+      url.searchParams.set('target', (await getSettings()).defaultComprehensionLang);
       await browser.tabs.create({url:url.href}); return {ok:true};
     }
     case 'cancelOnline': {
@@ -396,7 +394,7 @@ async function handle(
           const settings = await getSettings();
           // 快照语言缺省按 en（迁移前调用方）；目标 = 调用方指定或按设置解析。
           const sourceLang = snapshot.lang ?? 'en';
-          const targetLang = m.targetLang ?? comprehensionLangFor(settings, sourceLang);
+          const targetLang = m.targetLang ?? settings.defaultComprehensionLang;
           // AI 兜底授权仅主动查词携带；配置快照固定在本次请求（spec 3.3）。
           let aiFallback: LookupRequestContext['aiFallback'];
           if (settings.aiLookupFallback && (intent ?? 'active') === 'active') {
@@ -417,7 +415,7 @@ async function handle(
         if (validateAiProfile(config)) return bad('invalid-config');
         const settings = await getSettings();
         const sourceLang = snapshot.lang ?? 'en';
-        const targetLang = m.targetLang ?? comprehensionLangFor(settings, sourceLang);
+        const targetLang = m.targetLang ?? settings.defaultComprehensionLang;
         return await cached(JSON.stringify(['ai-context', aiCacheScope(config), `${sourceLang}|${targetLang}`, snapshot.expression, snapshot.sentence, neighbors]),
           signal => lookupExpression(config, { expression: snapshot.expression, sentence: snapshot.sentence, neighbors, langs: { source: sourceLang, target: targetLang } }, signal), controller.signal);
       } finally { if (onlineRequests.get(requestKey) === controller) onlineRequests.delete(requestKey); }
@@ -546,7 +544,7 @@ async function handle(
       return r;
     }
     case 'setSetting': {
-      if (typeof m.name !== 'string' || !validSetting(m.name, m.value)) {
+      if (typeof m.name !== 'string' || !Object.hasOwn(DEFAULT_SETTINGS, m.name) || !validSetting(m.name, m.value)) {
         return bad('bad-payload', 'setting');
       }
       await browser.storage.local.set({ [m.name]: m.value });
@@ -607,9 +605,8 @@ async function handle(
           }
           return translations.length ? { ok: true, translations } : bad('bad-response');
         }
-        const cueLangs = { source: sourceLang ?? 'en', target: targetLang ?? 'zh-Hans' };
-        if (m.service !== undefined && !isTranslationService(m.service)) return bad('bad-payload', 'service');
-        return await translateRegularCues(items, controller.signal, cueLangs, m.service ?? (await getSettings()).regularTranslation);
+        const cueLangs = { source: sourceLang ?? 'auto', target: targetLang ?? (await getSettings()).defaultComprehensionLang };
+        return await translateRegularCues(items, controller.signal, cueLangs);
       } finally { if (onlineRequests.get(requestKey) === controller) onlineRequests.delete(requestKey); }
     }
     // ---- M11 学习库 -------------------------------------------------------------

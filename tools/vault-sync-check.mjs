@@ -216,6 +216,30 @@ try {
     assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
     assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
     await checkChatConflicts(chrome, edge);
+  } else if (process.argv.includes('--preference-only')) {
+    assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
+    const prefPath = join(directory, '偏好.md');
+    writeFileSync(prefPath, '默认理解语言: fr\nen -> de\nja -> en\n');
+    await chrome.evaluate(() => Vault.syncFromVault());
+    const record = await chrome.evaluate(async () => {
+      const owner = (await Vault.db.getDataVaultIdentity()).vaultId;
+      const saved = await Vault.db.saveTranslationKnowledge({text:'Keep this excerpt.', url:'https://example.com/saved', title:'Saved'}, 'en', 'fr', owner, 'Conservez cet extrait.', 'en', 'browser-native');
+      await Vault.synchronizeVault();
+      return saved.record;
+    });
+    assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
+    const read = page => page.evaluate(() => browser.storage.local.get(['defaultComprehensionLang','comprehensionOverrides']));
+    assert.deepEqual(await read(edge), {defaultComprehensionLang:'fr',comprehensionOverrides:{en:'de',ja:'en'}});
+    await edge.evaluate(async () => {
+      await browser.storage.local.set({defaultComprehensionLang:'zh-Hans'});
+      await Vault.enqueuePreferenceWrite();
+      await Vault.synchronizeVault();
+    });
+    await chrome.evaluate(() => Vault.syncFromVault());
+    assert.deepEqual(await read(chrome), {defaultComprehensionLang:'zh-Hans',comprehensionOverrides:{en:'de',ja:'en'}});
+    assert.equal(readFileSync(prefPath,'utf8'), '默认理解语言: zh-Hans\nen -> de\nja -> en\n');
+    for (const page of [chrome,edge]) assert.deepEqual(await page.evaluate(() => Vault.db.listKnowledge()), [record]);
+    console.log('PASS Chrome/Edge preference file round trip preserves legacy entries and saved knowledge while syncing the shared target');
   } else if (process.argv.includes('--translation-only')) {
     // Keep this mode limited to the new source and its existing collection lifecycle.
     const snapshot={text:'US policy\nCafé!',url:'https://example.com/translation#section',title:'Translation'};

@@ -1,4 +1,5 @@
 import type { RegularTranslationResult, TranslationLangs } from './regularTranslation';
+import { TRANSLATION_TIMEOUT_MS, untilTranslationAbort } from './translationDeadline';
 
 let creating: Promise<void> | undefined;
 async function ensureDocument() {
@@ -11,26 +12,29 @@ async function ensureDocument() {
   await creating;
 }
 
-export async function requestNativeTranslation(text: string, langs: TranslationLangs, signal?: AbortSignal): Promise<RegularTranslationResult> {
-  if (signal?.aborted) return {ok:false, source:'browser-native', error:'aborted'};
-  try { await ensureDocument(); }
-  catch (error) { return {ok:false, source:'browser-native', error:'native-unavailable', detail:String(error)}; }
-  if (signal?.aborted) return {ok:false, source:'browser-native', error:'aborted'};
-  return new Promise(resolve => {
+export async function requestNativeTranslation(text: string, langs: TranslationLangs, signal: AbortSignal): Promise<RegularTranslationResult> {
+  const deadline = AbortSignal.any([signal, AbortSignal.timeout(TRANSLATION_TIMEOUT_MS)]);
+  let detectedLang: string | undefined;
+  try {
+    deadline.throwIfAborted();
+    await untilTranslationAbort(ensureDocument(), deadline);
+    deadline.throwIfAborted();
     const port = browser.runtime.connect({name:'native-translation'});
-    let settled = false;
-    const finish = (result: RegularTranslationResult) => {
-      if (settled) return;
-      settled = true;
-      signal?.removeEventListener('abort', abort);
-      port.onDisconnect.removeListener(disconnected);
-      port.disconnect(); resolve(result);
-    };
-    const abort = () => finish({ok:false, source:'browser-native', error:'aborted'});
-    const disconnected = () => finish({ok:false, source:'browser-native', error:'native-unavailable'});
-    port.onMessage.addListener(finish); port.onDisconnect.addListener(disconnected);
-    signal?.addEventListener('abort', abort, {once:true});
-    if (signal?.aborted) { abort(); return; }
-    port.postMessage({text, langs});
-  });
+    try {
+      const work = new Promise<RegularTranslationResult>((resolve, reject) => {
+        port.onMessage.addListener((message: RegularTranslationResult | {detected: string}) => {
+          if ('detected' in message) detectedLang = message.detected;
+          else resolve(message);
+        });
+        port.onDisconnect.addListener(() => reject(new Error(browser.runtime.lastError?.message ?? 'Native translation host disconnected')));
+        port.postMessage({text, langs});
+      });
+      return await untilTranslationAbort(work, deadline);
+    } finally { port.disconnect(); }
+  } catch (error) {
+    const detail = String(error);
+    return {ok:false, source:'browser-native', error:signal.aborted ? 'aborted'
+      : /extension context invalidated/i.test(detail) ? 'extension-context-invalidated' : 'native-unavailable',
+      detail, ...(detectedLang ? {detectedLang} : {})};
+  }
 }

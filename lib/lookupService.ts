@@ -7,7 +7,7 @@
 //   失败回退免费译文；悬停／预览／预取永不触发 LLM；
 // - 缓存键随语言对、原文与 AI 配置区分，词典缓存不混入其它语言同形词。
 import { lookupDictionarySource, type DictionarySource } from './onlineDictionary';
-import { queryTranslation, translationCacheKey, type RegularTranslationResult } from './regularTranslation';
+import { queryTranslation, cachedTranslation } from './regularTranslation';
 import { cached, cacheGet } from './onlineCache';
 import { lookupExpression } from './aiClient';
 import type { DictionaryResult } from './onlineDictionary';
@@ -46,9 +46,8 @@ async function freeTranslation(
   expression: string,
   ctx: LookupRequestContext,
   signal?: AbortSignal,
-  service: Settings['regularTranslation'] = 'google-gtx',
 ): Promise<OnlineLookupResult> {
-  const r = await queryTranslation(expression, ctx.lang.source, ctx.lang.target, signal, false, service);
+  const r = await queryTranslation(expression, ctx.lang.source, ctx.lang.target, signal);
   if (r.ok) return { ok: true, result: { kind: 'translation', source: r.source, text: r.text } };
   return { ok: false, error: r.error, detail: r.detail };
 }
@@ -120,10 +119,10 @@ export async function lookupOnline(
     if (allowAi && ctx) {
       const ai = await aiDefinitionFallback(query, { ...ctx, lang }, ctx.aiFallback!.config!, signal);
       if (ai) return ai;
-      const degradedAi: OnlineLookupResult = await freeTranslation(input, { ...ctx, lang }, signal, settings.regularTranslation);
+      const degradedAi: OnlineLookupResult = await freeTranslation(input, { ...ctx, lang }, signal);
       return degradedAi.ok ? { ...degradedAi, degraded: 'ai-failed' } : degradedAi;
     }
-    const base = await freeTranslation(input, { ...ctx, lang }, signal, settings.regularTranslation);
+    const base = await freeTranslation(input, { ...ctx, lang }, signal);
     // 开关开启但未配置：继续免费路径，同时提示需要配置（spec 3.3）。
     if (
       base.ok && ctx?.aiFallback?.enabled && !ctx.aiFallback.config?.apiKey && activeIntent
@@ -148,7 +147,8 @@ export async function lookupOnline(
     if (hit?.ok) return { ok: true, result: { kind: 'dictionary', entry: hit.entry } };
   }
   if (!source && !settings.aiLookupFallback && !ctx?.aiFallback?.enabled) {
-    const hit = await cacheGet<RegularTranslationResult>(translationCacheKey(input, lang.source, lang.target, settings.regularTranslation));
+    const hit = await cachedTranslation(input, lang.source, lang.target);
+    signal?.throwIfAborted();
     if (hit?.ok) return { ok: true, result: { kind: 'translation', source: hit.source, text: hit.text } };
   }
   let failure = 'not-found';
@@ -167,6 +167,6 @@ export async function lookupOnline(
   if (allMissing) return missFallback();
 
   // 词典故障（网络／限流／解析）：标明故障，可尝试免费译文，但不当作未命中触发 AI。
-  const degraded = await freeTranslation(input, { lang, intent: ctx?.intent, sentence: ctx?.sentence, neighbors: ctx?.neighbors }, signal, settings.regularTranslation);
+  const degraded = await freeTranslation(input, { lang, intent: ctx?.intent, sentence: ctx?.sentence, neighbors: ctx?.neighbors }, signal);
   return degraded.ok ? { ...degraded, degraded: 'dictionary-failure' } : { ok: false, error: failure };
 }

@@ -92,9 +92,13 @@ export async function clearQueryCache(): Promise<void> {
   for (const key of pending.keys()) if (ordinary(key)) pending.delete(key);
   persist(); await write;
 }
-export async function cached<T extends { ok: boolean }>(key: string, run: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal, fresh = false): Promise<T> {
+export async function cached<T extends { ok: boolean }>(
+  key: string, run: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal, fresh = false,
+  fallback?: { key: string; used: (result: T) => boolean },
+): Promise<T> {
   signal?.throwIfAborted();
-  const hit = await cacheGet<T>(key);
+  const primary = await cacheGet<T>(key);
+  const hit = primary ?? (!fresh && fallback ? await cacheGet<T>(fallback.key) : undefined);
   signal?.throwIfAborted();
   if (hit && !fresh) return hit;
   let task = fresh ? undefined : pending.get(key);
@@ -104,7 +108,15 @@ export async function cached<T extends { ok: boolean }>(key: string, run: (signa
     task = { controller, cacheable:true, users: new Set(), result: Promise.resolve() };
     const current = task;
     task.result = Promise.resolve().then(() => run(controller.signal)).then(result => {
-      if (result.ok && !controller.signal.aborted && pending.get(key) === current && (!ordinary(key) || epoch === queryEpoch)) void cachePut(key, result, () => current.cacheable && !controller.signal.aborted && (!ordinary(key) || epoch === queryEpoch));
+      if (result.ok && !controller.signal.aborted && pending.get(key) === current && (!ordinary(key) || epoch === queryEpoch)) {
+        const resultKey = fallback?.used(result) ? fallback.key : key;
+        void cachePut(resultKey, result, () => {
+          if (!current.cacheable || controller.signal.aborted || ordinary(key) && epoch !== queryEpoch) return false;
+          // A successful refresh replaces the previous direction's result, even after a service change.
+          if (fresh && fallback) delete records[resultKey === key ? fallback.key : key];
+          return true;
+        });
+      }
       return result;
     }).finally(() => { if (pending.get(key) === current) pending.delete(key); });
     pending.set(key, task);
@@ -117,7 +129,11 @@ export async function cached<T extends { ok: boolean }>(key: string, run: (signa
       current.users.delete(user);
       if (!current.users.size && pending.get(key) === current) { pending.delete(key); current.controller.abort(); }
     };
-    const abort = () => { release(); reject(new DOMException('Cancelled', 'AbortError')); };
+    const abort = () => {
+      release();
+      if (!current.users.size) current.controller.abort();
+      reject(new DOMException('Cancelled', 'AbortError'));
+    };
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) { abort(); return; }
     void current.result.then(resolve, reject).finally(release);
