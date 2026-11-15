@@ -20,6 +20,7 @@ export interface WorkspaceState {
   translations: Map<number, string>;
   statuses: Map<string, string>;
   sentences: SavedSentence[];
+  sentenceVaultId?: string | null;
   savedCount: number;
   notice: string;
   chinese: boolean;
@@ -73,7 +74,7 @@ export function createYoutubeWorkspace(actions: {
   words: (parent: HTMLDivElement, text: string) => void;
   seek: (row: SubtitleRowRef, play?: boolean) => void;
   lookup: (word: string, row: SubtitleRowRef, anchor: HTMLElement) => void;
-  save: (row: SubtitleRowRef) => Promise<{ok:boolean}>;
+  save: (row: SubtitleRowRef, vaultId: string | null, removeId: string | null) => Promise<{ok:boolean}>;
   ask: (row: SubtitleRowRef) => void;
 }, mount: HTMLElement) {
   const host = document.createElement('aside'); host.id = 'blc-learning-panel';
@@ -130,20 +131,25 @@ export function createYoutubeWorkspace(actions: {
   const isSaved = (index:number) => confirmedSaves.get(cueId(index)) ?? storedSaved(index);
   function updateSaveButton(index:number, b:HTMLButtonElement) {
     const saved=isSaved(index), busy=pendingSaves.has(cueId(index));
+    b.disabled=busy||state.sentenceVaultId===undefined;
     if (b.getAttribute('aria-pressed') === String(saved) && b.getAttribute('aria-busy') === String(busy)) return;
-    b.classList.toggle('is-saved',saved); b.disabled=busy; b.setAttribute('aria-busy',String(busy)); b.setAttribute('aria-pressed',String(saved));
+    b.classList.toggle('is-saved',saved); b.setAttribute('aria-busy',String(busy)); b.setAttribute('aria-pressed',String(saved));
     const label=message(busy?'保存中…':saved?'取消收藏':'收藏整句');
     setLocalizedAttribute(b,'title',label);setLocalizedAttribute(b,'aria-label',label);
   }
   async function toggleSave(ref: SubtitleRowRef, b:HTMLButtonElement, error:HTMLElement) {
     if (ref.generation !== identity()) return;
+    const { sentenceVaultId } = state;
+    if (sentenceVaultId === undefined) return;
     const index = ref.index;
     const key=cueId(index); if(pendingSaves.has(key))return;
     const wasSaved=isSaved(index), savedIdentity=identity();
     pendingSaves.add(key); error.hidden=true; updateSaveButton(index,b);
-    let result:{ok:boolean};try {result=await actions.save(ref);}catch {result={ok:false};}
+    const removeId = wasSaved ? bookmarks[index]!.saved?.id ?? key : null;
+    let result:{ok:boolean};try {result=await actions.save(ref,sentenceVaultId,removeId);}catch {result={ok:false};}
     pendingSaves.delete(key);
     if(identity()!==savedIdentity||!b.isConnected)return;
+    if(state.sentenceVaultId!==sentenceVaultId){updateSaveButton(index,b);return;}
     if(result.ok) {
       // Awaited persistence is authoritative even before the next library poll.
       if(storedSaved(index)!==!wasSaved)confirmedSaves.set(key,!wasSaved);else confirmedSaves.delete(key);
@@ -298,6 +304,7 @@ export function createYoutubeWorkspace(actions: {
     restore(value: {tab?:string;follow?:boolean;top?:number}) { if(value.tab && ['subs','words','saved'].includes(value.tab))tab=value.tab;follow=value.follow!==false;render();setScroll(value.top??0); },
     update(next: WorkspaceState) {
       next = {...next, statuses:stableWorkspaceMap(state?.statuses, next.statuses), translations:stableWorkspaceMap(state?.translations, next.translations)};
+      if (state && state.sentenceVaultId !== next.sentenceVaultId) { confirmedSaves.clear(); lastSavedSentences=undefined; }
       if (!state || next.generation !== state.generation || next.cues !== state.cues || next.sentences !== state.sentences) {
         bookmarks = matchSentenceBookmarks(next.videoRef, next.cues, next.sentences);
       }

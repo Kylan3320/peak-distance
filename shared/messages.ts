@@ -64,7 +64,7 @@ export type BgcRequest =
   | { type: 'prepareNativeTranslation'; sourceLang?: string; targetLang?: string }
   | { type: 'cancelOnline'; requestId: string }
   | { type: 'subtitleMode'; videoId: string; mode?: 'regular' | 'ai'; autoPause?: boolean }
-  | { type: 'saveSentence'; sentence: import('./vocab').SavedSentence; range?: import('./vocab').SentenceRange }
+  | { type: 'saveSentence'; sentence: Omit<import('./vocab').SavedSentence, 'id' | 'createdAt'>; range?: import('./vocab').SentenceRange; vaultId?: string | null }
   | { type: 'listSentences' }
   | { type: 'listKnowledge' }
   | { type: 'saveKnowledge'; chatId: string; messageId: string; title: string; body: string; vaultId: string | null }
@@ -240,7 +240,8 @@ export interface SubtitleRowRef {
 
 export type SubtitleRowOperation =
   | { action: 'seek'; play?: boolean }
-  | { action: 'save' | 'validate' }
+  | { action: 'save'; vaultId: string | null; removeId: string | null }
+  | { action: 'validate' }
   | { action: 'lookup'; word: string }
   | { action: 'pauseLookup' | 'resumeLookup'; token: string };
 

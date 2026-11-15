@@ -946,12 +946,18 @@ export async function upsertVaultKnowledge(record: KnowledgeRecord, expected: Kn
 }
 
 // 句子收藏与词条独立，确定 ID 使重复保存自然覆盖同一项。
-export async function saveSentence(sentence: SavedSentence): Promise<void> {
+export async function saveSentence(sentence: SavedSentence, vaultId?: string | null): Promise<boolean> {
   return withDb(async db => {
     const tx = db.transaction(['sentences', VAULT, VAULT_QUEUE], 'readwrite');
-    tx.objectStore('sentences').put(sentence);
+    const store = tx.objectStore('sentences');
+    if (vaultId !== undefined) {
+      if (vaultId !== await dataVaultId(tx)) { await txDone(tx); return false; }
+      if (await px(store.getKey(sentence.id)) !== undefined) { await txDone(tx); return true; }
+    }
+    store.put(sentence);
     await queueCurrentRecord(tx, 'sentence', sentence.id);
     await txDone(tx);
+    return true;
   });
 }
 
@@ -984,7 +990,9 @@ export async function deleteSentence(id: string, enqueueDeletion = true, expecte
         return false;
       }
     }
-    tx.objectStore('sentences').delete(id);
+    const store = tx.objectStore('sentences');
+    if (enqueueDeletion && await px(store.getKey(id)) === undefined) { await txDone(tx); return true; }
+    store.delete(id);
     if (enqueueDeletion) await queueDeletedRecord(tx, 'sentence', id);
     await txDone(tx);
     return true;

@@ -694,7 +694,8 @@ function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['c
     trackLang:state.trackLang||undefined,
     cues,current:state.currentIndex,translations:stableWorkspaceMap(cachedVideo?.translations,new Map(state.cues.filter(c=>c.zh).map(c=>[c.id,c.zh!]))),
     statuses:library?.statuses??cachedVideo?.statuses??new Map<string,string>(),
-    sentences:library?.sentences??cachedVideo?.sentences??[],
+    sentences:videoCollection?.videoId===state.videoId ? library?.sentences??videoCollection.sentences : [],
+    sentenceVaultId:videoCollection?.videoId===state.videoId ? videoCollection.vaultId : undefined,
     savedCount:videoCollection?.videoId===state.videoId
       ? videoCollection.entries.length+videoCollection.sentences.length+videoCollection.knowledge.length : 0,
     notice:state.notice,chinese:state.chineseVisible!==false};
@@ -829,7 +830,7 @@ const videoWorkspace=createYoutubeWorkspace({
   },
   words:(parent,text)=>{const lang=((cachedVideo?.trackLang||subsState?.trackLang)||'en').split('-')[0]!;let last=0;for(const s of segmentWords(text,lang)){if(s.start>last)parent.append(document.createTextNode(text.slice(last,s.start)));const w=el('span','w',s.text);w.tabIndex=0;w.setAttribute('role','button');w.style.userSelect='text';parent.append(w);last=s.end;}if(last<text.length)parent.append(document.createTextNode(text.slice(last)));},
   seek:(ref,play)=>void videoAction(ref,{action:'seek',play}),lookup:(word,ref,anchor)=>void openPanelWord(word,ref,anchor,false),
-  save:ref=>videoAction(ref,{action:'save'}),ask:ref=>void askFromRow(ref),
+  save:(ref,vaultId,removeId)=>videoAction(ref,{action:'save',vaultId,removeId}),ask:ref=>void askFromRow(ref),
 },document.getElementById('video-workspace')!);
 const videoSaved = el('div','video-saved');
 videoWorkspace.host.append(videoSaved);
