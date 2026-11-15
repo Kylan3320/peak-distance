@@ -10,6 +10,7 @@
 import {
   applyVocabToDocument,
   applySentenceToDocument,
+  applyPreferenceToDocument,
   contextIdentity,
   parseVocabDocument,
   serializePreferenceRecord,
@@ -414,18 +415,20 @@ export { parseChatDocument, parseMaterialDocument };
 
 export async function writePreferenceToVault(
   dir: DirHandle,
-  pref: { defaultComprehensionLang: string; comprehensionOverrides: Record<string, string> },
+  pref: VaultPreferenceRecord,
+  source: string | null = null,
 ): Promise<void> {
-  await writeTextFile(dir, ['偏好.md'], serializePreferenceRecord(pref));
+  const next = source === null ? serializePreferenceRecord(pref) : applyPreferenceToDocument(pref, source);
+  if (next !== source) await writeTextFile(dir, ['偏好.md'], next, source);
 }
 
-export async function readPreferenceFromVault(dir: DirHandle): Promise<VaultPreferenceRecord | null> {
+export async function readPreferenceFromVault(dir: DirHandle): Promise<{ preference: VaultPreferenceRecord; source: string } | null> {
   const read = await readTextFile(dir, ['偏好.md']);
   if ('failed' in read) throw new Error('io: 偏好.md');
   if ('missing' in read) return null;
   const parsed = parsePreferenceDocument(read.text);
   if (!validSetting('defaultComprehensionLang', parsed.defaultComprehensionLang) || !validSetting('comprehensionOverrides', parsed.comprehensionOverrides)) throw new Error('format: 偏好.md');
-  return { defaultComprehensionLang: parsed.defaultComprehensionLang, comprehensionOverrides: parsed.comprehensionOverrides };
+  return { source: read.text, preference: { defaultComprehensionLang: parsed.defaultComprehensionLang, comprehensionOverrides: parsed.comprehensionOverrides } };
 }
 
 // ---- 读取（解析受管文件 → 记录清单；调用方与本地对账） -----------------------------

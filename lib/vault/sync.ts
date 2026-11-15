@@ -49,6 +49,7 @@ import {
   markVaultWriteAttempt,
   putVaultRaw,
   removeVaultWrite,
+  retainDeletedKnowledgeConflict,
   setSyncSnapshot,
   setVaultIdentity,
   stageVocabPublications,
@@ -152,14 +153,9 @@ async function flushCollectionWrites(handle: DirHandle, queue: VaultPendingWrite
           const previous = edit.knowledge(write.recordId);
           const baseRaw = await getSyncSnapshot(key);
           const base = baseRaw ? JSON.parse(baseRaw) as KnowledgeRecord : null;
-          if (edit.deletedKnowledge.includes(write.recordId)) {
-            if(write.payload)await markVaultWriteAttempt(write,'conflict: deleted knowledge');
-            await removeVaultWrite(write);
-            if (await deleteKnowledge(write.recordId, false, write.payload as KnowledgeRecord | null)) await deleteSyncSnapshot(key);
-            if(write.payload) {
-              await putVaultRaw(`conflict:${key}`, { kind, recordId:write.recordId, local:write.payload, remote:null });
-              result.failed++;result.error='conflict';
-            }
+          if (record && edit.deletedKnowledge.includes(write.recordId)) {
+            await retainDeletedKnowledgeConflict(write);
+            await fail(write, new Error('conflict: deleted knowledge'));
             continue;
           }
           const outcome = record && previous ? mergeKnowledge(base, record as KnowledgeRecord, previous) : null;
@@ -261,14 +257,15 @@ async function flushPendingWrites(): Promise<FlushResult> {
       } else if (w.kind === 'preference') {
         const local = w.payload as VaultPreferenceRecord;
         if (vaultRecordJson(await readLocalPreference()) !== vaultRecordJson(local)) { await removeVaultWrite(w); skipped++; continue; }
-        const file = await readPreferenceFromVault(handle);
+        const document = await readPreferenceFromVault(handle);
+        const file = document?.preference;
         const base = await getSyncSnapshot('preference:main');
         const outcome = file ? mergePreferenceRecord(base ? JSON.parse(base) : null, local, file) : { kind: 'merged' as const, value: local };
         if (outcome.kind === 'conflict') {
           await putVaultRaw('conflict:preference', { kind: 'preference', recordId: 'preference', local, remote: file, fields: outcome.fields });
           await markVaultWriteAttempt(w, 'conflict'); failed++; error = 'conflict'; continue;
         }
-        await writePreferenceToVault(handle, outcome.value);
+        await writePreferenceToVault(handle, outcome.value, document?.source ?? null);
         await setSyncSnapshot('preference:main', vaultRecordJson(outcome.value));
         const now = await readLocalPreference();
         if (vaultRecordJson(now) === vaultRecordJson(local)) await storageLocal().set({ ...outcome.value });
@@ -544,7 +541,7 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
   }
 
   if (!pendingKeys.has('preference:preference')) {
-    const file = await readPreferenceFromVault(handle);
+    const file = (await readPreferenceFromVault(handle))?.preference;
     if (file) {
       const local = await readLocalPreference();
       const baseRaw = await getSyncSnapshot('preference:main');

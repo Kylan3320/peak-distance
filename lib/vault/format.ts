@@ -31,11 +31,12 @@ import {
   type VideoRef,
   type VocabStatus,
 } from '@/shared/vocab';
-import type {
-  VaultPreferenceRecord,
-  VaultSentenceRecord,
-  VaultVocabContext,
-  VaultVocabRecord,
+import {
+  vaultRecordJson,
+  type VaultPreferenceRecord,
+  type VaultSentenceRecord,
+  type VaultVocabContext,
+  type VaultVocabRecord,
 } from '@/shared/vault';
 
 // ===== 受管块标题 =====
@@ -752,6 +753,38 @@ export interface ParsedPreferenceDocument {
   unknown: string[];
 }
 
+const PREFERENCE_DEFAULT = /^默认理解语言:[ \t]*(\S.*)$/;
+const PREFERENCE_OVERRIDE = /^([A-Za-z][A-Za-z0-9_-]*) ->[ \t]*(\S.*)$/;
+
+export function applyPreferenceToDocument(pref: VaultPreferenceRecord, source: string): string {
+  const bom = source.startsWith('\uFEFF') ? '\uFEFF' : '';
+  const eol = source.match(/\r\n|\n|\r/)?.[0] ?? '\n';
+  const lines = source.slice(bom.length).match(/[^\r\n]*(?:\r\n|\n|\r)|[^\r\n]+$/g) ?? [];
+  const seen = new Set<string>();
+  let sawDefault = false;
+  let text = lines.map(raw => {
+    const line = raw.replace(/(?:\r\n|\n|\r)$/, '');
+    const ending = raw.slice(line.length);
+    const def = line.match(PREFERENCE_DEFAULT);
+    if (def) {
+      sawDefault = true;
+      return def[1]!.trim() === pref.defaultComprehensionLang ? raw : `默认理解语言: ${pref.defaultComprehensionLang}${ending}`;
+    }
+    const rule = line.match(PREFERENCE_OVERRIDE);
+    if (!rule) return raw;
+    const key = rule[1]!;
+    const target = Object.hasOwn(pref.comprehensionOverrides, key) ? pref.comprehensionOverrides[key] : undefined;
+    if (target === undefined) return '';
+    seen.add(key);
+    return rule[2]!.trim() === target ? raw : `${key} -> ${target}${ending}`;
+  }).join('');
+  const additions = Object.keys(pref.comprehensionOverrides).sort().filter(key => !seen.has(key))
+    .map(key => `${key} -> ${pref.comprehensionOverrides[key]}`);
+  if (!sawDefault) additions.unshift(`默认理解语言: ${pref.defaultComprehensionLang}`);
+  if (additions.length) text += (text && !/[\r\n]$/.test(text) ? eol : '') + additions.join(eol) + eol;
+  return bom + text;
+}
+
 /** 缺失条目用默认值（spec 4.2）：默认理解语言缺省为 zh-Hans，覆盖列表缺省为空。 */
 export function parsePreferenceDocument(text: string): ParsedPreferenceDocument {
   const overrides: Record<string, string> = {};
@@ -759,12 +792,12 @@ export function parsePreferenceDocument(text: string): ParsedPreferenceDocument 
   let def: string | null = null;
   for (const raw of text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n')) {
     if (raw.trim() === '') continue;
-    const d = raw.match(/^默认理解语言:[ \t]*(\S.*)$/);
+    const d = raw.match(PREFERENCE_DEFAULT);
     if (d) {
       def = d[1]!.trim();
       continue;
     }
-    const o = raw.match(/^([A-Za-z][A-Za-z0-9_-]*) ->[ \t]*(\S.*)$/);
+    const o = raw.match(PREFERENCE_OVERRIDE);
     if (o) {
       overrides[o[1]!] = o[2]!.trim();
       continue;
@@ -816,35 +849,35 @@ export function contextIdentity(c: Pick<VaultVocabContext, 'sentence' | 'url' | 
   return JSON.stringify(['web', c.url, sentence]);
 }
 
-/** 信息量：带释义/结果/解释的副本优先保留（去重时双方同身份取更完整的一份）。 */
-function contextDetail(c: VaultVocabContext): number {
-  return ((c.definition ?? '').trim() ? 1 : 0) + (c.result ? 2 : 0) + (c.explanation ? 2 : 0);
-}
-
 /** 保留双方新增的原句；任一端移除共同原句时，旧副本或迟到的释义不恢复该原句。 */
-function mergeContexts(base: VaultVocabContext[], local: VaultVocabContext[], file: VaultVocabContext[]): VaultVocabContext[] {
+function mergeContexts(
+  base: VaultVocabContext[], local: VaultVocabContext[], file: VaultVocabContext[],
+  conflicts: { field: string; local: unknown; file: unknown }[],
+): VaultVocabContext[] {
+  const before = new Map(base.map(context => [contextIdentity(context), context]));
   const localKeys = new Set(local.map(contextIdentity));
   const fileKeys = new Set(file.map(contextIdentity));
-  const removed = new Set(base.map(contextIdentity).filter(key => !localKeys.has(key) || !fileKeys.has(key)));
-  const merged: VaultVocabContext[] = [];
-  const byKey = new Map<string, VaultVocabContext>();
-  const add = (c: VaultVocabContext, fileSide: boolean) => {
-    const key = contextIdentity(c);
-    if (removed.has(key)) return;
-    const existing = byKey.get(key);
-    if (!existing) {
-      byKey.set(key, c);
-      merged.push(c);
-      return;
+  const merged = new Map(local.map(context => [contextIdentity(context), context]));
+  for (const remote of file) {
+    const key = contextIdentity(remote);
+    const previous = before.get(key);
+    const here = merged.get(key);
+    if (!here) {
+      if (!previous) merged.set(key, remote);
+      continue;
     }
-    if (fileSide && contextDetail(c) > contextDetail(existing)) {
-      byKey.set(key, c);
-      merged[merged.indexOf(existing)] = c;
+    const context = { ...here };
+    for (const field of ['definition', 'result', 'explanation'] as const) {
+      const baseValue = vaultRecordJson(previous?.[field] ?? null);
+      const localValue = vaultRecordJson(here[field] ?? null);
+      const fileValue = vaultRecordJson(remote[field] ?? null);
+      if (localValue === fileValue || fileValue === baseValue) continue;
+      if (localValue === baseValue) Object.assign(context, { [field]: remote[field] });
+      else conflicts.push({ field: `contexts.${key}.${field}`, local: here[field], file: remote[field] });
     }
-  };
-  for (const c of local) add(c, false);
-  for (const c of file) add(c, true);
-  return merged;
+    merged.set(key, context);
+  }
+  return [...merged].filter(([key]) => !before.has(key) || localKeys.has(key) && fileKeys.has(key)).map(([, context]) => context);
 }
 
 function mergeForms(base: string[], local: string[], file: string[]): string[] {
@@ -915,6 +948,7 @@ export function mergeVocabRecord(
     }
   }
 
+  const contexts = mergeContexts(base?.contexts ?? [], local.contexts, file.contexts, conflicts);
   if (conflicts.length > 0) return { kind: 'conflict', fields: conflicts };
 
   const value: VocabRecordWithNote = {
@@ -922,7 +956,7 @@ export function mergeVocabRecord(
     ...identity,
     status,
     forms: mergeForms(base?.forms ?? [], local.forms ?? [], file.forms ?? []),
-    contexts: mergeContexts(base?.contexts ?? [], local.contexts, file.contexts),
+    contexts,
     createdAt: base?.createdAt ?? local.createdAt,
     updatedAt: Math.max(local.updatedAt, file.updatedAt),
   };
