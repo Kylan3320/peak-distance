@@ -296,9 +296,14 @@ export async function editCollection(dir: DirHandle, kind: CollectionKind) {
     source = text;
   };
   return {
+    document(id: string): string | null { return documents.get(id) ?? null; },
     vocab(id: string): VaultVocabRecord | null {
       const text = documents.get(id);
       return text === undefined ? null : vocabRecord(text, data);
+    },
+    sentence(id: string): VaultSentenceRecord | null {
+      const text = documents.get(id);
+      return text === undefined ? null : sentenceRecord(text, data);
     },
     knowledge(id: string): KnowledgeRecord | null { const text = documents.get(id); return text === undefined ? null : parseKnowledge(text); },
     deletedKnowledge: data.deletedKnowledge,
