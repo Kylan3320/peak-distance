@@ -2,7 +2,7 @@
 
 ## 1. 目标与执行边界
 
-浮窗与摘录收藏随 v0.6.9 交付，内置翻译随 v0.69.1 交付。待验项见 [ROADMAP](../ROADMAP.md)。2026-11-06 的[整体前端改造](ui-refresh.md)将纸感及固定蓝色修订为主题样式；本文的请求、首帧原文、拖动、收藏与关闭合同继续有效。
+本文维护选区翻译、摘录收藏、请求与缓存规则。界面主题见[设计规范](../../design.md)。
 
 目标：选中内容后及时看到翻译、移开浮窗继续阅读、一键收藏到当前学习库，并能重新找到；查询缓存有期限、有容量上限，与收藏记录独立。
 
@@ -109,7 +109,7 @@
 
 ### 5.2 Google 连接预热
 
-未采用。首次配对测量改善约 9.8%，低于门槛。第二次 HEAD 超时，正式请求未复用连接。[实验方法与数据](https://github.com/Kylan3320/peak-distance/blob/e7109d3a2af3d8d22fed31281beedfeb4e0b1072/docs/specs/translation-learning.md#52-google-连接预热的保留条件)。
+未采用 Google 连接预热。[实验方法与数据](https://github.com/Kylan3320/peak-distance/blob/e7109d3a2af3d8d22fed31281beedfeb4e0b1072/docs/specs/translation-learning.md#52-google-连接预热的保留条件)。
 
 ## 6–7. 检查入口
 

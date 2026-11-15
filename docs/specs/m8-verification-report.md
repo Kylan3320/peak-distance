@@ -32,7 +32,7 @@ M8 定向检查入口为 `npm run check-m8`。
 - 本轮较早的真实 Google 常规翻译请求成功返回中文；最后独立复查返回 HTTP 429。见 live-translation.json（本机 `.upstream/m8/live-translation.json`）。这是供应商限流，不能将受控翻译结果视为当前真实服务可用。
 - Google 限流时保留原文并提供重试，不自动转 AI。真实 AI 服务质量未在本轮复测；SSE 检查使用临时测试 key 和受控响应。
 - 浏览器工具策略禁止打开用户 Chrome 的扩展管理页，未替用户重新加载扩展。本轮未在已登录 Chrome 中复验真实 YouTube 观看、125% 浏览器缩放或动态视频画面的长期可读性。
-- 原 M6 的逐来源时间对齐与缓存网络归因剩余出口继续保留，见 [ROADMAP](../ROADMAP.md)。
+- 逐来源时间对齐与缓存网络归因归于[当时的 M6 验证边界](m6-verification-report.md)。
 
 ## 用户 Chrome 复验入口
 

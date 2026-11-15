@@ -1,6 +1,6 @@
 # M11：多语言学习与本地 Markdown 学习库
 
-多语言和共享学习库的行为规格。第 6 节列出待实现目标及验收条件。[ROADMAP](../ROADMAP.md)维护排期、已复现缺陷和待实机验证项。
+多语言和共享学习库的行为规格。第 6 节维护尚待排期的目标及验收条件。
 
 ## 1. 目标与范围
 
@@ -123,9 +123,11 @@
 | 同一字段改成相同结果 | 视为一致 |
 | 同一状态改成不同值，或同段笔记被双方修改 | 报告冲突并保留双方内容 |
 
-删除与修改相撞的已知缺陷见 [ROADMAP](../ROADMAP.md#已复现缺陷)。跨程序写入边界见 [ARCHITECTURE](../ARCHITECTURE.md#多语言与本地学习库边界)。
+删除与修改相撞的实现缺口见[词条与收藏句删除](https://github.com/Kylan3320/peak-distance/issues/3)。跨程序写入边界见 [ARCHITECTURE](../ARCHITECTURE.md#多语言与本地学习库边界)。
 
-### 4.5 完整聊天与材料
+#词形三方合并沿用共同基准。基准已有的词形任一端移除即移除，双方新增取并集；无基准时保留两边值。发布与读回复用同一规则。
+
+## 4.5 完整聊天与材料
 
 - 每条历史消息保留角色、文本、次序、时间、完成／停止／失败／中断状态；保留解释标记和现有可用来源信息。材料、引用段落、范围、视频位置与对应轮次共同保存。
 - 完整历史是全部已持久化历史，不是请求模型时裁剪后的最近几轮。材料只保存当时实际捕获／提交的范围，不重新联网扩成全文。
@@ -155,4 +157,4 @@
 
 ## 7. 验收证据
 
-[M11 验收报告](m11-verification-report.md)记录早期模块与受控浏览器结果，[集合同步规格](vault-collections-sync.md#验证)记录后续格式与双向同步验证。阶段证据见[原用例矩阵](https://github.com/Kylan3320/peak-distance/blob/356da234221b64f001666ee639931ff448fd05f5/docs/specs/m11-multilingual-local-vault.md#8-阶段验收用例)与[问答并发读回复现及回归](https://github.com/Kylan3320/peak-distance/commit/7f53d4803ba915b18c795ba4c1952fe9d065b2aa)。用户原生目录和 Obsidian 的验收条件见 [ROADMAP](../ROADMAP.md#待实机验证)。
+[M11 验收报告](m11-verification-report.md)记录早期模块与受控浏览器结果，[集合同步规格](vault-collections-sync.md#验证)记录后续格式与双向同步验证。阶段证据见[原用例矩阵](https://github.com/Kylan3320/peak-distance/blob/356da234221b64f001666ee639931ff448fd05f5/docs/specs/m11-multilingual-local-vault.md#8-阶段验收用例)与[问答并发读回复现及回归](https://github.com/Kylan3320/peak-distance/commit/7f53d4803ba915b18c795ba4c1952fe9d065b2aa)。用户已在日常使用中验证原生目录与 Obsidian 链路，见[当时核对范围](https://github.com/Kylan3320/peak-distance/blob/0e53ada6b8211ac1c5ef3f33dfddba6161649f97/docs/ROADMAP.md#待实机验证)。

@@ -1,28 +1,8 @@
-# 当前任务与待验项
+# 路线图
 
-## 下一项
+按优先顺序列出当前阶段和下一阶段。单项缺陷、复现及关闭条件见 [GitHub Issues](https://github.com/Kylan3320/peak-distance/issues)。
 
-修复 P1「删除词条丢笔记或复活词条」。
-
-## 已复现缺陷
-
-| 优先级与缺陷 | 复现条件 | 关闭条件 |
+| 优先顺序 | 阶段目标 | 准出条件 |
 | --- | --- | --- |
-| P1 删除词条丢笔记或复活词条 | 两端从同一版本起步，一端删除，另一端改笔记，交换提交顺序 | 两种顺序均报告冲突，保留可恢复的笔记与删除意图。见 `tools/vault-sync-check.mjs` |
-| P1 视频旧列表写入新库 | A、B 有同名词和同 ID 收藏句。切到 B 后重放 A 的字幕行会删掉 B 的句子 | 字幕行与收藏汇总的旧操作均被拒绝，B 的记录保留。同库内收藏或取消按点击意图执行。汇总回归补入 `tools/vocab-ownership-check.mjs`，字幕行回归补入 `tools/subtitle-reading-check.mjs` |
-| P2 同一句译文和 AI 语境解释互相覆盖 | 两端从同一句起步，一端补普通译文，另一端补 AI 解释，先后提交均报告成功 | 交换提交顺序，两端和共享文件均保留两项内容。补入 `tools/vault-sync-check.mjs` |
-| P2 字幕轮询使收藏汇总丢弃慢回执 | 同一视频、同一库，延迟列表回执超过一次字幕轮询，数据库已有收藏但计数仍为 0 | 同一视频和库的有效回执能更新计数与列表，切视频或换库后的旧回执不生效。补入 `tools/subtitle-reading-check.mjs` |
-| P2 翻译故障让未请求的字幕失去调度资格 | 首句收到 503，批次提前终止，随后渠道恢复 | 在实际内容脚本中确认已成功译文保留，未尝试项恢复后能补出译文。补入 `tools/youtube-translation-language-check.mjs`；后台批次回执继续由 `tools/translation-reliability-runtime-check.mjs` 检查 |
-| P2 切换常规翻译服务后字幕不恢复 | Google 返回 503，保持视频、轨道及目标语言不变，改用浏览器内置翻译 | 当前待译字幕会请求新服务并显示译文，旧服务迟到回执不覆盖新译文，已有平台字幕可继续使用。补入 `tools/youtube-translation-language-check.mjs` |
-| P2 知识点删除失败后丢失重试 | 删除标记已写入，知识点 Markdown 写入失败，再同步 | 重试完成可见记录删除及元数据清理后才移除待办；文件与本机一致。补入 `tools/vault-sync-check.mjs` |
-| P2 截断问答被保存为完成 | 流有正文但无终止事件便 EOF，或以长度上限结束 | 保留正文并标记可恢复的中断／截断，不作为完成回答参与历史；各协议正常结束仍可完成。补入 `tools/ai-services-check.ts` 与 `tools/chat-lifecycle-check.ts` |
-| P2 偏好写入覆盖外部编辑 | 读取偏好后、提交前，另一端修改同一文件 | 保留外部修改与本机待办，并报告冲突。见 `tools/vault-sync-check.mjs` |
-
-## 待实机验证
-
-| 范围 | 通过条件 |
-| --- | --- |
-| 已登录 YouTube | 字幕可读取、重试和换轨，整句可收藏并逐句暂停，侧栏跨项选区及页面正文均可添加到对话。见[字幕阅读](specs/subtitle-reading-fixes.md)和[选区规格](specs/selection-chat-actions.md) |
-| X 选区 | 在真实帖子选取正文并添加到对话，材料属于目标帖子。见[选区规格](specs/selection-chat-actions.md) |
-| 工作区 | Chrome 固定／浮动往返保留输入与材料，两种模式的选区入口均可点击。 |
-| 共享学习库实机 | 用原生目录确认 Chrome／Edge 恢复授权后能提交待办且不重复写入。Obsidian 修改的笔记和状态能读回；同字段并发修改时两边内容保留且冲突可见。 |
+| 当前 | 保护共享学习库的数据与操作归属 | 跨端编辑、删除与失败重试保留用户意图；换库后旧界面的操作不会改动新库；偏好写回保留用户内容。见 [同步确认](https://github.com/Kylan3320/peak-distance/issues/2)、[删除冲突](https://github.com/Kylan3320/peak-distance/issues/3)、[操作归属](https://github.com/Kylan3320/peak-distance/issues/4)、[语境合并](https://github.com/Kylan3320/peak-distance/issues/5)、[知识点删除重试](https://github.com/Kylan3320/peak-distance/issues/6)、[偏好写回](https://github.com/Kylan3320/peak-distance/issues/7)。 |
+| 下一阶段 | 恢复在线学习交互的可靠性 | 当前视频的收藏汇总及时收敛，字幕能在故障恢复或切换服务后继续翻译，截断问答保留正文及可恢复状态。见 [收藏汇总](https://github.com/Kylan3320/peak-distance/issues/8)、[字幕翻译](https://github.com/Kylan3320/peak-distance/issues/9)、[问答终止](https://github.com/Kylan3320/peak-distance/issues/10)。 |

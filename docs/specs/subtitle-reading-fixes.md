@@ -1,6 +1,6 @@
 # 字幕获取、阅读与收藏
 
-本文维护字幕获取、跟随、选区与收藏反馈。断句、定位及译文归属见[侧栏学习句规格](subtitle-sentence-units.md)，待实机条件见 [ROADMAP](../ROADMAP.md#待实机验证)。
+本文维护字幕获取、跟随、选区与收藏反馈。断句、定位及译文归属见[侧栏学习句规格](subtitle-sentence-units.md)。
 
 ## 1. 获取生命周期
 
@@ -26,6 +26,6 @@
 
 ## 检查与证据
 
-字幕交互的定向用例见 `tools/subtitle-reading-check.mjs`，按改动范围选用。受控页面和服务回执覆盖获取与阅读链路，登录态实机条件由 ROADMAP 维护。
+字幕交互的定向用例见 `tools/subtitle-reading-check.mjs`，按改动范围选用。受控页面和服务回执覆盖获取与阅读链路。
 
 [阶段调查、分工与验收证据](https://github.com/Kylan3320/peak-distance/blob/7f53d4803ba915b18c795ba4c1952fe9d065b2aa/docs/specs/subtitle-reading-fixes.md)。
