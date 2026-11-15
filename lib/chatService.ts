@@ -284,7 +284,7 @@ async function runTurn(active: ActiveChat): Promise<void> {
         chatId,
         requestId,
         turnId,
-        kind: state === 'done' ? 'done' : state === 'stopped' ? 'stopped' : 'error',
+        kind: state,
         text: active.text,
         errorKind,
         saved,
@@ -338,6 +338,9 @@ async function runTurn(active: ActiveChat): Promise<void> {
     if (r.ok) {
       active.text = r.text;
       await finish('done');
+    } else if (r.error === 'interrupted' || r.error === 'truncated') {
+      active.text = r.text;
+      await finish('interrupted', r.error);
     } else if (r.error === 'aborted') {
       // 停止（用户）或超时中止：保留已生成正文
       const reason = controller.signal.reason;

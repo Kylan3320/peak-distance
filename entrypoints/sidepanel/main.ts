@@ -683,6 +683,7 @@ let videoCollection: VideoCollection | null = null;
 // 收藏广播置脏）才重新读取学习记录。
 let subsLibraryDirty=true;
 let subsLibraryAt=0;
+let subsLibraryRequest: { tabId: number; videoId: string; vaultId: string | null } | null = null;
 const SUBS_LIBRARY_INTERVAL_MS=5000;
 let subsSignatureCached='';
 const subsSignature=(s:SubViewState)=>JSON.stringify([s.videoId,s.trackId,s.generation,s.cues,s.currentIndex,s.notice,s.chineseVisible!==false]);
@@ -929,6 +930,11 @@ async function videoAction(ref: SubtitleRowRef, operation: SubtitleRowOperation)
   return { ok: !!r?.ok };
 }
 async function refreshSubsLibrary(state:SubViewState):Promise<void> {
+  if(subsTabId===null)return;
+  const request={tabId:subsTabId,videoId:state.videoId,vaultId:libraryId};
+  const previous=subsLibraryRequest;
+  if(previous?.tabId===request.tabId&&previous.videoId===request.videoId&&previous.vaultId===request.vaultId)return;
+  subsLibraryRequest=request;
   subsLibraryAt=Date.now();subsLibraryDirty=false;
   const [vocab,saved,index,knowledge]=await Promise.all([
     send<{ok:boolean;entries:EntryView[];vaultId:string|null}>({type:'listEntries'}),
@@ -936,26 +942,36 @@ async function refreshSubsLibrary(state:SubViewState):Promise<void> {
     send<{ok:boolean;items:import('@/shared/vocab').VocabIndexItem[]}>({type:'vocabIndex'}),
     send<{ok:boolean;records:KnowledgeRecord[];vaultId:string|null}>({type:'listKnowledge'}),
   ]);
-  if(currentView!=='subs'||subsState!==state)return;
+  if(subsLibraryRequest!==request)return;
+  subsLibraryRequest=null;
+  const live=subsState;
+  if(currentView!=='subs'||subsTabId!==request.tabId||live?.videoId!==request.videoId||libraryId!==request.vaultId)return;
   const stable=<T>(old:T,next:T):T=>JSON.stringify(old)===JSON.stringify(next)?old:next;
-  if(vocab?.ok&&saved?.ok&&knowledge?.ok&&vocab.vaultId===saved.vaultId&&vocab.vaultId===knowledge.vaultId){
-    const sourceKey=`yt:${state.videoId}`;
+  if(vocab?.ok&&saved?.ok&&knowledge?.ok&&vocab.vaultId===request.vaultId&&vocab.vaultId===saved.vaultId&&vocab.vaultId===knowledge.vaultId){
+    const sourceKey=`yt:${live.videoId}`;
     videoCollection=stable(videoCollection,{
-      videoId:state.videoId,vaultId:vocab.vaultId,
+      videoId:live.videoId,vaultId:vocab.vaultId,
       entries:scopeEntries(vocab.entries,{sourceKey}),
-      sentences:saved.sentences.filter(s=>s.video.videoId===state.videoId),
+      sentences:saved.sentences.filter(s=>s.video.videoId===live.videoId),
       knowledge:knowledge.records.filter(record=>record.source.sourceKey===sourceKey),
     });
   } else {
     subsLibraryDirty=true;
   }
-  const cues=state.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0,from:c.from,to:c.to}));
-  cachedVideo=rebuildCachedVideo(state,{
-    cues:cachedVideo?.videoId===state.videoId?stable(cachedVideo.cues,cues):cues,
-    statuses:stableWorkspaceMap(cachedVideo?.statuses,buildMarkBuckets(index?.items??[]).get((state.trackLang||'en').split('-')[0]!)?.statusByKey??new Map<string,string>()),
+  const cues=live.cues.map(c=>({start:c.startMs,dur:c.endMs-c.startMs,text:c.text,lastOff:0,from:c.from,to:c.to}));
+  cachedVideo=rebuildCachedVideo(live,{
+    cues:cachedVideo?.videoId===live.videoId?stable(cachedVideo.cues,cues):cues,
+    statuses:stableWorkspaceMap(cachedVideo?.statuses,buildMarkBuckets(index?.items??[]).get((live.trackLang||'en').split('-')[0]!)?.statusByKey??new Map<string,string>()),
     sentences:stable(cachedVideo?.sentences??[],videoCollection?.sentences??[])});
   renderVideoCollection();
   if(!videoCollection)videoSaved.replaceChildren(retryRow(()=>void pollSubs()));
+  videoWorkspace.update(cachedVideo);
+}
+function renderSubtitleState(state:SubViewState):void {
+  const signature=subsSignature(state);
+  if(cachedVideo&&subsSignatureCached===signature)return;
+  subsSignatureCached=signature;
+  cachedVideo=rebuildCachedVideo(state);
   videoWorkspace.update(cachedVideo);
 }
 async function pollSubs():Promise<void> {
@@ -971,8 +987,8 @@ async function pollSubs():Promise<void> {
     subsTabId=videoReturn.tabId;subsState=videoReturn.state;
     renderVideoTitle(subsState.title);
     document.getElementById('video-workspace')!.hidden=false;document.getElementById('web-selection')!.hidden=true;
-    if(cachedVideo?.videoId!==subsState.videoId||subsLibraryDirty||Date.now()-subsLibraryAt>=SUBS_LIBRARY_INTERVAL_MS)await refreshSubsLibrary(subsState);
-    if(currentView!=='subs'||returnedVideo!==videoReturn||generation!==subsPollGeneration)return;
+    if(cachedVideo?.videoId!==subsState.videoId||subsLibraryDirty||Date.now()-subsLibraryAt>=SUBS_LIBRARY_INTERVAL_MS)void refreshSubsLibrary(subsState);
+    renderSubtitleState(subsState);
     if(restoreReturnedVideo){videoWorkspace.restore(videoReturn.workspace);restoreReturnedVideo=false;}
     else videoReturn.workspace=videoWorkspace.snapshot();return;
   }
@@ -985,7 +1001,7 @@ async function pollSubs():Promise<void> {
   if(switched || subsState?.generation !== st?.generation){
     lookupPopup.close();selectionPopup.close();closePanelSelectionActions();subsLibraryDirty=true;
   }
-  if(switched){videoCategory='vocab';videoCollection=null;renderVideoCollection();}
+  if(switched){subsLibraryRequest=null;videoCategory='vocab';videoCollection=null;renderVideoCollection();}
   subsTabId=id;subsState=st?.type==='blc-sub-state'?st:null;
   document.getElementById('video-workspace')!.hidden=!subsState?.videoId;
   const web=document.getElementById('web-selection')!;web.hidden=!!subsState?.videoId;
@@ -999,17 +1015,8 @@ async function pollSubs():Promise<void> {
   }
   const state=subsState;
   renderVideoTitle(state.title);
-  const signature=subsSignature(state);
-  if(subsLibraryDirty||Date.now()-subsLibraryAt>=SUBS_LIBRARY_INTERVAL_MS){
-    await refreshSubsLibrary(state);
-    if(currentView!=='subs'||subsState!==state)return;
-    subsSignatureCached=signature;
-    return;
-  }
-  if(cachedVideo&&subsSignatureCached===signature)return;
-  subsSignatureCached=signature;
-  cachedVideo=rebuildCachedVideo(state);
-  videoWorkspace.update(cachedVideo);
+  if(subsLibraryDirty||Date.now()-subsLibraryAt>=SUBS_LIBRARY_INTERVAL_MS)void refreshSubsLibrary(state);
+  renderSubtitleState(state);
 }
 setInterval(()=>void pollSubs(),1000);
 browser.tabs.onActivated.addListener(()=>void pollSubs());
@@ -1285,7 +1292,10 @@ browser.runtime.onMessage.addListener((msg: unknown) => {
     if(currentView==='subs')void pollSubs();
     if(currentView==='review'&&reviewSession.category==='knowledge')void refreshReviewQueue();
   }
-  if(t==='vault-changed')void checkLearningLibrary();
+  if(t==='vault-changed'){
+    subsLibraryRequest=null;subsLibraryDirty=true;
+    void checkLearningLibrary();
+  }
   if (t === 'sentences-changed') {
     subsLibraryDirty=true;
     if (currentView === 'sentences') void refreshSentences();
@@ -1301,7 +1311,7 @@ async function checkLearningLibrary() {
   const r=await send<{ok:boolean;records:KnowledgeRecord[];vaultId:string|null}>({type:'listKnowledge'});
   if(!r?.ok||r.vaultId===libraryId)return;
   libraryId=r.vaultId;videoWorkspace.clearSavedFeedback();reviewOperation++;subsPollGeneration++;reviewQueue=[];knowledgeQueue=[];reviewIdx=0;revealed=false;definitionRevealed=false;reviewSession={category:'vocab',returnTo:'list'};
-  articleLearning.reset();returnedVideo=null;subsLibraryDirty=true;cachedVideo=null;videoCollection=null;renderVideoCollection();
+  articleLearning.reset();returnedVideo=null;subsLibraryDirty=true;subsLibraryRequest=null;cachedVideo=null;videoCollection=null;renderVideoCollection();
   if(currentView==='review')switchView('list');else if(currentView==='subs')void pollSubs();else if(currentView==='knowledge')void refreshKnowledge();
   void persistPanel();
 }

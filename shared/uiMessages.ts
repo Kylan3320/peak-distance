@@ -323,6 +323,7 @@ export const UI_MESSAGES: Record<string, readonly [string, string, string, strin
   'AI 问答 · 生成中': ['AI问答 · 回答中', 'AI問答 · 回答中', 'AI chat · Answering', 'KI-Chat · Antwortet', 'Chat IA · Réponse en cours'],
   '已停止': ['已停止。', '已停止。', 'Stopped.', 'Gestoppt.', 'Arrêté.'],
   '已中断': ['回答已中断。', '回答已中斷。', 'Interrupted.', 'Unterbrochen.', 'Interrompu.'],
+  '回答达到长度上限': ['回答达到长度上限。', '回答達到長度上限。', 'Answer reached the length limit.', 'Die Antwort hat die Längengrenze erreicht.', 'La réponse a atteint la longueur maximale.'],
   '已回答（未保存）': ['回答完成，尚未保存。', '回答完成，尚未儲存。', 'Answered, but not saved.', 'Beantwortet, aber nicht gespeichert.', 'Réponse terminée, non enregistrée.'],
   '已回答': ['回答完成。', '回答完成。', 'Answered.', 'Beantwortet.', 'Réponse terminée.'],
   '已定位到原文': ['已找到原文。', '已找到原文。', 'Original text found.', 'Originaltext gefunden.', 'Texte d’origine trouvé.'],

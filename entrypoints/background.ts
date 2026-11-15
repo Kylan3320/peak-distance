@@ -608,7 +608,8 @@ async function handle(
           return translations.length ? { ok: true, translations } : bad('bad-response');
         }
         const cueLangs = { source: sourceLang ?? 'en', target: targetLang ?? 'zh-Hans' };
-        return await translateRegularCues(items, controller.signal, cueLangs, (await getSettings()).regularTranslation);
+        if (m.service !== undefined && !isTranslationService(m.service)) return bad('bad-payload', 'service');
+        return await translateRegularCues(items, controller.signal, cueLangs, m.service ?? (await getSettings()).regularTranslation);
       } finally { if (onlineRequests.get(requestKey) === controller) onlineRequests.delete(requestKey); }
     }
     // ---- M11 学习库 -------------------------------------------------------------

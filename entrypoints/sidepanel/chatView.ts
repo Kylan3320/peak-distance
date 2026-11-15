@@ -234,8 +234,8 @@ function onPortEvent(ev: ChatPortEvent): void {
     msg.state = 'done';
     (msg as ChatMessageRecord & { saved?: boolean }).saved = ev.saved === true;
   } else if (ev.kind === 'stopped') msg.state = 'stopped';
-  else if (ev.kind === 'error') {
-    msg.state = 'error';
+  else if (ev.kind === 'error' || ev.kind === 'interrupted') {
+    msg.state = ev.kind;
     msg.errorKind = ev.errorKind;
   }
   if (ev.kind === 'delta' && updateStreamingMessage(msg)) {
@@ -825,7 +825,7 @@ function assistantStateChip(msg: ChatMessageRecord): HTMLElement {
     return el('span', 'state streaming', msg.text ? message('生成中…') : message('正在准备回答'));
   }
   if (msg.state === 'stopped') return el('span', 'state stopped', message('已停止'));
-  if (msg.state === 'interrupted') return el('span', 'state stopped', message('已中断'));
+  if (msg.state === 'interrupted') return el('span', 'state stopped', message(msg.errorKind === 'truncated' ? '回答达到长度上限' : '已中断'));
   if (msg.state === 'error') {
     return el('span', 'state error', message('失败：{error}', {error:message(ERROR_LABEL[msg.errorKind ?? ''] ?? '服务返回异常',{limit:CHAT_QUESTION_MAX_CHARS})}));
   }

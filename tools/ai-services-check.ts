@@ -42,6 +42,17 @@ try {
     const bytes=new TextEncoder().encode(events.map(e=>'data: '+(typeof e==='string'?e:JSON.stringify(e))+'\n\n').join(''));
     globalThis.fetch=async()=>new Response(new ReadableStream({start(controller){for(let i=0;i<bytes.length;i+=7)controller.enqueue(bytes.slice(i,i+7));controller.close();}}));
     let streamed='';const stream=await chatCompletionStream(c,messages,{signal:new AbortController().signal,onText:t=>streamed=t});assert.ok(stream.ok);assert.equal(streamed,'你好');
+    const partial = c.protocol==='openai' ? {choices:[{delta:{content:'部分正文'}}]}
+      : c.protocol==='anthropic' ? {type:'content_block_delta',delta:{type:'text_delta',text:'部分正文'}}
+      : {candidates:[{content:{parts:[{text:'部分正文'}]}}]};
+    const terminal = c.protocol==='openai' ? [{choices:[{finish_reason:'length'}]},'[DONE]']
+      : c.protocol==='anthropic' ? [{type:'message_delta',delta:{stop_reason:'max_tokens'}},{type:'message_stop'}]
+      : [{candidates:[{finishReason:'MAX_TOKENS'}]}];
+    const sse = (events: unknown[]) => new Response(events.map(e=>'data: '+(typeof e==='string'?e:JSON.stringify(e))+'\n\n').join(''));
+    globalThis.fetch=async()=>sse([partial]);
+    assert.deepEqual(await chatCompletionStream(c,messages,{signal:new AbortController().signal}),{ok:false,error:'interrupted',text:'部分正文'});
+    globalThis.fetch=async()=>sse([partial,...terminal]);
+    assert.deepEqual(await chatCompletionStream(c,messages,{signal:new AbortController().signal}),{ok:false,error:'truncated',text:'部分正文'});
     globalThis.fetch=async()=>new Response('data: {"error":{"message":"failed"}}\n\n');
     const failed=await chatCompletionStream(c,messages,{signal:new AbortController().signal});assert.ok(!failed.ok&&failed.error==='bad-response');
     globalThis.fetch=async()=>new Response('',{status:401});

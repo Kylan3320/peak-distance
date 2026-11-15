@@ -99,6 +99,7 @@ export type BgcRequest =
   | {
       type: 'translateCues';
       mode: 'regular' | 'ai';
+      service?: import('./translationService').TranslationService;
       requestId?: string;
       videoId: string;
       trackId: string;
@@ -376,7 +377,7 @@ export type ChatPortEvent =
       chatId: string;
       requestId: string;
       turnId: string;
-      kind: 'start' | 'delta' | 'done' | 'stopped' | 'error';
+      kind: 'start' | 'delta' | 'done' | 'stopped' | 'interrupted' | 'error';
       text: string; // 全量累计正文（幂等，覆盖渲染）
       errorKind?: string;
       saved?: boolean;

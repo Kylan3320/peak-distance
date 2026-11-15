@@ -132,21 +132,34 @@ async function requestGoogle(input: string, sl: string, tl: string, signal?: Abo
 }
 
 /** Keep cue IDs and partial results, but never call an empty failed batch successful. */
+export type RegularCueReply = (
+  | TranslationFailure
+  | { ok:true; source:TranslationService; translations:{id:number;text:string}[]; failure?:TranslationFailure }
+) & { deferred?: number[] };
+
 export async function translateRegularCues(
   items: {id:number; text:string}[], signal: AbortSignal, langs: TranslationLangs, service: TranslationService = 'google-gtx',
-) {
+): Promise<RegularCueReply> {
   const translations: {id:number; text:string}[] = [];
   let failure: TranslationFailure | undefined;
-  for (const item of items) {
-    if (signal.aborted) { failure = {ok:false, source:service, error:'aborted'}; break; }
+  let deferred: number[] | undefined;
+  for (const [index,item] of items.entries()) {
+    if (signal.aborted) {
+      failure = {ok:false, source:service, error:'aborted'};
+      deferred = items.slice(index).map(item => item.id);
+      break;
+    }
     const r = await cached(JSON.stringify(['subtitle-translation', service, `${langs.source}|${langs.target}`, item.text]),
       s => service === 'browser-native' ? requestNativeTranslation(item.text, langs, s) : translateRegularText(item.text, s, langs), signal);
     if (r.ok) translations.push({id:item.id, text:r.text});
     else {
       failure = r;
-      if (r.error === 'restricted' || r.error === 'network' || r.error === 'aborted' || r.error === 'native-unavailable' || r.error === 'native-needs-setup' || (r.httpStatus ?? 0) >= 500) break;
+      if (r.error === 'restricted' || r.error === 'network' || r.error === 'aborted' || r.error === 'native-unavailable' || r.error === 'native-needs-setup' || (r.httpStatus ?? 0) >= 500) {
+        deferred = items.slice(index).map(item => item.id);
+        break;
+      }
     }
   }
-  if (!translations.length && failure) return failure;
-  return {ok:true as const, source:service, translations, ...(failure ? {failure} : {})};
+  const outcome = !translations.length && failure ? failure : {ok:true as const, source:service, translations, ...(failure ? {failure} : {})};
+  return deferred ? { ...outcome, deferred } : outcome;
 }
