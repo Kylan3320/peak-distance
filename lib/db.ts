@@ -38,7 +38,7 @@ import { vaultRecordJson, type VaultIdentity, type VaultPendingWrite, type Vault
 import { entryViewToVaultRecord, sentenceToVaultRecord, vaultRecordToEntry } from './vault/records';
 import { contextIdentity, mergeVocabRecord } from './vault/format';
 import type { VaultVocabRecord } from '@/shared/vault';
-import { knowledgeFromAnswer, knowledgeFromTranslation, translationIdentity, translationBody, type KnowledgeRecord } from '@/shared/knowledge';
+import { knowledgeFromAnswer, knowledgeFromTranslation, mergeKnowledge, translationIdentity, translationBody, type KnowledgeRecord } from '@/shared/knowledge';
 
 export const DB_NAME = 'blc-learning';
 export const DB_VERSION = 8;
@@ -932,12 +932,12 @@ export async function deleteKnowledge(id: string, enqueueDeletion = true, expect
   });
 }
 
-export async function upsertVaultKnowledge(record: KnowledgeRecord, expected: KnowledgeRecord | null, committing?: VaultPendingWrite): Promise<boolean> {
+export async function upsertVaultKnowledge(record: KnowledgeRecord, expected: KnowledgeRecord | null): Promise<boolean> {
   return writeKnowledge(['knowledge', VAULT, VAULT_QUEUE], async tx => {
     const pending = await pendingVaultRecord(tx, 'knowledge', record.id);
     const store = tx.objectStore('knowledge');
     const current = await px(store.get(record.id)) as KnowledgeRecord | undefined;
-    if (pending && pending.revision !== committing?.revision || vaultRecordJson(current ?? null) !== vaultRecordJson(expected)) {
+    if (pending || vaultRecordJson(current ?? null) !== vaultRecordJson(expected)) {
       return false;
     }
     store.put(record);
@@ -1282,14 +1282,13 @@ function replaceVaultEntry(tx: IDBTransaction, entry: VocabEntryRecord, contexts
   for (const context of oldContexts) if (!kept.has(context.id!)) store.delete(context.id!);
 }
 
-export interface VocabPublication {
+export type CollectionPublication = {
   write: VaultPendingWrite;
   beforeDocument: string | null;
-  record: VaultVocabRecord;
-}
+} & ({ kind: 'vocab'; record: VaultVocabRecord } | { kind: 'knowledge'; record: KnowledgeRecord });
 
 /** A durable attempt survives worker restart and a newer write replacing the queue entry. */
-export async function stageVocabPublications(publications: VocabPublication[]): Promise<void> {
+export async function stageCollectionPublications(publications: CollectionPublication[]): Promise<void> {
   return withDb(async db => {
     const tx = db.transaction(VAULT, 'readwrite');
     for (const publication of publications) {
@@ -1299,37 +1298,47 @@ export async function stageVocabPublications(publications: VocabPublication[]): 
   });
 }
 
-export async function confirmVocabPublication({ write, record }: VocabPublication): Promise<VaultPendingWrite | null | false> {
+export async function confirmCollectionPublication(publication: CollectionPublication): Promise<VaultPendingWrite | null | false> {
+  const { write, record, kind } = publication;
   return withDb(async db => {
-    const tx = db.transaction([ENTRIES, CONTEXTS, VAULT, VAULT_QUEUE], 'readwrite');
-    const key = write.recordId;
+    const tx = db.transaction([ENTRIES, CONTEXTS, 'knowledge', VAULT, VAULT_QUEUE], 'readwrite');
+    const id = write.recordId;
+    const key = kind === 'vocab' ? id : `knowledge:${id}`;
     const meta = tx.objectStore(VAULT);
     const queue = tx.objectStore(VAULT_QUEUE);
     const pending = await px(queue.get(write.id)) as VaultPendingWrite | undefined;
     const conflictKey = `conflict:${write.vaultId}:${key}`;
-    const attempted = write.payload as VaultVocabRecord;
     const newer = pending && pending.revision !== write.revision;
     let local = record;
     if (newer) {
-      const changes = pending.payload as VaultVocabRecord | null;
-      const outcome = changes && mergeVocabRecord(attempted, changes, record);
-      if (outcome?.kind === 'conflict' || !changes && vaultRecordJson(attempted) !== vaultRecordJson(record)) {
-        meta.put({ kind: 'vocab', recordId: key, local: changes, remote: record }, conflictKey);
+      const changes = pending.payload;
+      const outcome = !changes ? null : publication.kind === 'vocab'
+        ? mergeVocabRecord(write.payload as VaultVocabRecord, changes as VaultVocabRecord, publication.record)
+        : mergeKnowledge(write.payload as KnowledgeRecord, changes as KnowledgeRecord, publication.record);
+      if (outcome?.kind === 'conflict' || !changes && vaultRecordJson(write.payload) !== vaultRecordJson(record)) {
+        meta.put({ kind, recordId:id, local:changes, remote:record }, conflictKey);
         await txDone(tx);
         return false;
       }
       if (outcome) local = outcome.value;
     }
     if (!newer || pending.payload !== null) {
-      const existing = await px(tx.objectStore(CONTEXTS).index('entryKey').getAll(key)) as ContextRecord[];
-      const { entry, contexts } = vaultRecordToEntry(local, local.note ?? '');
-      replaceVaultEntry(tx, entry, contexts, existing);
+      if (kind === 'knowledge') tx.objectStore('knowledge').put(local);
+      else {
+        const existing = await px(tx.objectStore(CONTEXTS).index('entryKey').getAll(id)) as ContextRecord[];
+        const vocab = local as VaultVocabRecord;
+        const { entry, contexts } = vaultRecordToEntry(vocab, vocab.note ?? '');
+        replaceVaultEntry(tx, entry, contexts, existing);
+      }
     }
     let remaining: VaultPendingWrite | null = null;
     if (newer) {
       remaining = pending.payload === null ? pending : { ...pending, payload: local };
       queue.put(remaining);
-    } else queue.delete(write.id);
+    } else {
+      queue.delete(write.id);
+      if (kind === 'knowledge') meta.put(vaultRecordJson(record), `receipt:${write.vaultId}:${key}`);
+    }
     meta.put(vaultRecordJson(record), `base:${write.vaultId}:${key}`);
     meta.delete(conflictKey);
     meta.delete(`publish:${write.id}`);

@@ -700,6 +700,23 @@ try {
   },knowledgeId);
   assert.equal(staleReceipt.payload.body,'Newest queued');
   await chrome.evaluate(()=>Vault.synchronizeVault());await edge.evaluate(()=>Vault.syncFromVault());
+  await updateKnowledge(edge,'Remote title','Other browser body');
+  assert.equal((await edge.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
+  await updateKnowledge(chrome,'Captured title','Newest queued');
+  afterDiskWrite=async path=>{
+    if(path!=='知识点.md')return;
+    afterDiskWrite=null;
+    await updateKnowledge(chrome,'Revised title','Newest queued');
+  };
+  assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
+  assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
+  await edge.evaluate(()=>Vault.syncFromVault());
+  savedKnowledge=(await edge.evaluate(()=>Vault.db.listKnowledge()))[0];
+  assert.equal(savedKnowledge.title,'Revised title');
+  assert.equal(savedKnowledge.body,'Other browser body');
+  await updateKnowledge(chrome,'Remote title','Newest queued');
+  assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
+  await edge.evaluate(()=>Vault.syncFromVault());
   const healthyKnowledge=readFileSync(knowledgeBook,'utf8');
   writeFileSync(knowledgeBook,healthyKnowledge.replace('<!-- peak-distance:knowledge -->',''));
   assert.ok((await edge.evaluate(()=>Vault.syncFromVault())).broken>0);
@@ -957,6 +974,7 @@ try {
       if (loseReceipt) throw Error('Controlled loss of publish acknowledgement');
     };
     assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, loseReceipt ? 'io' : undefined);
+    if (loseReceipt) await chrome.addScriptTag({content:bundle.outputFiles[0].text});
     assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
     await edge.evaluate(() => Vault.syncFromVault());
     const actual = await edge.evaluate(id => Vault.db.getEntry(id), id);
@@ -985,15 +1003,15 @@ try {
   await edge.evaluate(sentence => Vault.db.saveSentence({...sentence, zh: 'stale translation'}), stale);
   assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, 'conflict');
   assert.ok(!readFileSync(join(directory, '句子.md'), 'utf8').includes('batch-sentence-1'));
+  await chrome.evaluate(sentence => Vault.db.saveSentence(sentence), stale);
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  assert.ok(readFileSync(join(directory, '句子.md'), 'utf8').includes('batch-sentence-1'));
   await edge.evaluate(async sentence => {
     const write = (await Vault.db.listVaultQueue()).find(w => w.recordId === sentence.id);
     if (!write) throw Error('Missing stale sentence conflict');
     await Vault.db.removeVaultWrite(write);
     await Vault.syncFromVault();
-    await Vault.db.saveSentence(sentence);
   }, stale);
-  assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, undefined);
-  assert.ok(readFileSync(join(directory, '句子.md'), 'utf8').includes('batch-sentence-1'));
 
   await chrome.evaluate(async () => {
     await Vault.db.deleteEntry('en::batch1');
