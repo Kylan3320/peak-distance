@@ -62,7 +62,7 @@ for (const [name, executablePath] of Object.entries(browserPaths)) {
     await options.goto(base+'/options.html');
     await options.evaluate(() => chrome.storage.local.set({displayLanguage:'zh-Hans',defaultComprehensionLang:'zh-Hans',comprehensionOverrides:{en:'de'},regularTranslation:'browser-native'}));
     await options.reload();
-    await options.locator('#translation-language-hint').waitFor();
+    await options.locator('#defaultComprehensionLang').waitFor();
     assert.equal(await options.locator('#defaultComprehensionLang').inputValue(), 'zh-Hans');
     assert.match(await options.locator('label:has(#displayLanguage)').innerText(), /界面语言/u);
     assert.match(await options.locator('label:has(#defaultComprehensionLang)').innerText(), /翻译与释义语言/u);

@@ -75,7 +75,7 @@ try {
   await settings.locator('summary[data-i18n="关于"]').click();
   assert.match(await settings.locator('#version').innerText(),/^v\d/);
   await settings.locator('summary[data-i18n="关于"]').click();
-  await settings.locator('summary[data-i18n="单独设置"]').click();
+  assert.equal(await settings.locator('#translation-language-hint').count(),0);
   await settings.locator('summary[data-i18n="翻译设置"]').click();
   await settings.locator('#appearanceTheme').selectOption('classic');
   await settings.waitForFunction(()=>document.documentElement.dataset.pdTheme==='classic');
@@ -100,11 +100,13 @@ try {
   await settings.locator('#key').fill('');await settings.locator('#key').dispatchEvent('input');await settings.locator('#state').waitFor({state:'hidden'});
   await settings.locator('#key').blur();await settings.locator('#vault-label').evaluate(n=>{const main=n.closest('main');main.scrollTop+=n.closest('section').getBoundingClientRect().top-main.getBoundingClientRect().top-16;});await settings.screenshot({path:tmpdir()+'/peak-distance-settings-actions.png'});
   await settings.locator('.ai-section').screenshot({path:tmpdir()+'/peak-distance-ai-form-wide.png'});
-  await settings.evaluate(()=>{vaultFixture.permission='prompt';for(const listener of vaultListeners)listener({type:'vault-changed'}, {},()=>{});});
+  await settings.evaluate(()=>{Object.assign(vaultFixture,{permission:'prompt',pendingCount:1});for(const listener of vaultListeners)listener({type:'vault-changed'}, {},()=>{});});
   await settings.locator('#vault-label').filter({hasText:'需要授权'}).waitFor();
   assert.equal(await settings.locator('#vault-authorize').innerText(),'允许访问');
   assert.equal(await settings.locator('#vault-connect').getAttribute('aria-label'),'更换文件夹');
-  await settings.locator('#vault-state').filter({hasText:'允许访问'}).waitFor();
+  assert.equal(await settings.locator('#vault-state').isVisible(),false);
+  assert.equal(await settings.locator('#vault-flush').isDisabled(),true);
+  assert.match(await settings.locator('#vault-pending').innerText(),/1/);
   await settings.setViewportSize({width:360,height:780});await settings.locator('#vault-label').evaluate(n=>{const main=n.closest('main');main.scrollTop+=n.closest('section').getBoundingClientRect().top-main.getBoundingClientRect().top-16;});
   assert.ok(await settings.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await checkHeader(settings);await settings.screenshot({path:tmpdir()+'/peak-distance-settings-actions-narrow.png'});

@@ -18,8 +18,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   root.innerHTML = `<section class="settings-section"><label class="settings-field"><span data-i18n="外观主题"></span><select id="appearanceTheme"><option value="minimal" data-i18n="简约"></option><option value="classic" data-i18n="经典"></option></select></label></section>
     <section class="settings-section"><h2 data-i18n="语言"></h2>
     <label class="settings-field"><span data-i18n="界面语言"></span><select id="displayLanguage"></select></label>
-    <label class="settings-field"><span data-i18n="翻译与释义语言"></span><select id="defaultComprehensionLang" aria-describedby="translation-language-hint"></select></label>
-    <p class="hint" id="translation-language-hint" data-i18n="用于选区翻译、字幕译文和查词释义"></p></section>
+    <label class="settings-field"><span data-i18n="翻译与释义语言"></span><select id="defaultComprehensionLang"></select></label></section>
     <section class="settings-section"><h2 data-i18n="查词设置"></h2>
     <label class="settings-field"><span data-i18n="词汇标记"></span><input id="markingEnabled" type="checkbox"></label>
     <label class="settings-field"><span data-i18n="首选词典"></span><select id="primaryDictionary"><option value="youdao" data-i18n="有道"></option><option value="cambridge" data-i18n="剑桥英汉"></option></select></label>
@@ -213,7 +212,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   let vaultFeedback: UiText | null = null;
   let vaultFeedbackError = false;
   let vaultFormatDiagnostic: VaultFormatDiagnostic | null = null;
-  const vaultErrors:Record<string,string>={'not-connected':'请先连接学习文件夹','no-permission':'需要允许访问文件夹，待同步内容已保存在本机','io':'文件读写失败，未完成的内容仍保留在本机，请重试','format':'学习文档格式有误，请检查文档后重试','conflict':'存在同一记录的修改冲突，双方内容已保留'};
+  const vaultErrors:Record<string,string>={'not-connected':'请先连接学习文件夹','io':'文件读写失败，未完成的内容仍保留在本机，请重试','format':'学习文档格式有误，请检查文档后重试','conflict':'存在同一记录的修改冲突，双方内容已保留'};
   function rememberVaultDiagnostic(result: {ok:boolean;syncError?:string;formatDiagnostic?:VaultFormatDiagnostic}|null) {
     if(result?.formatDiagnostic)vaultFormatDiagnostic=result.formatDiagnostic;
     else if(result?.ok&&!result.syncError){vaultFormatDiagnostic=null;if(vaultFeedbackError){vaultFeedback=null;vaultFeedbackError=false;}}
@@ -258,7 +257,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
       get('vault-disconnect').hidden=!s.connected;get('vault-flush').hidden=!s.connected;
       get<HTMLButtonElement>('vault-flush').disabled=needsAccess;
       const error=s.lastError?(vaultErrors[s.lastError]?message(vaultErrors[s.lastError]!):s.lastError):null;
-      const access=s.accessError?message('访问状态读取失败'):needsAccess?message('需要允许访问文件夹，待同步内容已保存在本机'):null;
+      const access=s.accessError?message('访问状态读取失败'):null;
       showVaultNotice(!get('vault-access-page').hidden?vaultFeedback??access??'':access??vaultDiagnosticNotice()??error??vaultFeedback??'',!!s.accessError||s.permission==='denied'||!!vaultFormatDiagnostic||!!error||vaultFeedbackError);
       return s;
     }catch{if(request===vaultRefresh){vaultStatus=null;showVaultNotice(message('状态读取失败，请重试'),true);}return null;}
@@ -276,8 +275,8 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     const name=error instanceof Error?error.name:'';
     const pageRequired=reason==='authorization-page'||name==='SecurityError';
     get('vault-access-page').hidden=!pageRequired;
-    vaultFeedbackError=true;
-    vaultFeedback=pageRequired?message('请在独立设置页允许文件夹访问'):name==='NotAllowedError'?message('访问未获允许'):name==='NotFoundError'?message('文件夹不可用，请确认位置或更换文件夹'):vaultErrors[reason]?message(vaultErrors[reason]!):message('文件夹操作失败：{error}',{error:reason});
+    vaultFeedbackError=reason!=='no-permission';
+    vaultFeedback=reason==='no-permission'?null:pageRequired?message('请在独立设置页允许文件夹访问'):name==='NotAllowedError'?message('访问未获允许'):name==='NotFoundError'?message('文件夹不可用，请确认位置或更换文件夹'):vaultErrors[reason]?message(vaultErrors[reason]!):message('文件夹操作失败：{error}',{error:reason});
   }
   async function flushVault(quiet=false) {
     const r=await browser.runtime.sendMessage({type:'vaultFlush'}) as (VaultMutationResult&{committed?:number;updated?:number;deleted?:number})|null;
