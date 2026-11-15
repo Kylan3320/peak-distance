@@ -21,7 +21,7 @@ try {
     const cues=[{start:28000,dur:2000,lastOff:30000,text:'A pragmatic approach is pragmatic.'},{start:42000,dur:2000,lastOff:44000,text:'A second pragmatic example.'},{start:60000,dur:2000,lastOff:62000,text:'Extraordinarilylongunbrokenterm appears here.'}].map((cue,i)=>({...cue,from:i*60,to:i*60+cue.text.length}));
     const actions={bindWords:()=>()=>{},words:(el,text)=>{el.textContent=text;},seek:({index})=>calls.push(['seek',index]),lookup:(word,{index})=>calls.push(['lookup',word,index]),save:async()=>({ok:true}),ask:()=>{}};
     window.workspace=VideoWordsTest.createYoutubeWorkspace(actions,document.getElementById('mount'));
-    workspace.update({generation:'fixture',videoId:'fixture',videoRef:video,cues,current:0,translations:new Map(),statuses:new Map([['pragmatic','saved']]),sentences:[],savedCount:2,notice:'',chinese:true,trackLang:'en'});
+    workspace.update({generation:'fixture',videoId:'fixture',videoRef:video,cues,current:0,translations:new Map(),statuses:new Map([['pragmatic','saved']]),sentences:[],sentenceVaultId:null,savedCount:2,notice:'',chinese:true,trackLang:'en'});
   });
   const panel=page.locator('#blc-learning-panel');
   await panel.locator('[data-tab="words"]').click();

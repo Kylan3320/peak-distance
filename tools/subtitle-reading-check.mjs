@@ -61,7 +61,7 @@ try {
   await page.addScriptTag({content:componentCode});
   await page.evaluate(()=>{
     const cues=Array.from({length:35},(_,i)=>({start:i*3000,dur:3000,lastOff:i*3000,text:`This is learning sentence number ${i}.`})).map((cue,i)=>({...cue,from:i*50,to:i*50+cue.text.length}));
-    window.readingState={generation:'fixture',videoId:'reading01',videoRef:{videoId:'reading01',trackId:'https://www.youtube.com/api/timedtext?v=reading01&lang=en',trackKind:'manual',trackLang:'en',startMs:0},cues,current:1,translations:new Map(cues.map((_,i)=>[i,'完整译文用于检查收藏后的阅读位置，译文占据多行时也应该保持稳定。'.repeat(3)])),statuses:new Map(),sentences:[],entries:[],notice:'',chinese:true};
+    window.readingState={generation:'fixture',videoId:'reading01',videoRef:{videoId:'reading01',trackId:'https://www.youtube.com/api/timedtext?v=reading01&lang=en',trackKind:'manual',trackLang:'en',startMs:0},cues,current:1,translations:new Map(cues.map((_,i)=>[i,'完整译文用于检查收藏后的阅读位置，译文占据多行时也应该保持稳定。'.repeat(3)])),statuses:new Map(),sentences:[],sentenceVaultId:null,entries:[],notice:'',chinese:true};
     window.saveCalls=0;window.failSave=false;
     window.workspace=ReadingTest.createYoutubeWorkspace({bindWords:()=>()=>{},words:(el,text)=>el.textContent=text,seek:()=>{},lookup:()=>{},ask:()=>{},open:()=>{},status:()=>{},remove:async()=>({ok:true}),save:async ({index})=>{
       window.saveCalls++;await new Promise(r=>setTimeout(r,90));if(window.failSave)return {ok:false};
@@ -570,6 +570,45 @@ try {
   await bookmark(0,false).waitFor();
   check('a uniquely matching legacy bookmark can still be cancelled by its persisted ID',
     (await denseRecords()).every(s=>s.text==='No.'));
+
+  async function switchVault(name) {
+    await control.evaluate(async name => {
+      const directory=await (await navigator.storage.getDirectory()).getDirectoryHandle(name,{create:true});
+      await new Promise((resolve,reject)=>{
+        const open=indexedDB.open('blc-learning');
+        open.onerror=()=>reject(open.error);
+        open.onsuccess=()=>{
+          const db=open.result, tx=db.transaction('vault','readwrite');
+          tx.objectStore('vault').put(directory,'handle');
+          tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>reject(tx.error);
+        };
+      });
+    },name);
+    const result=await runtime({type:'vaultConnect'});
+    assert.ok(result.ok);
+    return result.vault.vaultId;
+  }
+  const vaultA=await switchVault('reading-A');
+  const bookmarkState=await denseState();
+  const denseAction=message=>control.evaluate(({tabId,message})=>chrome.tabs.sendMessage(tabId,message),{tabId:denseTab,message});
+  const newBookmark={...rowRef(bookmarkState,0),action:'save',vaultId:vaultA,removeId:null};
+  assert.ok((await denseAction(newBookmark)).ok);
+  const savedA=(await denseRecords()).find(s=>s.text===bookmarkState.cues[0].text);
+  assert.ok(savedA);
+  const vaultB=await switchVault('reading-B');
+  const savedInB={...newBookmark,vaultId:vaultB};
+  assert.ok((await denseAction(savedInB)).ok);
+  const savedB=(await denseRecords()).find(s=>s.id===savedA.id);
+  assert.ok(savedB);
+  assert.equal((await denseAction({...newBookmark,removeId:savedA.id})).ok,false);
+  assert.equal((await denseAction(newBookmark)).ok,false);
+  assert.equal((await runtime({type:'deleteSentence',id:savedA.id,vaultId:vaultA})).ok,false);
+  assert.ok((await denseAction(savedInB)).ok);
+  assert.deepEqual((await denseRecords()).find(s=>s.id===savedB.id),savedB);
+  assert.ok((await denseAction({...savedInB,removeId:savedB.id})).ok);
+  assert.ok((await denseAction({...savedInB,removeId:savedB.id})).ok);
+  assert.ok(!(await denseRecords()).some(s=>s.id===savedB.id));
+  check('stale subtitle and summary writes cannot change the new library; saving and removing are idempotent',true);
 
   const failed=await context.newPage();await failed.goto('https://www.youtube.com/watch?v=emptyonly');
   const started=Date.now();

@@ -45,7 +45,6 @@ import { cueIndexAt, fmtClock, buildCueTranslationBatch, DISPLAY_CUE_VERSION } f
 import { subtitleFontSize } from '@/shared/youtubeWorkspace';
 import { createLookupPopup } from '@/shared/lookupPopup';
 import {
-  matchSentenceBookmarks, type SavedSentence,
   videoContextUrl,
   type VocabIndexItem,
   type VideoSnapshot,
@@ -128,7 +127,6 @@ export default defineContentScript({
     let apDisplayIndex = -1;
     let apDisplayFragmentIndex = -1;
     let apLastStopped = -1;
-    let sentences: SavedSentence[] = [];
     const translationSources = new Map<number, string>();
     let translationEpoch = 0;
     let requestId: string | null = null;
@@ -857,31 +855,16 @@ export default defineContentScript({
       return { videoId:currentVideoId, trackId:lastTrackId, trackKind:lastTrack === 'asr' ? 'asr' as const : 'manual' as const,
         trackLang:lastTrackLang, startMs:cues[index]?.start ?? 0 };
     }
-    async function refreshSaved():Promise<void> {
-      const saved=await send<{ok:boolean;sentences:SavedSentence[]}>({type:'listSentences'});
-      if(saved?.ok)sentences=saved.sentences;
-    }
-    const sentenceWrites = new Set<string>();
-    async function toggleSentence(index: number): Promise<{ ok: boolean; error?: string }> {
+    async function writeSentence(index: number, vaultId: string | null, removeId: string | null): Promise<{ ok: boolean; error?: string }> {
       const cue = cues[index]; if (!cue) return { ok: false };
       const video = videoRef(index);
-      const { id, saved: existing } = matchSentenceBookmarks(video, cues, sentences)[index]!;
-      if (sentenceWrites.has(id)) return { ok: false };
-      sentenceWrites.add(id);
-      try {
-        const r = await send<{ ok:boolean }>(existing ? { type:'deleteSentence', id: existing.id } : {
-          type:'saveSentence', range: { from: cue.from, to: cue.to },
-          sentence:{ id, video, text:cue.text, zh:translations.get(index), translationSource:translationSources.get(index),
-            ...(lastTrackLang ? { language: lastTrackLang } : {}),
-            endMs:cue.start + cue.dur, title:document.title, createdAt:Date.now() },
-        });
-        if (!r?.ok) return { ok: false, error: tr('收藏失败，请重试') };
-        // 等待广播前也反映实际写入，下一次 toggle 不再读到旧状态。
-        if (existing) sentences = sentences.filter(s => s.id !== existing.id);
-        else await refreshSaved();
-        return { ok: true };
-      } catch { return { ok: false, error: tr('收藏失败，请重试') }; }
-      finally { sentenceWrites.delete(id); }
+      const r = await send<{ ok:boolean }>(removeId !== null ? { type:'deleteSentence', id:removeId, vaultId } : {
+        type:'saveSentence', vaultId, range: { from: cue.from, to: cue.to },
+        sentence:{ video, text:cue.text, zh:translations.get(index), translationSource:translationSources.get(index),
+          ...(lastTrackLang ? { language: lastTrackLang } : {}),
+          endMs:cue.start + cue.dur, title:document.title },
+      });
+      return r?.ok ? { ok:true } : { ok:false, error:tr('收藏失败，请重试') };
     }
     function seekCue(index: number, play = false): void {
       const v = getVideo(), cue = cues[index]; if (!v || !cue) return;
@@ -1377,7 +1360,12 @@ export default defineContentScript({
             if(v?.paused&&byUs===currentVideoId&&!apHeld)void v.play();
           }
           else if(a.action==='seek')seekCue(a.index,!!a.play);
-          else if(a.action==='save') { void toggleSentence(a.index).then(sendResponse); return true; }
+          else if(a.action==='save') {
+            if ((a.vaultId !== null && typeof a.vaultId !== 'string') || (a.removeId !== null && typeof a.removeId !== 'string')) {
+              sendResponse({ok:false}); return true;
+            }
+            void writeSentence(a.index,a.vaultId,a.removeId).then(sendResponse); return true;
+          }
           else if(a.action==='lookup' && typeof a.word==='string' && a.word.length<=200)openLookup(a.word,a.index);
           sendResponse({ok:true});return true;
         }
@@ -1501,7 +1489,6 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener((msg: unknown) => {
       const t = (msg as { type?: string })?.type;
       if (t === 'vocab-changed') { void refreshSurfaceStatus(); }
-      if (t === 'sentences-changed') void refreshSaved();
       if (t === 'settings-changed') void refreshSettings();
     });
 
@@ -1725,7 +1712,6 @@ export default defineContentScript({
       renderBar();
     }
     void refreshSurfaceStatus();
-    void refreshSaved();
     void refreshSettings();
     window.addEventListener('pagehide', () => { closeSelectionActions?.(); stopTranslation(); cancelSourceAcquisition(); });
   },
