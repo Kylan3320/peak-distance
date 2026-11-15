@@ -899,6 +899,55 @@ try {
   assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
   console.log('PASS publishing a captured batch cannot replace or dequeue a newer local edit');
 
+  for (const [id, loseReceipt, latest] of [['en::batch4', false, 'known'], ['en::batch5', true, 'saved']]) {
+    await edge.evaluate(id => Vault.db.setEntryNote(id, 'OTHER BROWSER NOTE'), id);
+    assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    await chrome.evaluate(id => Vault.db.setStatus(id, 'learning'), id);
+    afterDiskWrite = async path => {
+      if (path !== (loseReceipt ? '生词本.md' : '.peak-distance/records.json')) return;
+      afterDiskWrite = null;
+      await chrome.evaluate(({ id, latest }) => Vault.db.setStatus(id, latest), { id, latest });
+      if (loseReceipt) throw Error('Controlled loss of publish acknowledgement');
+    };
+    assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, loseReceipt ? 'io' : undefined);
+    assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    await edge.evaluate(() => Vault.syncFromVault());
+    const actual = await edge.evaluate(id => Vault.db.getEntry(id), id);
+    assert.equal(actual.status, latest);
+    assert.equal(actual.note, 'OTHER BROWSER NOTE');
+  }
+
+  for (const [id, deleteFirst] of [['en::batch6', false], ['en::batch7', true]]) {
+    await chrome.evaluate(id => Vault.db.deleteEntry(id), id);
+    await edge.evaluate(id => Vault.db.setEntryNote(id, 'KEEP NOTE OR REPORT CONFLICT'), id);
+    const [first, second] = deleteFirst ? [chrome, edge] : [edge, chrome];
+    assert.equal((await first.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    assert.equal((await second.evaluate(() => Vault.flushVaultWrites())).error, 'conflict');
+    const conflict = await second.evaluate(id => Vault.db.getVaultRaw('conflict:'+id), id);
+    assert.equal((deleteFirst ? conflict.local : conflict.remote).note, 'KEEP NOTE OR REPORT CONFLICT');
+    assert.equal(deleteFirst ? conflict.remote : conflict.local, null);
+    await second.evaluate(async id => {
+      const write = (await Vault.db.listVaultQueue()).find(w => w.recordId === id);
+      if (!write) throw Error('Missing pending conflict');
+      await Vault.db.removeVaultWrite(write);
+    }, id);
+  }
+  await chrome.evaluate(() => Vault.db.deleteSentence('batch-sentence-1'));
+  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  const stale = await edge.evaluate(async () => (await Vault.db.listSentences()).find(s => s.id === 'batch-sentence-1'));
+  await edge.evaluate(sentence => Vault.db.saveSentence({...sentence, zh: 'stale translation'}), stale);
+  assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, 'conflict');
+  assert.ok(!readFileSync(join(directory, '句子.md'), 'utf8').includes('batch-sentence-1'));
+  await edge.evaluate(async sentence => {
+    const write = (await Vault.db.listVaultQueue()).find(w => w.recordId === sentence.id);
+    if (!write) throw Error('Missing stale sentence conflict');
+    await Vault.db.removeVaultWrite(write);
+    await Vault.syncFromVault();
+    await Vault.db.saveSentence(sentence);
+  }, stale);
+  assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+  assert.ok(readFileSync(join(directory, '句子.md'), 'utf8').includes('batch-sentence-1'));
+
   await chrome.evaluate(async () => {
     await Vault.db.deleteEntry('en::batch1');
     await Vault.db.setEntryNote('en::batch2', 'MIXED UPDATE');

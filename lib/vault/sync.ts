@@ -27,6 +27,7 @@ import { mergeVocabRecord, mergePreferenceRecord } from './format';
 import {
   clearVault,
   clearChat,
+  confirmVocabPublication,
   deleteEntry,
   deleteSentence,
   deleteSyncSnapshot,
@@ -50,7 +51,9 @@ import {
   removeVaultWrite,
   setSyncSnapshot,
   setVaultIdentity,
+  stageVocabPublications,
   upsertVaultSentence,
+  type VocabPublication,
 } from '@/lib/db';
 import type {
   VaultConflictRecord,
@@ -118,10 +121,32 @@ async function flushCollectionWrites(handle: DirHandle, queue: VaultPendingWrite
     let edit: Awaited<ReturnType<typeof editCollection>>;
     try { edit = await editCollection(handle, kind); }
     catch (error) { for (const write of writes) await fail(write, error); continue; }
-    const staged: { write: VaultPendingWrite; record: VaultVocabRecord | VaultSentenceRecord | KnowledgeRecord | null }[] = [];
-    for (const write of writes) {
+    const staged: { write: VaultPendingWrite; record: VaultVocabRecord | VaultSentenceRecord | KnowledgeRecord | null; publication?: VocabPublication }[] = [];
+    for (let write of writes) {
       try {
+        if (kind === 'vocab') {
+          const attempt = await getVaultRaw<VocabPublication>(`publish:${write.id}`);
+          if (attempt) {
+            const current = edit.vocab(write.recordId);
+            if (vaultRecordJson(current) === vaultRecordJson(attempt.record)) {
+              const remaining = await confirmVocabPublication(attempt);
+              if (remaining === false) throw new Error('conflict: newer vocabulary edit');
+              if (!remaining) {
+                await markVaultWriteAttempt(attempt.write);
+                result.committed++;
+                continue;
+              }
+              write = remaining;
+            } else if (edit.document(write.recordId) !== attempt.beforeDocument) {
+              await putVaultRaw(`conflict:${write.recordId}`, { kind, recordId: write.recordId, local: write.payload, remote: current });
+              throw new Error('conflict: vocabulary publication could not be confirmed');
+            } else {
+              await putVaultRaw(`publish:${write.id}`, null);
+            }
+          }
+        }
         let record = write.payload as VaultVocabRecord | VaultSentenceRecord | KnowledgeRecord | null;
+        let publication: VocabPublication | undefined;
         if (kind === 'knowledge') {
           const key = `knowledge:${write.recordId}`;
           const previous = edit.knowledge(write.recordId);
@@ -145,47 +170,60 @@ async function flushCollectionWrites(handle: DirHandle, queue: VaultPendingWrite
           }
           if (outcome?.kind === 'merged') record = outcome.value;
         }
+        const previous = kind === 'vocab' ? edit.vocab(write.recordId) : kind === 'sentence' ? edit.sentence(write.recordId) : null;
+        const baseRaw = kind === 'knowledge' ? null : await getSyncSnapshot(kind === 'vocab' ? write.recordId : `sentence:${write.recordId}`);
+        const base = baseRaw === null ? null : JSON.parse(baseRaw);
+        if (kind !== 'knowledge' && (record === null && previous && vaultRecordJson(previous) !== baseRaw || record && !previous && base)) {
+          const key = kind === 'vocab' ? write.recordId : `sentence:${write.recordId}`;
+          await putVaultRaw(`conflict:${key}`, { kind, recordId: write.recordId, local: record, remote: previous });
+          throw new Error('conflict: deletion and edit');
+        }
         if (record === null) edit.delete(write.recordId);
         else {
-          if (kind === 'vocab') {
-            const previous = edit.vocab(record.id);
-            if (previous) {
-              const base = await getSyncSnapshot(record.id);
-              const outcome = mergeVocabRecord(base ? JSON.parse(base) : null, record as VaultVocabRecord, previous);
-              if (outcome.kind === 'conflict') {
-                await putVaultRaw(`conflict:${record.id}`, {
-                  kind, recordId:record.id, local:record, remote:previous,
-                  fields:outcome.fields.map(f => ({field:f.field,local:f.local,remote:f.file})),
-                });
-                await fail(write, new Error('conflict: vocabulary changed'));
-                continue;
-              }
-              record = outcome.value;
+          if (kind === 'vocab' && previous) {
+            const outcome = mergeVocabRecord(base, record as VaultVocabRecord, previous as VaultVocabRecord);
+            if (outcome.kind === 'conflict') {
+              await putVaultRaw(`conflict:${record.id}`, {
+                kind, recordId:record.id, local:record, remote:previous,
+                fields:outcome.fields.map(f => ({field:f.field,local:f.local,remote:f.file})),
+              });
+              await fail(write, new Error('conflict: vocabulary changed'));
+              continue;
             }
+            record = outcome.value;
           }
+          const beforeDocument = kind === 'vocab' ? edit.document(write.recordId) : null;
           edit.set(record);
+          if (kind === 'vocab') publication = { write, beforeDocument, record: edit.vocab(write.recordId)! };
         }
-        staged.push({ write, record });
+        staged.push({ write, record, publication });
       } catch (error) { await fail(write, error); }
     }
     if (!staged.length) continue;
-    try { await edit.commit(); }
+    try {
+      const publications = staged.flatMap(item => item.publication ? [item.publication] : []);
+      if (publications.length) await stageVocabPublications(publications);
+      await edit.commit();
+    }
     catch (error) { for (const { write } of staged) await fail(write, error); continue; }
-    for (const { write, record } of staged) {
+    for (const { write, record, publication } of staged) {
       try {
         const id = kind === 'vocab' ? write.recordId : `${kind}:${write.recordId}`;
-        if (record === null) await deleteSyncSnapshot(id);
-        else {
-          if (kind === 'vocab') {
-            const vocab = record as VaultVocabRecord;
-            const { entry, contexts } = vaultRecordToEntry(vocab, vocab.note ?? '');
-            await importVaultEntry(entry, contexts, write.payload as VaultVocabRecord, write);
-          } else if (kind === 'knowledge') {
-            await upsertVaultKnowledge(record as KnowledgeRecord, write.payload as KnowledgeRecord, write);
+        if (publication) {
+          if (await confirmVocabPublication(publication) === false) {
+            await fail(write, new Error('conflict: newer vocabulary edit'));
+            continue;
           }
-          await setSyncSnapshot(id, vaultRecordJson(record));
+        } else {
+          if (record === null) await deleteSyncSnapshot(id);
+          else {
+            if (kind === 'knowledge') {
+              await upsertVaultKnowledge(record as KnowledgeRecord, write.payload as KnowledgeRecord, write);
+            }
+            await setSyncSnapshot(id, vaultRecordJson(record));
+          }
+          await removeVaultWrite(write, record);
         }
-        await removeVaultWrite(write, record);
         await markVaultWriteAttempt(write);
         result.committed++;
       } catch (error) { await fail(write, error); }

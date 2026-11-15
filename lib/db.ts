@@ -35,8 +35,8 @@ import type { EntryView, SaveResult } from '@/shared/messages';
 import { effectiveEntryLanguage, normalizeLangTag, normalizeExpressionInLanguage, entryKeyOf, parseEntryKey, LANG_UNDETERMINED } from '@/shared/languages';
 import { planLegacyLanguage } from '@/shared/vocab';
 import { vaultRecordJson, type VaultIdentity, type VaultPendingWrite, type VaultStatus, type VaultPreferenceRecord } from '@/shared/vault';
-import { entryViewToVaultRecord, sentenceToVaultRecord } from './vault/records';
-import { contextIdentity } from './vault/format';
+import { entryViewToVaultRecord, sentenceToVaultRecord, vaultRecordToEntry } from './vault/records';
+import { contextIdentity, mergeVocabRecord } from './vault/format';
 import type { VaultVocabRecord } from '@/shared/vault';
 import { knowledgeFromAnswer, knowledgeFromTranslation, translationIdentity, translationBody, type KnowledgeRecord } from '@/shared/knowledge';
 
@@ -1160,7 +1160,7 @@ export async function removeVaultWrite(write: VaultPendingWrite, committedPayloa
     if (current?.revision === write.revision) {
       store.delete(write.id);
       if (write.kind === 'knowledge' && committedPayload) tx.objectStore(VAULT).put(vaultRecordJson(committedPayload), `receipt:${write.vaultId}:knowledge:${write.recordId}`);
-      tx.objectStore(VAULT).delete(`conflict:${write.vaultId}:${write.kind === 'chat' || write.kind === 'knowledge' ? write.kind + ':' + write.recordId : write.kind === 'preference' ? 'preference' : write.recordId}`);
+      tx.objectStore(VAULT).delete(`conflict:${write.vaultId}:${write.kind === 'vocab' ? write.recordId : write.kind === 'preference' ? 'preference' : `${write.kind}:${write.recordId}`}`);
     }
     await txDone(tx);
   });
@@ -1223,14 +1223,13 @@ export async function importVaultEntry(
   entry: VocabEntryRecord,
   contexts: Omit<ContextRecord, 'id'>[],
   expected?: VaultVocabRecord | null,
-  committing?: VaultPendingWrite,
 ): Promise<boolean> {
   return withDb(async db => {
     const tx = db.transaction([ENTRIES, CONTEXTS, VAULT, VAULT_QUEUE], 'readwrite');
     const entries = tx.objectStore(ENTRIES);
     const contextStore = tx.objectStore(CONTEXTS);
     const pending = await pendingVaultRecord(tx, 'vocab', entry.key);
-    if (pending && pending.revision !== committing?.revision) {
+    if (pending) {
       await txDone(tx);
       return false;
     }
@@ -1241,17 +1240,78 @@ export async function importVaultEntry(
       await txDone(tx);
       return false;
     }
-    entries.put(entry);
-    const oldByIdentity = new Map(oldContexts.map(context => [contextIdentity(context), context.id!]));
-    const kept = new Set<number>();
-    for (const c of contexts) {
-      const id = oldByIdentity.get(contextIdentity(c));
-      if (id === undefined) contextStore.add(c);
-      else { contextStore.put({ ...c, id }); kept.add(id); }
-    }
-    for (const context of oldContexts) if (!kept.has(context.id!)) contextStore.delete(context.id!);
+    replaceVaultEntry(tx, entry, contexts, oldContexts);
     await txDone(tx);
     return true;
+  });
+}
+
+function replaceVaultEntry(tx: IDBTransaction, entry: VocabEntryRecord, contexts: Omit<ContextRecord, 'id'>[], oldContexts: ContextRecord[]): void {
+  tx.objectStore(ENTRIES).put(entry);
+  const store = tx.objectStore(CONTEXTS);
+  const oldByIdentity = new Map(oldContexts.map(context => [contextIdentity(context), context.id!]));
+  const kept = new Set<number>();
+  for (const context of contexts) {
+    const id = oldByIdentity.get(contextIdentity(context));
+    if (id === undefined) store.add(context);
+    else { store.put({ ...context, id }); kept.add(id); }
+  }
+  for (const context of oldContexts) if (!kept.has(context.id!)) store.delete(context.id!);
+}
+
+export interface VocabPublication {
+  write: VaultPendingWrite;
+  beforeDocument: string | null;
+  record: VaultVocabRecord;
+}
+
+/** A durable attempt survives worker restart and a newer write replacing the queue entry. */
+export async function stageVocabPublications(publications: VocabPublication[]): Promise<void> {
+  return withDb(async db => {
+    const tx = db.transaction(VAULT, 'readwrite');
+    for (const publication of publications) {
+      tx.objectStore(VAULT).put(publication, `publish:${publication.write.id}`);
+    }
+    await txDone(tx);
+  });
+}
+
+export async function confirmVocabPublication({ write, record }: VocabPublication): Promise<VaultPendingWrite | null | false> {
+  return withDb(async db => {
+    const tx = db.transaction([ENTRIES, CONTEXTS, VAULT, VAULT_QUEUE], 'readwrite');
+    const key = write.recordId;
+    const meta = tx.objectStore(VAULT);
+    const queue = tx.objectStore(VAULT_QUEUE);
+    const pending = await px(queue.get(write.id)) as VaultPendingWrite | undefined;
+    const conflictKey = `conflict:${write.vaultId}:${key}`;
+    const attempted = write.payload as VaultVocabRecord;
+    const newer = pending && pending.revision !== write.revision;
+    let local = record;
+    if (newer) {
+      const changes = pending.payload as VaultVocabRecord | null;
+      const outcome = changes && mergeVocabRecord(attempted, changes, record);
+      if (outcome?.kind === 'conflict' || !changes && vaultRecordJson(attempted) !== vaultRecordJson(record)) {
+        meta.put({ kind: 'vocab', recordId: key, local: changes, remote: record }, conflictKey);
+        await txDone(tx);
+        return false;
+      }
+      if (outcome) local = outcome.value;
+    }
+    if (!newer || pending.payload !== null) {
+      const existing = await px(tx.objectStore(CONTEXTS).index('entryKey').getAll(key)) as ContextRecord[];
+      const { entry, contexts } = vaultRecordToEntry(local, local.note ?? '');
+      replaceVaultEntry(tx, entry, contexts, existing);
+    }
+    let remaining: VaultPendingWrite | null = null;
+    if (newer) {
+      remaining = pending.payload === null ? pending : { ...pending, payload: local };
+      queue.put(remaining);
+    } else queue.delete(write.id);
+    meta.put(vaultRecordJson(record), `base:${write.vaultId}:${key}`);
+    meta.delete(conflictKey);
+    meta.delete(`publish:${write.id}`);
+    await txDone(tx);
+    return remaining;
   });
 }
 
