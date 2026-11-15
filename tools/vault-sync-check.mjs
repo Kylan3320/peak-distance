@@ -18,6 +18,7 @@ let failDiskWritePath = null;
 let editChatDuringMaterialWrite = null;
 let diskWrites = [];
 let afterDiskWrite = null;
+let beforeDiskRead = null;
 const bundle = await build({
   absWorkingDir: root,
   stdin: { contents: "export * from './lib/vault/sync'; export * from './lib/vault/records'; export * as db from './lib/db'; export * as format from './lib/vault/format'; export * as chatFormat from './lib/vault/chatFormat'; export * as files from './lib/vault/fs'; export {emptyChat} from './shared/chat'; export * as knowledge from './shared/knowledge';", resolveDir: root },
@@ -64,7 +65,10 @@ async function open(kind) {
       assert.ok(statSync(target).isFile());
       return true;
     }
-    if (operation === "read") return readFileSync(target, "utf8");
+    if (operation === "read") {
+      await beforeDiskRead?.(parts.join('/'));
+      return readFileSync(target, "utf8");
+    }
     if (operation === "write") {
       if (parts.join('/') === failDiskWritePath) { failDiskWritePath = null; throw Error('Controlled file write failure'); }
       diskWrites.push(parts.join('/'));
@@ -638,6 +642,21 @@ try {
   assert.equal((await chrome.evaluate(() => window.Vault.synchronizeVault())).error, undefined);
   console.log('PASS preferences update in both directions, merge independent rules, preserve conflicting values and exclude credentials');
 
+  const prefWithNote='默认理解语言: it\r\n\r\n# 用户自定义说明\r\nja -> zh-Hans\r\nru -> en\r\n';
+  writeFileSync(prefPath,prefWithNote);
+  await chrome.evaluate(async () => { await browser.storage.local.set({defaultComprehensionLang:'de'});await Vault.enqueuePreferenceWrite(); });
+  let prefReads=0;
+  beforeDiskRead=async path=>{
+    if(path!=='偏好.md'||++prefReads!==2)return;
+    beforeDiskRead=null;
+    writeFileSync(prefPath,prefWithNote+'外部并发改动\r\n');
+  };
+  assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,'conflict');
+  assert.equal(readFileSync(prefPath,'utf8'),prefWithNote+'外部并发改动\r\n');
+  assert.ok((await chrome.evaluate(()=>Vault.db.listVaultQueue())).some(w=>w.kind==='preference'));
+  assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
+  assert.equal(readFileSync(prefPath,'utf8'),prefWithNote.replace('语言: it','语言: de')+'外部并发改动\r\n');
+
   const knowledgeBook=join(directory,'知识点.md');
   const updateKnowledge=(page,title,body)=>page.evaluate(async({knowledgeId,title,body})=>Vault.db.updateKnowledge(knowledgeId,title,body,(await Vault.db.getDataVaultIdentity()).vaultId),{knowledgeId,title,body});
   await updateKnowledge(chrome,'Local title','Edited body [p1]');
@@ -788,7 +807,14 @@ try {
   await edge.evaluate(()=>Vault.syncFromVault());
   assert.equal((await edge.evaluate(()=>Vault.db.listKnowledge()))[0].body,'Offline knowledge body');
   await updateKnowledge(edge,'Stale pending title','Offline knowledge body');
-  await chrome.evaluate(async id=>{await Vault.db.deleteKnowledge(id);await Vault.flushVaultWrites();},knowledgeId);
+  await chrome.evaluate(id=>Vault.db.deleteKnowledge(id),knowledgeId);
+  failDiskWritePath='知识点.md';
+  assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,'io');
+  assert.ok(readFileSync(knowledgeBook,'utf8').includes(knowledgeId));
+  assert.ok((await chrome.evaluate(()=>Vault.db.listVaultQueue())).some(w=>w.recordId===knowledgeId));
+  assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
+  assert.ok(!readFileSync(knowledgeBook,'utf8').includes(knowledgeId));
+  assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/records.json'),'utf8')).knowledge[knowledgeId],undefined);
   assert.ok(!(await chrome.evaluate(()=>Vault.db.listKnowledge())).length);
   await edge.evaluate(()=>Vault.synchronizeVault());
   assert.ok(!(await edge.evaluate(()=>Vault.db.listKnowledge())).length);
@@ -898,6 +924,27 @@ try {
   assert.equal((await chrome.evaluate(() => Vault.db.getEntry('en::batch0'))).note, 'NEWER LOCAL EDIT');
   assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
   console.log('PASS publishing a captured batch cannot replace or dequeue a newer local edit');
+
+  for (const [number,first] of [[8,chrome],[9,edge]]) {
+    const id=`en::batch${number}`;
+    await chrome.evaluate(async id=>{
+      const context=(await Vault.db.getEntry(id)).contexts[0];
+      await Vault.db.backfillResult(context.id,{kind:'translation',source:'google-gtx',text:'Ordinary translation'});
+    },id);
+    await edge.evaluate(async id=>{
+      const context=(await Vault.db.getEntry(id)).contexts[0];
+      await Vault.db.backfillResult(context.id,undefined,{kind:'ai-context',source:'ai',text:'AI explanation',sentence:context.sentence});
+    },id);
+    const second=first===chrome?edge:chrome;
+    assert.equal((await first.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
+    assert.equal((await second.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
+    await first.evaluate(()=>Vault.syncFromVault());
+    for(const page of [chrome,edge]) {
+      const context=(await page.evaluate(id=>Vault.db.getEntry(id),id)).contexts[0];
+      assert.equal(context.result.text,'Ordinary translation');
+      assert.equal(context.explanation.text,'AI explanation');
+    }
+  }
 
   for (const [id, loseReceipt, latest] of [['en::batch4', false, 'known'], ['en::batch5', true, 'saved']]) {
     await edge.evaluate(id => Vault.db.setEntryNote(id, 'OTHER BROWSER NOTE'), id);

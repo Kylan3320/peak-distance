@@ -945,6 +945,21 @@ export async function upsertVaultKnowledge(record: KnowledgeRecord, expected: Kn
   });
 }
 
+export async function retainDeletedKnowledgeConflict(write: VaultPendingWrite): Promise<void> {
+  return writeKnowledge(['knowledge', VAULT, VAULT_QUEUE], async tx => {
+    const queue = tx.objectStore(VAULT_QUEUE);
+    const pending = await px(queue.get(write.id)) as VaultPendingWrite | undefined;
+    if (!pending || pending.revision !== write.revision) return;
+    const meta = tx.objectStore(VAULT);
+    const key = `${write.vaultId}:knowledge:${write.recordId}`;
+    meta.put({ kind:'knowledge', recordId:write.recordId, local:write.payload, remote:null }, `conflict:${key}`);
+    meta.delete(`base:${key}`);
+    meta.delete(`receipt:${key}`);
+    tx.objectStore('knowledge').delete(write.recordId);
+    queue.delete(write.id);
+  });
+}
+
 // 句子收藏与词条独立，确定 ID 使重复保存自然覆盖同一项。
 export async function saveSentence(sentence: SavedSentence, vaultId?: string | null): Promise<boolean> {
   return withDb(async db => {
