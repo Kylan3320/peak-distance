@@ -129,10 +129,19 @@ try {
     FileSystemDirectoryHandle.prototype.queryPermission = async () => 'denied';
     FileSystemDirectoryHandle.prototype.requestPermission = async () => 'denied';
   });
-  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  const beforeSave = (await send({type:'vaultStatus'})).status;
+  assert.equal(beforeSave.permission,'prompt');
+  const secondSave = await send({type:'save',snapshot:{
+    source:'web',lang:'en',expression:'daybreak',sentence:'We leave at daybreak.',
+    url:'https://example.com/daybreak',title:'Daybreak',
+  }});
+  assert.ok(secondSave.ok);
   await page.locator('#vault-authorize').waitFor();
+  const queued = (await send({type:'vaultStatus'})).status;
+  check('收藏前已需授权，收藏成功后本机待办增加且原目录保留',queued.permission==='prompt' && queued.pendingCount===beforeSave.pendingCount+1 && queued.lastCommitAt===beforeSave.lastCommitAt && queued.identity?.vaultId===beforeSave.identity?.vaultId && queued.folderName===beforeSave.folderName);
   await page.locator('#vault-authorize').click();
-  await page.waitForFunction(() => document.querySelector('#vault-state').textContent.includes('需要允许访问文件夹'));
+  await page.locator('#vault-authorize:enabled').waitFor();
+  check('待授权状态通过顶部状态和操作显示',!(await page.locator('#vault-state').isVisible()));
   check('权限未获得时显示授权操作，原目录保持连接', await page.locator('#vault-authorize').isEnabled() && await page.locator('#vault-flush').isDisabled());
   await page.evaluate(() => {
     FileSystemDirectoryHandle.prototype.queryPermission = window.__queryPermission;
@@ -142,6 +151,7 @@ try {
   await page.locator('#vault-authorize').click();
   await page.locator('#vault-authorize').waitFor({state:'hidden'});
   check('授权恢复后继续原库同步，无需重新选择文件夹',await page.locator('#vault-flush').isEnabled());
+  check('重新授权后写入原待办',(await send({type:'vaultStatus'})).status.pendingCount===0 && (await page.evaluate(call(READ_VOCAB_FILE))).text.includes('en::daybreak'));
   const intactBook = await page.evaluate(async () => {
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('生词本.md');
     const text = await (await handle.getFile()).text();
