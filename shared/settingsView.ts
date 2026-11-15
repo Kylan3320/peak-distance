@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS, validSetting } from './settings';
 import { onAppearanceChange } from './appearance';
 import { AI_PRESETS, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiProfile, type AiProvider, type AiServices, type AiProtocol } from './aiConfig';
-import { TARGET_LANGUAGES, langDisplayName, primaryOfLang, type LanguageTag } from './languages';
+import { TARGET_LANGUAGES, type LanguageTag } from './languages';
 import { authorizeVaultInPage, pickVaultDirectoryInPage } from '@/lib/vault/fs';
 import { iconButton, uiIcon } from './uiControls';
 import { mountVideoSettings, type VideoSettingsContext } from './videoSettings';
@@ -17,13 +17,9 @@ const COMPREHENSION_OPTIONS: LanguageTag[] = [
 export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsContext) {
   root.innerHTML = `<section class="settings-section"><label class="settings-field"><span data-i18n="外观主题"></span><select id="appearanceTheme"><option value="minimal" data-i18n="简约"></option><option value="classic" data-i18n="经典"></option></select></label></section>
     <section class="settings-section"><h2 data-i18n="语言"></h2>
-    <label class="settings-field"><span data-i18n="显示语言"></span><select id="displayLanguage"></select></label>
-    <label class="settings-field"><span data-i18n="默认理解语言"></span><select id="defaultComprehensionLang"></select></label>
-    <details class="settings-details"><summary data-i18n="单独设置"></summary>
-      <div id="lang-overrides"></div>
-      <div class="language-rule"><label><span data-i18n="原文语言"></span><select id="override-source"></select></label><label><span data-i18n="默认理解语言"></span><select id="override-target"></select></label><button id="override-add" class="ui-icon-button" type="button" disabled>${uiIcon('add')}</button></div>
-      <div id="lang-state" class="settings-status err" role="status"></div>
-    </details></section>
+    <label class="settings-field"><span data-i18n="界面语言"></span><select id="displayLanguage"></select></label>
+    <label class="settings-field"><span data-i18n="翻译与释义语言"></span><select id="defaultComprehensionLang" aria-describedby="translation-language-hint"></select></label>
+    <p class="hint" id="translation-language-hint" data-i18n="用于选区翻译、字幕译文和查词释义"></p></section>
     <section class="settings-section"><h2 data-i18n="查词设置"></h2>
     <label class="settings-field"><span data-i18n="词汇标记"></span><input id="markingEnabled" type="checkbox"></label>
     <label class="settings-field"><span data-i18n="首选词典"></span><select id="primaryDictionary"><option value="youdao" data-i18n="有道"></option><option value="cambridge" data-i18n="剑桥英汉"></option></select></label>
@@ -53,12 +49,21 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
       <label class="ai-field"><span data-i18n="模型 ID"></span><input id="ai-model" type="text" spellcheck="false"></label>
     </details><div class="ai-footer"><button id="save" class="ui-icon-button" type="button">${uiIcon('save')}</button><div id="state" class="settings-status" role="status"></div></div></fieldset></details>
     <details class="settings-section settings-details settings-group"><summary data-i18n="翻译设置"></summary>
-    <label class="settings-field"><span data-i18n="常规翻译来源"></span><select id="regularTranslation"><option value="browser-native" data-i18n="浏览器内置翻译"></option><option value="google-gtx" data-i18n="Google 免费翻译"></option></select></label><button id="prepare-native" class="settings-action" type="button"><span data-i18n="准备内置翻译"></span>${uiIcon('external')}</button></details>
+    <button id="prepare-native" class="settings-action" type="button"><span data-i18n="准备内置翻译"></span>${uiIcon('external')}</button></details>
     <details class="settings-section settings-details settings-group settings-about"><summary data-i18n="关于"></summary><div class="settings-field"><span data-i18n="版本"></span><span id="version" class="hint"></span></div></details>`;
   localize(root);
   const get = <T extends HTMLElement>(id:string) => root.querySelector<T>(`#${id}`)!;
+  const translationLanguage = get<HTMLSelectElement>('defaultComprehensionLang');
+  function setTranslationLanguage(value: string) {
+    if (![...translationLanguage.options].some(option => option.value === value)) {
+      const option = new Option('', value);
+      setText(option, languageLabel(value));
+      translationLanguage.add(option);
+    }
+    translationLanguage.value = value;
+  }
   const videoSettings = videoContext ? mountVideoSettings(get('video-settings'), videoContext) : null;
-  get('prepare-native').onclick = () => void browser.runtime.sendMessage({type:'prepareNativeTranslation', sourceLang:'en', targetLang:get<HTMLSelectElement>('defaultComprehensionLang').value});
+  get('prepare-native').onclick = () => void browser.runtime.sendMessage({type:'prepareNativeTranslation'});
   const showAi = (reveal = false) => {
     const section = get<HTMLDetailsElement>('ai-settings');
     section.open = true;
@@ -72,7 +77,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   };
   const themeControl=get<HTMLSelectElement>('appearanceTheme');
   onAppearanceChange(theme=>{themeControl.value=theme;});
-  for(const [id,label] of [['override-add','添加覆盖'],['vault-flush','立即同步'],['vault-disconnect','断开'],['clear','清除当前 Key'],['save','保存并使用']] as const) {
+  for(const [id,label] of [['vault-flush','立即同步'],['vault-disconnect','断开'],['clear','清除当前 Key'],['save','保存并使用']] as const) {
     setLocalizedAttribute(get(id), 'title', message(label));
     setLocalizedAttribute(get(id), 'aria-label', message(label));
   }
@@ -150,14 +155,12 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     try {
       const stored=await browser.storage.local.get([...Object.keys(DEFAULT_SETTINGS),'deepseekApiKey','aiServices']);
       for(const [name,fallback] of Object.entries(DEFAULT_SETTINGS)) {
-        if(name==='comprehensionOverrides')continue; // 对象值由覆盖编辑器单独处理
         const control=get<HTMLInputElement|HTMLSelectElement>(name),value=validSetting(name,stored[name])?stored[name]:fallback;
         savedSettings[name] = value;
-        if(control instanceof HTMLInputElement && control.type==='checkbox')control.checked=!!value;else control.value=String(value);
+        if (control === translationLanguage) setTranslationLanguage(String(value));
+        else if (control instanceof HTMLInputElement && control.type==='checkbox') control.checked=!!value;
+        else control.value=String(value);
       }
-      renderOverrides(validSetting('comprehensionOverrides',stored.comprehensionOverrides)?(stored.comprehensionOverrides as Record<string,string>):{});
-      get<HTMLSelectElement>('override-target').value=get<HTMLSelectElement>('defaultComprehensionLang').value;
-      updateRuleChoices();
       const next = readAiServices(stored);
       if (!aiLoaded) {
         aiLoaded=true;services=next;selected=services.active;showProvider();
@@ -167,7 +170,6 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     } catch {reportAi('设置读取失败，请重新打开设置重试',true);}
   }
   for(const name of Object.keys(DEFAULT_SETTINGS)) {
-    if(name==='comprehensionOverrides')continue;
     const control=get<HTMLInputElement|HTMLSelectElement>(name);
     const field=control.closest('.settings-field')!;
     const caption=field.querySelector(':scope > span[data-i18n]');
@@ -198,82 +200,11 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     });
   }
 
-  // ---- 语言：理解语言与按源语言覆盖 ------------------------------------------------
-  const fillLangOptions=(select:HTMLSelectElement,includeUnd:boolean)=>{
-    select.replaceChildren();
-    for(const tag of COMPREHENSION_OPTIONS){const o=document.createElement('option');o.value=tag;o.textContent=langDisplayName(tag);select.appendChild(o);}
-    if(includeUnd){const o=document.createElement('option');o.value='und';o.textContent=t('待确认');select.appendChild(o);}
-  };
-  fillLangOptions(get<HTMLSelectElement>('defaultComprehensionLang'),false);
-  {
-    const source=get<HTMLSelectElement>('override-source');
-    source.add(new Option(t('选择语言'), ''));
-    for(const tag of TARGET_LANGUAGES) source.add(new Option(langDisplayName(tag), tag));
-    source.add(new Option(t('待确认'), 'und'));
-    fillLangOptions(get<HTMLSelectElement>('override-target'),false);
-    get<HTMLSelectElement>('override-target').add(new Option(t('选择语言'), ''), 0);
+  for (const tag of COMPREHENSION_OPTIONS) {
+    const option = new Option('', tag);
+    setText(option, languageLabel(tag));
+    translationLanguage.add(option);
   }
-  function updateRuleChoices() {
-    const source=get<HTMLSelectElement>('override-source').value,target=get<HTMLSelectElement>('override-target');
-    for(const option of target.options) option.disabled=!!source&&!!option.value&&primaryOfLang(source)===primaryOfLang(option.value);
-    if(target.selectedOptions[0]?.disabled) target.value='';
-    get<HTMLButtonElement>('override-add').disabled=!source||!target.value;
-  }
-  get('override-source').addEventListener('change',updateRuleChoices);
-  get('override-target').addEventListener('change',updateRuleChoices);
-  let currentOverrides: Record<string,string> = {};
-  let ruleBusy = false;
-  async function changeRule(source: string, target?: string): Promise<Record<string,string> | null> {
-    if (ruleBusy) return null;
-    ruleBusy = true;
-    setText(get('lang-state'), '');
-    try {
-      const stored = await browser.storage.local.get('comprehensionOverrides');
-      const current = (stored.comprehensionOverrides ?? {}) as Record<string,string>;
-      const next = target === undefined ? {...current} : Object.fromEntries(Object.entries(current).map(([language, value]) => [primaryOfLang(language), value]));
-      if (target === undefined) delete next[source];
-      else next[source] = target;
-      if (!validSetting('comprehensionOverrides', next)) {
-        setText(get('lang-state'), message('覆盖无效'));
-        return null;
-      }
-      await browser.storage.local.set({comprehensionOverrides:next});
-      return next;
-    } catch {
-      setText(get('lang-state'), message('保存失败，请重试'));
-      return null;
-    } finally { ruleBusy = false; }
-  }
-  function renderOverrides(overrides:Record<string,string>) {
-    currentOverrides=overrides;
-    const box=get('lang-overrides');box.replaceChildren();
-    for(const [src,target] of Object.entries(overrides)){
-      const row=document.createElement('div');row.className='language-rule-item';
-      const label=document.createElement('span');label.textContent=`${langDisplayName(src)} → ${langDisplayName(target)}`;row.appendChild(label);
-      const remove=iconButton('trash',message('移除'));remove.classList.add('ui-danger');
-      remove.addEventListener('click',async()=>{
-        const next = await changeRule(src);
-        if (!next) return;
-        const focused = document.activeElement === remove;
-        renderOverrides(next);
-        if (focused) get('override-source').focus({preventScroll:true});
-      });
-      row.appendChild(remove);box.appendChild(row);
-    }
-  }
-  get('override-add').addEventListener('click',async()=>{
-    const source=get<HTMLSelectElement>('override-source'),target=get<HTMLSelectElement>('override-target');
-    const src = source.value, dest = target.value;
-    const next = await changeRule(src, dest);
-    if (!next) return;
-    renderOverrides(next);
-    if (source.value === src && target.value === dest) {
-      if (document.activeElement === get('override-add')) source.focus({preventScroll:true});
-      source.value = '';
-      target.value = get<HTMLSelectElement>('defaultComprehensionLang').value;
-      updateRuleChoices();
-    }
-  });
 
   // ---- 学习库：连接 / 断开 / 立即同步 ----------------------------------------------
   let vaultBusy = false;
@@ -446,21 +377,21 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     display.value=getDisplayLanguage();
     localize(root);
     display.options[0]!.textContent=t('跟随浏览器');
-    for(const id of ['defaultComprehensionLang','override-source','override-target']) {
-      for(const option of get<HTMLSelectElement>(id).options) setText(option,option.value?languageLabel(option.value):message('选择语言'));
-    }
+    for (const option of translationLanguage.options) setText(option, languageLabel(option.value));
     for(const option of provider.options) option.textContent=providerLabel(option.value as AiProvider);
     showActiveAi();
-    updateKeyControls();renderOverrides(currentOverrides);
+    updateKeyControls();
     void refreshVault();
   });
   browser.storage.onChanged.addListener((changes,area)=>{
     if(area!=='local')return;
     for(const name of Object.keys(DEFAULT_SETTINGS)){
-      if(name==='comprehensionOverrides'||!changes[name]||!validSetting(name,changes[name].newValue))continue;
+      if(!changes[name]||!validSetting(name,changes[name].newValue))continue;
       const control=get<HTMLInputElement|HTMLSelectElement>(name),value=changes[name].newValue;
       savedSettings[name]=value;
-      if(control instanceof HTMLInputElement&&control.type==='checkbox')control.checked=!!value;else control.value=String(value);
+      if (control === translationLanguage) setTranslationLanguage(String(value));
+      else if (control instanceof HTMLInputElement && control.type==='checkbox') control.checked=!!value;
+      else control.value=String(value);
     }
   });
   void load();return {refresh:async()=>{await load();void videoSettings?.refresh();void syncOnActivity();},showAi};

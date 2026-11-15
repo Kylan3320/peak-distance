@@ -4,15 +4,16 @@ import {build} from 'esbuild';
 import {knowledgeFromTranslation} from '../shared/knowledge';
 import {parseKnowledge,serializeKnowledge} from '../lib/vault/knowledgeFormat';
 import {parseVocabDocument,serializeVocabRecord} from '../lib/vault/format';
-import {DEFAULT_SETTINGS} from '../shared/settings';
 const bundle=(await build({entryPoints:['lib/nativeTranslator.ts'],bundle:true,write:false,platform:'browser',format:'iife',globalName:'Api'})).outputFiles[0]!.text;
 let creates=0,destroys=0,detectorDestroys=0,active=0,maxActive=0;
 let translate:(text:string,options:{signal:AbortSignal})=>Promise<string>=async text=>'译：'+text;
 let createFailure:DOMException|undefined;
+let availability = async () => 'available', detectorAvailability = 'available';
+let detectorCreates = 0;
 const options:unknown[]=[];
 const context=vm.createContext({AbortController,AbortSignal,DOMException,Intl,
- Translator:{availability:async()=> 'available',create:async(config:unknown)=>{creates++;options.push(config);if(createFailure)throw createFailure;active++;maxActive=Math.max(maxActive,active);return {translate:(text:string,o:{signal:AbortSignal})=>translate(text,o),destroy:()=>{destroys++;active--;}};}},
- LanguageDetector:{create:async()=>({detect:async()=>[{detectedLanguage:'en'}],destroy:()=>{detectorDestroys++;}})},
+ Translator:{availability:()=>availability(),create:async(config:unknown)=>{creates++;options.push(config);if(createFailure)throw createFailure;active++;maxActive=Math.max(maxActive,active);return {translate:(text:string,o:{signal:AbortSignal})=>translate(text,o),destroy:()=>{destroys++;active--;}};}},
+ LanguageDetector:{availability:async()=>detectorAvailability,create:async()=>{detectorCreates++;return {detect:async()=>[{detectedLanguage:'en'}],destroy:()=>{detectorDestroys++;}};}},
 });
 vm.runInContext(bundle,context);
 const api=context.Api;
@@ -33,11 +34,29 @@ assert.equal((await api.translateNativeText('Reopened',{source:'en',target:'zh-H
 createFailure=new DOMException('Download requires activation','NotAllowedError');
 assert.equal((await api.translateNativeText('Not prepared',{source:'en',target:'zh-Hans'},new AbortController().signal)).error,'native-needs-setup');
 createFailure=undefined;
+const beforeUnavailable=creates;
+for(const state of ['downloadable','downloading','unavailable']){
+ availability=async()=>state;
+ const r=await api.translateNativeText('Missing pair',{source:'auto',target:'zh-Hans'},new AbortController().signal);
+ assert.equal(r.ok,false);assert.equal(r.detectedLang,'en');
+}
+assert.equal(creates,beforeUnavailable);
+const beforeDetector=detectorCreates;detectorAvailability='downloadable';
+const und=await api.translateNativeText('Une phrase',{source:'auto',target:'zh-Hans'},new AbortController().signal);
+assert.equal(und.ok,false);assert.equal(und.detectedLang,undefined);assert.equal(detectorCreates,beforeDetector);
+let startAvailability!:()=>void;
+const checking=new Promise<void>(resolve=>{startAvailability=resolve;});
+availability=()=>{startAvailability();return new Promise(()=>{});};
+const cancelAvailability=new AbortController();
+const pending=api.translateNativeText('Cancelled capability check',{source:'en',target:'zh-Hans'},cancelAvailability.signal);
+await checking;cancelAvailability.abort();
+assert.equal((await pending).error,'aborted');
+availability=async()=> 'available';
+assert.equal((await api.translateNativeText('Next after cancellation',{source:'en',target:'zh-Hans'},new AbortController().signal)).ok,true);
 await api.prepareNativeTranslation({source:'en',target:'zh-Hans'},new AbortController().signal);assert.equal(active,0);
 const record={...knowledgeFromTranslation({text:'Keep the source.',url:'https://example.com/native',title:'Native translation'},'auto','zh-Hans','保留来源。','en','browser-native'),id:'native-knowledge',createdAt:1,updatedAt:1};
 assert.deepEqual(parseKnowledge(serializeKnowledge(record)),record);
 const vocab=parseVocabDocument(serializeVocabRecord({id:'en::source',language:'en',expression:'source',status:'saved',forms:[],createdAt:1,updatedAt:1,contexts:[{sentence:'Keep the source.',url:'https://example.com/native',title:'Native translation',sourceType:'web',video:null,createdAt:1,definition:null,result:{kind:'translation',source:'browser-native',text:'保留来源。'}}]}));
 assert.ok(!('error' in vocab));assert.equal(vocab.managed.contexts[0]?.result?.kind,'translation');
 assert.equal(vocab.managed.contexts[0]?.result?.kind === 'translation' && vocab.managed.contexts[0].result.source,'browser-native');
-assert.equal(DEFAULT_SETTINGS.regularTranslation,'browser-native');
 console.log('PASS native paragraphs, detection, active/queued cancellation, session release, reopen, setup errors and saved-source round trip');

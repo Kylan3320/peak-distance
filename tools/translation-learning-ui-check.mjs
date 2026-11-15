@@ -16,7 +16,7 @@ try {
  const base=`chrome-extension://${new URL(worker.url()).host}`;
  const control=await context.newPage();await control.goto(`${base}/options.html`);
  const send=message=>control.evaluate(message=>chrome.runtime.sendMessage(message),message);
- await control.evaluate(()=>chrome.storage.local.set({displayLanguage:'zh-Hans',panelMode:'floating',regularTranslation:'google-gtx'}));
+ await control.evaluate(()=>chrome.storage.local.set({displayLanguage:'zh-Hans',panelMode:'floating'}));
  await worker.evaluate(()=>{
   globalThis.originalFetch=fetch;
   globalThis.queries=[];
@@ -90,6 +90,21 @@ try {
  await refined.locator('#close').click();await zhPage.close();
  console.log('PASS refined card: two footer actions, collapsed secondary controls, accessible more/language disclosure, explicit retry, and auto-detection for English on a zh-CN page');
 
+ const post='Le train part à minuit.';
+ await context.route('https://x.com/home',route=>route.fulfill({contentType:'text/html',
+  body:'<!doctype html><meta charset="utf-8"><article data-testid="tweet"><a href="/test/status/123456789">Post</a><p lang="fr">'+post+'</p></article>'}));
+ const x=await context.newPage();await x.goto('https://x.com/home');await x.locator('html[data-blc-web="1"]').waitFor();
+ await x.locator('article p').evaluate(p=>{const range=document.createRange();range.selectNodeContents(p);getSelection().removeAllRanges();getSelection().addRange(range);document.dispatchEvent(new Event('selectionchange'));});
+ await x.locator('#blc-lookup-pill #translate').click();
+ await until(()=>worker.evaluate(post=>queries.some(q=>q.text===post),post));
+ const xRequest=await worker.evaluate(post=>{const {source,target}=queries.find(q=>q.text===post);return {source,target};},post);
+ assert.deepEqual(xRequest,{source:'fr',target:'zh-CN'});
+ await worker.evaluate(post=>queries.find(q=>q.text===post).reply('火车在午夜发车。'),post);
+ await x.locator('#pd-translation #copy:not([disabled])').waitFor();
+ assert.equal(await x.locator('#pd-translation #source').getAttribute('href'),'https://x.com/test/status/123456789');
+ await x.close();
+ console.log('PASS X feed selection uses the selected post language and permalink');
+
  // Real background + IDB race protections through the narrow save messages.
  const begin=async(text,id)=>{void control.evaluate(({text,id})=>chrome.runtime.sendMessage({type:'translateSelection',text,requestId:id,snapshot:{text,url:'https://example.com/races',title:'Races'},sourceLang:'en',targetLang:'zh-Hans'}),{text,id});await until(()=>worker.evaluate(text=>queries.some(q=>q.text===text),text));};
  const finish=async(text)=>worker.evaluate(text=>queries.find(q=>q.text===text).reply(`translated ${text}`),text);
@@ -130,17 +145,17 @@ try {
    popupCalls.push(message);
    if(message.type==='getSettings')return new Promise(resolve=>pendingSettings.push(resolve));
    if(message.type==='selectionKnowledgeState')return Promise.resolve({ok:true,vaultId:null});
-   if(message.type==='translateSelection')return Promise.resolve({ok:true,text:'Late-safe translation',detectedLang:'en'});
+   if(message.type==='translateSelection')return Promise.resolve({ok:true,text:'Late-safe translation',detectedLang:'en',source:'google-gtx'});
    return Promise.resolve({ok:true});
   });
   testPopup.open({text:'A delayed selection',url:location.href,title:'A'});
  });assert.equal(await lifecycle.locator('#pd-translation #original').textContent(),'A delayed selection');
  await lifecycle.evaluate(()=>testPopup.open({text:'B current selection',url:location.href,title:'B'}));
- await lifecycle.evaluate(()=>pendingSettings[1]({ok:true,settings:{comprehensionOverrides:{en:'de'}}}));await lifecycle.locator('#pd-translation #result').filter({hasText:'Late-safe'}).waitFor();
+ await lifecycle.evaluate(()=>pendingSettings[1]({ok:true,settings:{defaultComprehensionLang:'zh-Hans',comprehensionOverrides:{en:'de'}}}));await lifecycle.locator('#pd-translation #result').filter({hasText:'Late-safe'}).waitFor();
  await lifecycle.evaluate(()=>pendingSettings[0]({ok:true}));assert.equal(await lifecycle.locator('#pd-translation #original').textContent(),'B current selection');assert.deepEqual(await lifecycle.evaluate(()=>popupCalls.filter(m=>m.type==='translateSelection').map(m=>m.text)),['B current selection']);
  assert.equal(await lifecycle.locator('#pd-translation #from').inputValue(),'auto');assert.equal(await lifecycle.locator('#pd-translation #to').inputValue(),'zh-Hans');
  await lifecycle.locator('#pd-translation #language-toggle').click();
- await lifecycle.locator('#pd-translation #from').selectOption('en');assert.equal(await lifecycle.locator('#pd-translation #to').inputValue(),'de');
+ await lifecycle.locator('#pd-translation #from').selectOption('en');assert.equal(await lifecycle.locator('#pd-translation #to').inputValue(),'zh-Hans');
  await lifecycle.locator('#pd-translation #to').selectOption('fr');await lifecycle.locator('#pd-translation #from').selectOption('ja');assert.equal(await lifecycle.locator('#pd-translation #to').inputValue(),'fr');
  await lifecycle.locator('#pd-translation #language-toggle').click();
  const callsBeforeLocale=await lifecycle.evaluate(()=>popupCalls.filter(m=>m.type==='translateSelection').length);await lifecycle.evaluate(()=>PopupTest.setDisplayLanguage('de','de'));assert.equal(await lifecycle.evaluate(()=>popupCalls.filter(m=>m.type==='translateSelection').length),callsBeforeLocale);
@@ -148,6 +163,10 @@ try {
  await lifecycle.waitForFunction(()=>{const r=document.querySelector('#pd-translation')?.shadowRoot.querySelector('.card')?.getBoundingClientRect();return r&&r.x>=12&&r.y>=12&&r.right<=innerWidth-12&&r.bottom<=innerHeight-12;});
  const bounds=await lifecycle.locator('#pd-translation .card').boundingBox();assert.ok(bounds.x>=12&&bounds.y>=12&&bounds.x+bounds.width<=348&&bounds.y+bounds.height<=608);assert.equal(await lifecycle.locator('#pd-translation footer').isVisible(),true);
  await lifecycle.screenshot({path:'/tmp/pd-translation-narrow.png'});
+ await lifecycle.evaluate(()=>testPopup.open({text:'次の段落を読む。',url:location.href,title:'C',sourceLang:'ja',languageEvidence:'element'}));
+ await lifecycle.evaluate(()=>pendingSettings[2]({ok:true,settings:{defaultComprehensionLang:'zh-Hans',comprehensionOverrides:{ja:'en'}}}));
+ await lifecycle.waitForFunction(()=>popupCalls.some(m=>m.type==='translateSelection'&&m.text==='次の段落を読む。'&&m.sourceLang==='ja'&&m.targetLang==='zh-Hans'));
+ assert.equal(await lifecycle.locator('#pd-translation #to').inputValue(),'zh-Hans');
  console.log('PASS delayed settings A/B cannot mount or query A after B; card is mounted before settings; long text stays inside narrow viewport with footer accessible');
  assert.deepEqual(errors,[]);
 }catch(error){console.error('UI page errors',errors);throw error;}finally{await context.close();await rm(profile,{recursive:true,force:true});}

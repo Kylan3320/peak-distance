@@ -128,7 +128,7 @@ context.setDefaultTimeout(10000);
 try {
   const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
   const id=new URL(worker.url()).host;
-  await worker.evaluate(()=>chrome.storage.local.set({regularTranslation:'google-gtx',displayLanguage:'zh-Hans',panelMode:'floating'}));
+  await worker.evaluate(()=>chrome.storage.local.set({displayLanguage:'zh-Hans',panelMode:'floating'}));
   const control=await context.newPage();await control.goto(`chrome-extension://${id}/options.html`);
   const sentences = [
     'But I I sometimes think our society gets too binary.',
@@ -206,6 +206,7 @@ try {
       ...nextShared.map((text,i)=>[text,'阅读示例 '+(i+1)+' 已就绪。']),
       [denseLines[0],densePlayerTranslation],[denseLines[1],'阅读示例已就绪。'],
       ['No. No.','不。不。'],['No.','不。'],[pendingText,'OLD EPOCH'],
+      ["binary. Everything's",'二元的。一切都是'],['because of that.','因为这个。'],
     ]);
     const blockedTexts=new Map([[pendingText,'old'],[sentences[0],'first'],[eight[7],'denseLast'],[nextShared[4],'crossing']]);
     const originalFetch=globalThis.fetch;
@@ -317,7 +318,9 @@ try {
 
   await body.hover();await page.mouse.wheel(0,24);
   await workspace.locator('.controls button').last().waitFor();
-  await body.evaluate(el=>{
+  const selectAcrossRows = () => body.evaluate(el=>{
+    getSelection().removeAllRanges();
+    document.dispatchEvent(new Event('selectionchange'));
     window.readingBody=el;
     window.readingRows=[...el.children];
     window.readingTop=el.scrollTop;
@@ -328,6 +331,7 @@ try {
     getSelection().removeAllRanges();getSelection().addRange(range);
     first.parentElement.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,composed:true}));
   });
+  await selectAcrossRows();
   await frame.locator('#panel-selection-actions').waitFor();
   await control.waitForFunction(async tabId=>(await chrome.runtime.sendMessage({type:'selectionCandidateGet',tabId}))?.candidate?.text==="binary. Everything's",tabId);
   const floatingTheme=async theme=>{
@@ -388,6 +392,12 @@ try {
   await control.evaluate(()=>chrome.storage.local.set({appearanceTheme:'classic'}));
   await floatingTheme('classic');
   check('changing appearance preserves subtitle selection, row identity and reading position',await readingPreserved());
+  await selectAcrossRows();
+  await frame.locator('#panel-selection-actions').getByRole('button',{name:'翻译',exact:true}).click();
+  await frame.locator('#pd-translation #copy:not([disabled])').waitFor();
+  assert.equal(await frame.locator('#pd-translation #result').textContent(),'二元的。一切都是');
+  assert.equal(await frame.locator('#pd-translation #from').inputValue(),'en');
+  await frame.locator('#pd-translation #close').click();
   await frame.locator('#workspace-title').click();
   await frame.locator('#panel-selection-actions').waitFor({state:'detached'});
   await frame.evaluate(()=>getSelection().removeAllRanges());
@@ -457,9 +467,14 @@ try {
     const cue=(await chrome.runtime.sendMessage({type:'selectionCandidateGet',tabId}))?.candidate?.cue;
     return cue?.text==='because of that.'&&cue.startMs===3000&&cue.endMs===4000;
   },tabId);
+  await page.locator('#pd-phrase-actions #translate').click();
+  await page.locator('#pd-translation #copy:not([disabled])').waitFor();
+  assert.equal(await page.locator('#pd-translation #result').textContent(),'因为这个。');
+  assert.equal(await page.locator('#pd-translation #from').inputValue(),'en');
+  await page.locator('#pd-translation #close').click();
   await page.evaluate(()=>getSelection().removeAllRanges());
   await page.locator('#pd-phrase-actions').waitFor({state:'detached'});
-  check('player selection uses the visible fragment and its original time range',true);
+  check('player and floating panel translate selections with the track language; player uses the fragment time range',true);
 
   await action({type:'blc-sub-control',videoId:state.videoId,action:'seek',timeMs:trailing[8].tStartMs});
   await gate('old','ready');

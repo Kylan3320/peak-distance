@@ -24,8 +24,8 @@ h1 {font-size:var(--pd-text-title);line-height:1.4;margin:0 0 16px} h2 {font-siz
 .settings-field > span:first-child {flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 .settings-field select {field-sizing:content;min-width:0;max-width:100%;margin-inline-start:auto}
 .settings-field input[type=number] {width:72px;min-height:32px;padding:4px 8px;text-align:end;font-variant-numeric:tabular-nums}
-.settings-field select,.ai-field select,.language-rule select {border:0;background:transparent;padding:4px 8px;font-size:var(--pd-text-body)}
-.settings-field select:hover,.ai-field select:hover,.language-rule select:hover {background:var(--pd-hover)}
+.settings-field select,.ai-field select {border:0;background:transparent;padding:4px 8px;font-size:var(--pd-text-body)}
+.settings-field select:hover,.ai-field select:hover {background:var(--pd-hover)}
 .settings-field-state {flex-basis:100%;text-align:end;font-size:12px;line-height:1.4;color:var(--pd-muted)}
 .settings-field-state.err {color:var(--pd-danger)}
 .settings-field-state:empty {display:none}
@@ -53,10 +53,6 @@ h1 {font-size:var(--pd-text-title);line-height:1.4;margin:0 0 16px} h2 {font-siz
 .settings-action svg {width:var(--pd-icon-size);height:var(--pd-icon-size);flex:none;fill:none;stroke:var(--pd-muted);stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
 #clear-query-cache:not([data-cleared=true]) svg:last-child,#clear-query-cache[data-cleared=true] svg:nth-child(2) {display:none}
 .ui-sr-only {position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.language-rule {display:grid;grid-template-columns:repeat(2,minmax(0,1fr)) auto;gap:8px;align-items:end;padding-block:6px}
-.language-rule label {display:grid;gap:4px;min-width:0;color:var(--pd-muted);font-size:12px;overflow-wrap:anywhere}
-.language-rule select {width:100%;min-width:0;color:var(--pd-ink);background:var(--pd-hover)}
-.language-rule-item {display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:36px;overflow-wrap:anywhere}
 .settings-status {color:var(--pd-muted);font-size:12px;margin-top:8px;overflow-wrap:anywhere}.settings-status:empty {display:none} .settings-status.err {color:var(--pd-danger)}
 .settings-key {width:100%} .settings-heading {display:flex;align-items:center;gap:8px;max-width:720px;margin:0 auto 24px} .settings-heading h1 {font-size:var(--pd-text-title);margin:0}
 #ai-fields {border:0;margin:0;padding:0;min-width:0}

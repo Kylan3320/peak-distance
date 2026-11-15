@@ -1,5 +1,4 @@
 import type { DictionarySource } from '@/lib/onlineDictionary';
-import { isTranslationService, type TranslationService } from './translationService';
 import { isDisplayLanguage, type DisplayLanguage } from './i18n';
 import {
   DEFAULT_COMPREHENSION_LANG,
@@ -20,7 +19,6 @@ export interface Settings {
   markingEnabled: boolean;
   primaryDictionary: DictionarySource;
   backupDictionary: DictionarySource;
-  regularTranslation: TranslationService;
   translationMode: 'regular' | 'ai';
   bilingualEnabled: boolean;
   chineseVisible: boolean;
@@ -28,8 +26,6 @@ export interface Settings {
   subtitleSize: 'small' | 'standard' | 'large';
   /** M11：默认理解语言（词语解释／句段／字幕译文共用目标） */
   defaultComprehensionLang: string;
-  /** M11：按源语言 primary 覆盖理解语言，如 { ja: 'en' } */
-  comprehensionOverrides: Record<string, string>;
   /** M11：无词典结果时主动查词自动使用 AI（默认关；仅本浏览器生效，不写入学习库） */
   aiLookupFallback: boolean;
 }
@@ -38,27 +34,13 @@ export const DEFAULT_SETTINGS: Settings = {
   appearanceTheme: 'classic',
   displayLanguage: 'auto',
   markingEnabled: true, primaryDictionary: 'cambridge', backupDictionary: 'youdao',
-  regularTranslation: 'browser-native', translationMode: 'regular',
+  translationMode: 'regular',
   bilingualEnabled: true, chineseVisible: true, cacheLimit: 200, subtitleSize: 'standard',
   defaultComprehensionLang: DEFAULT_COMPREHENSION_LANG,
-  comprehensionOverrides: {},
   aiLookupFallback: false,
 };
 
-/** 源语言 → 实际理解语言：覆盖优先，其次默认值。 */
-export function comprehensionLangFor(
-  settings: Pick<Settings, 'defaultComprehensionLang' | 'comprehensionOverrides'>,
-  sourceLang: string | undefined,
-): string {
-  if (sourceLang) {
-    const override = Object.entries(settings.comprehensionOverrides).find(([language]) => primaryOfLang(language) === primaryOfLang(sourceLang))?.[1];
-    if (isLanguageTag(override)) return override;
-  }
-  return isLanguageTag(settings.defaultComprehensionLang)
-    ? settings.defaultComprehensionLang
-    : DEFAULT_COMPREHENSION_LANG;
-}
-
+/** Legacy entries remain in the vault preference document. */
 function validOverrides(v: unknown): boolean {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
   for (const [k, t] of Object.entries(v as Record<string, unknown>)) {
@@ -75,7 +57,6 @@ export function validSetting(name: string, value: unknown): boolean {
   if (name === 'subtitleSize') return ['small', 'standard', 'large'].includes(String(value));
   if (['markingEnabled', 'bilingualEnabled', 'chineseVisible', 'aiLookupFallback'].includes(name)) return typeof value === 'boolean';
   if (name === 'primaryDictionary' || name === 'backupDictionary') return value === 'youdao' || value === 'cambridge';
-  if (name === 'regularTranslation') return isTranslationService(value);
   if (name === 'translationMode') return value === 'regular' || value === 'ai';
   if (name === 'defaultComprehensionLang') return isLanguageTag(value) && isTargetLanguage(String(value));
   if (name === 'comprehensionOverrides') return validOverrides(value);

@@ -2,11 +2,9 @@ import { queryTranslation, type RegularTranslationResult } from './regularTransl
 import { saveTranslationKnowledge, backfillTranslationKnowledge, translationKnowledgeState } from './db';
 import { translationIdentity } from '@/shared/knowledge';
 import type { SelectionSnapshot } from '@/shared/panel';
-import type { TranslationService } from '@/shared/translationService';
 
 interface Query {
   snapshot: SelectionSnapshot; source: string; target: string;
-  service: TranslationService;
   controller: AbortController; valid: boolean; detached: boolean;
   saving: number; retained: boolean; settled: boolean; boundId?: string;
   result: Promise<RegularTranslationResult>;
@@ -29,7 +27,7 @@ export function cancelSelectionQuery(scope: string, requestId: string, supersede
 export function detachSelectionScope(scope: string) {
   for (const key of queries.keys()) if (key.startsWith(`${scope}|`)) cancelSelectionQuery(scope, key.slice(scope.length + 1));
 }
-export async function startSelectionQuery(scope: string, requestId: string, snapshot: SelectionSnapshot, source: string, target: string, fresh: boolean, replace: string | undefined, changed: () => void, service: TranslationService | Promise<TranslationService> = 'google-gtx') {
+export async function startSelectionQuery(scope: string, requestId: string, snapshot: SelectionSnapshot, source: string, target: string, fresh: boolean, replace: string | undefined, changed: () => void) {
   if (replace) cancelSelectionQuery(scope, replace, true);
   const identity = translationIdentity(snapshot,source,target);
   if (fresh) for (const [key, previous] of queries) {
@@ -40,15 +38,12 @@ export async function startSelectionQuery(scope: string, requestId: string, snap
   const key = keyOf(scope, requestId);
   if (queries.has(key)) throw new Error('duplicate translation request');
   const controller = new AbortController();
-  const query: Query = { snapshot: structuredClone(snapshot), source, target, service:typeof service === 'string' ? service : 'google-gtx', controller, valid: true, detached: false, saving: 0, retained: false, settled: false, result: Promise.resolve({ok:false,source:'google-gtx',error:'aborted'}) };
-  queries.set(key, query);
-  query.result = Promise.resolve(service).then(provider => {
-    query.service = provider;
-    return queryTranslation(snapshot.text, source, target, controller.signal, fresh, provider);
-  }).catch(error => {
-    if (controller.signal.aborted) return {ok:false as const,source:query.service,error:'aborted' as const};
+  const result = queryTranslation(snapshot.text, source, target, controller.signal, fresh).catch(error => {
+    if (controller.signal.aborted) return {ok:false as const,source:'google-gtx' as const,error:'aborted' as const};
     throw error;
   });
+  const query: Query = { snapshot: structuredClone(snapshot), source, target, controller, valid: true, detached: false, saving: 0, retained: false, settled: false, result };
+  queries.set(key, query);
   query.result = query.result.then(value => { query.value = value; return value; });
   // Reopening an unedited original-only favorite can fill it after an explicit query.
   query.saving++;
@@ -70,8 +65,9 @@ export async function saveSelectionQuery(scope: string, requestId: string, owner
   if (!query?.valid || query.detached) throw new Error('conflict: translation changed');
   query.saving++;
   try {
-    // Never wait for the network to commit an original-only record.
-    const saved = await saveTranslationKnowledge(query.snapshot, query.source, query.target, owner, query.value?.ok ? query.value.text : undefined, query.value?.ok ? query.value.detectedLang : undefined, query.service);
+    // Preserve the existing original-only record shape; the service identifies a result once it has a translation.
+    const value = query.value;
+    const saved = await saveTranslationKnowledge(query.snapshot, query.source, query.target, owner, value?.ok ? value.text : undefined, value?.detectedLang, value?.ok ? value.source : undefined);
     query.retained = true;
     // An old in-flight request can never bind a replacement record after deletion.
     if (query.boundId && query.boundId !== saved.record.id) return saved;

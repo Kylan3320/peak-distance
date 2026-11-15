@@ -39,7 +39,7 @@ try {
     const now=Date.now();
     const timestamps={writtenAt:now,usedAt:now,expiresAt:now+60000};
     await chrome.storage.local.set({
-      deepseekApiKey:'offline-test-only',regularTranslation:'google-gtx',
+      deepseekApiKey:'offline-test-only',
       'query-cache-v2':{
         [legacyKey]:{value:'Legacy AI result',...timestamps},
         [ordinaryKey]:{value:{ok:true,source:'google-gtx',text},...timestamps},

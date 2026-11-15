@@ -106,17 +106,16 @@ try {
 
   await changeSettings({ defaultComprehensionLang: 'de', comprehensionOverrides: { en: 'fr' }, displayLanguage: 'en' });
   await video.waitForFunction(() => document.getElementById('blc-subs')?.lang === 'en');
-  await waitForState(state => state.translationLang === 'fr' && state.cues[0].zh === 'Un sous-titre français.', 'An effective source override should retain the translation');
-  assert.equal((await requests()).length, 2, 'An unchanged effective target should not refetch');
-  await changeSettings({ comprehensionOverrides: { en: 'de' } });
-  await waitForState(state => state.translationLang === 'de', 'A changed source override should apply');
+  await waitForState(state => state.translationLang === 'de', 'The global target should take priority over legacy data');
   assert.equal((await readState()).cues[0].zh, null, 'The previous target translation should clear');
   await video.waitForFunction(() => window.translationRequests.length === 3);
   assert.equal((await requests())[2].targetLang, 'de');
   await reply(2, 'Ein deutscher Untertitel.');
-  await waitForState(state => state.cues[0].zh === 'Ein deutscher Untertitel.', 'The overridden target should translate');
   await waitForCache('de', 'Ein deutscher Untertitel.');
-  await changeSettings({ comprehensionOverrides: { en: 'fr' } });
+  await changeSettings({ comprehensionOverrides: { en: 'it' }, displayLanguage: 'fr' });
+  await video.waitForFunction(() => document.getElementById('blc-subs')?.lang === 'fr');
+  assert.equal((await readState()).translationLang,'de');
+  await changeSettings({ defaultComprehensionLang:'fr' });
   await waitForState(state => state.translationLang === 'fr' && state.cues[0].zh === 'Un sous-titre français.', 'Returning to a target should restore its cache');
   assert.equal((await requests()).length, 3, 'A completed target cache should avoid another platform request');
   await reply(0, '迟到的旧译文。');
@@ -124,7 +123,7 @@ try {
   assert.deepEqual((await captionCache()).map(entry => [entry.target, entry.cues[0].zh]).sort(), [
     ['de', 'Ein deutscher Untertitel.'], ['fr', 'Un sous-titre français.'],
   ]);
-  console.log('PASS source language overrides clear only changed targets, cache hits restore the correct language, and stale responses stay rejected');
+  console.log('PASS legacy source rules are ignored, changing the shared target restores its own cache, and late replies stay rejected');
   const control = await context.newPage();
   await control.goto(new URL('options.html',worker.url()).href);
   await worker.evaluate(() => {
@@ -132,35 +131,36 @@ try {
     chrome.runtime.connect = () => {
       let receive;
       return {onMessage:{addListener:fn=>{receive=fn;}},onDisconnect:{addListener(){},removeListener(){}},
-        disconnect(){},postMessage:()=>queueMicrotask(()=>receive({ok:true,source:'browser-native',text:'内置字幕译文'}))};
+        disconnect(){},postMessage:({text,langs})=>queueMicrotask(()=>receive(
+          langs.target==='es' && text.startsWith('An English')
+            ? {ok:true,source:'browser-native',text:'内置字幕译文'}
+            : {ok:false,source:'browser-native',error:'native-unavailable'}
+        ))};
     };
     globalThis.fetch = async url => {
       if (!String(url).includes('translate.googleapis.com')) throw Error('Unexpected subtitle test request');
       return Response.json([[['Google 字幕译文']],null,'en']);
     };
   });
-  for (const [service,target,label,text] of [
-    ['browser-native','es','浏览器内置翻译','内置字幕译文'],
-    ['google-gtx','it','Google 翻译','Google 字幕译文'],
-  ]) {
-    const count=(await requests()).length;
-    await changeSettings({regularTranslation:service,displayLanguage:'zh-Hans',comprehensionOverrides:{en:target}});
-    await video.waitForFunction(n=>window.translationRequests.length>n,count);
-    await reply(count,'');
-    const state=await waitForState(s=>s.cues[0].zh===text,'Regular fallback should translate');
-    const ack=await worker.evaluate(({tabId,state})=>chrome.tabs.sendMessage(tabId,{
-      type:'pd-video-action',action:'save',index:0,text:state.cues[0].text,
+  const count=(await requests()).length;
+  await changeSettings({defaultComprehensionLang:'es',displayLanguage:'zh-Hans'});
+  await video.waitForFunction(n=>window.translationRequests.length>n,count);
+  await reply(count,'');
+  const mixed=await waitForState(s=>s.cues[0].zh==='内置字幕译文' && s.cues[1].zh==='Google 字幕译文','Regular fallback should translate both cues');
+  for (const [index,label] of [[0,'浏览器内置翻译'],[1,'Google 翻译']]) {
+    const ack=await worker.evaluate(({tabId,state,index})=>chrome.tabs.sendMessage(tabId,{
+      type:'pd-video-action',action:'save',index,text:state.cues[index].text,
       vaultId:null,removeId:null,
       videoId:state.videoId,trackId:state.trackId,generation:state.generation,
-    }),{tabId,state});
+    }),{tabId,state:mixed,index});
     assert.equal(ack.ok,true);
     const saved=await control.evaluate(()=>chrome.runtime.sendMessage({type:'listSentences'}));
     assert.equal(saved.sentences.length,1);
     assert.equal(saved.sentences[0].translationSource,label);
-    assert.equal(saved.sentences[0].zh,text);
+    assert.equal(saved.sentences[0].zh,mixed.cues[index].zh);
     assert.equal((await control.evaluate(id=>chrome.runtime.sendMessage({type:'deleteSentence',id}),saved.sentences[0].id)).ok,true);
   }
-  console.log('PASS native and Google fallback receipts keep their actual source when captions are bookmarked through the video row action');
+  console.log('PASS captions in a mixed native/Google batch keep each actual source after bookmarking');
 
   await worker.evaluate(()=>{
     globalThis.attemptedFallback=[];
@@ -173,7 +173,7 @@ try {
     };
   });
   const recoveryIndex=(await requests()).length;
-  await changeSettings({regularTranslation:'google-gtx',comprehensionOverrides:{en:'pl'}});
+  await changeSettings({defaultComprehensionLang:'pl'});
   await video.waitForFunction(n=>window.translationRequests.length>n,recoveryIndex);
   await reply(recoveryIndex,'');
   await video.locator('#blc-subs .notice').filter({hasText:'翻译暂不可用'}).waitFor();
@@ -184,13 +184,14 @@ try {
 
   await worker.evaluate(()=>{
     globalThis.delayedGoogle=false;
-    globalThis.fetch=async ()=>{
+    globalThis.fetch=async url=>{
+      if(new URL(url).searchParams.get('tl')!=='pt') return Response.json([[['New Google direction']],null,'en']);
       globalThis.delayedGoogle=true;
       return await new Promise(resolve=>globalThis.finishGoogle=()=>resolve(Response.json([[['Late Google']],null,'en'])));
     };
   });
   const switchIndex=(await requests()).length;
-  await changeSettings({comprehensionOverrides:{en:'pt'}});
+  await changeSettings({defaultComprehensionLang:'pt'});
   await video.waitForFunction(n=>window.translationRequests.length>n,switchIndex);
   await reply(switchIndex,'Existing platform translation');
   const waitUntilGoogle=Date.now()+10000;
@@ -198,12 +199,14 @@ try {
     assert.ok(Date.now()<waitUntilGoogle,'expected an in-flight Google fallback');
     await new Promise(resolve=>setTimeout(resolve,50));
   }
-  await changeSettings({regularTranslation:'browser-native'});
-  await waitForState(s=>s.cues[0].zh==='Existing platform translation'&&s.cues[1].zh==='内置字幕译文','Service switch must preserve the platform result and fill the missing row');
+  await changeSettings({defaultComprehensionLang:'it'});
+  await video.waitForFunction(n=>window.translationRequests.length>n,switchIndex+1);
+  await reply(switchIndex+1,'New platform direction');
   await worker.evaluate(()=>globalThis.finishGoogle());
-  assert.equal((await readState()).cues[1].zh,'内置字幕译文');
-  assert.equal((await requests()).length,switchIndex+1);
-  console.log('PASS early batch failure preserves unattempted work; provider switch uses new fallback and keeps platform subtitles');
+  await waitForState(s=>s.cues[0].zh==='New platform direction'&&s.cues[1].zh==='New Google direction','Direction change preserves the new platform result and routes remaining rows');
+  assert.equal((await requests()).length,switchIndex+2);
+  console.log('PASS early batch failure preserves unattempted work and late Google replies cannot overwrite the new direction');
+
 } finally {
   await context?.close();
   if (resolve(profile).startsWith(temporaryRoot + sep)) await rm(profile, { recursive: true, force: true });

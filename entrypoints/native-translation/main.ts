@@ -11,7 +11,7 @@ browser.runtime.onConnect.addListener(port => {
     await ready;
     if (controller.signal.aborted) return;
     const runner = frame.contentWindow as Window & {translateNativeText: typeof translateNativeText};
-    const result = await runner.translateNativeText(text, langs, controller.signal);
+    const result = await runner.translateNativeText(text, langs, controller.signal, detected => port.postMessage({detected}));
     if (!controller.signal.aborted) port.postMessage(result);
   });
 });

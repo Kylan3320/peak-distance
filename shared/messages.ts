@@ -61,7 +61,7 @@ export type BgcRequest =
   | { type: 'saveSelectionKnowledge'; requestId: string; vaultId: string | null }
   | { type: 'viewSelectionKnowledge'; id: string; vaultId: string | null }
   | { type: 'clearQueryCache' }
-  | { type: 'prepareNativeTranslation'; sourceLang?: string; targetLang?: string }
+  | { type: 'prepareNativeTranslation' }
   | { type: 'cancelOnline'; requestId: string }
   | { type: 'subtitleMode'; videoId: string; mode?: 'regular' | 'ai'; autoPause?: boolean }
   | { type: 'saveSentence'; sentence: Omit<import('./vocab').SavedSentence, 'id' | 'createdAt'>; range?: import('./vocab').SentenceRange; vaultId?: string | null }
@@ -99,7 +99,6 @@ export type BgcRequest =
   | {
       type: 'translateCues';
       mode: 'regular' | 'ai';
-      service?: import('./translationService').TranslationService;
       requestId?: string;
       videoId: string;
       trackId: string;

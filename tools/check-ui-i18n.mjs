@@ -102,18 +102,11 @@ try {
     assert.equal(await options.locator('#defaultComprehensionLang').inputValue(),'zh-Hans');
     if(output)await options.screenshot({path:path.join(output,`settings-${locale}.png`),fullPage:true});
   }
-  await options.locator('.settings-details').first().locator('summary').click();
-  assert.equal(await options.locator('#override-source').inputValue(),'');
-  assert.equal(await options.locator('#override-add').isDisabled(),true);
-  await options.locator('#override-source').selectOption('zh');
-  assert.equal(await options.locator('#override-target').inputValue(),'');
-  assert.equal(await options.locator('#override-add').isDisabled(),true);
-  await options.locator('#override-source').selectOption('ja');
-  await options.locator('#override-target').selectOption('en');
-  await options.locator('#override-add').click();
-  await options.waitForFunction(async()=>((await chrome.storage.local.get('comprehensionOverrides')).comprehensionOverrides??{}).ja==='en');
+  await options.evaluate(()=>chrome.storage.local.set({defaultComprehensionLang:'ja',comprehensionOverrides:{ja:'en'},regularTranslation:'google-gtx'}));
   await options.reload();
   await options.waitForFunction(()=>document.querySelector('#displayLanguage')?.value==='fr');
+  assert.equal(await options.locator('#defaultComprehensionLang').inputValue(),'ja');
+  assert.equal(await options.locator('#override-source, #regularTranslation').count(),0);
   assert.equal((await options.evaluate(()=>chrome.storage.local.get('comprehensionOverrides'))).comprehensionOverrides.ja,'en');
 
   await options.locator('details').filter({has:options.locator('#cacheLimit')}).locator('summary').click();
@@ -254,7 +247,7 @@ try {
   await authorizationTab.locator('#vault-connect').waitFor();await authorizationTab.close();
   console.log('PASS redesigned video settings keep per-video mode separate, synchronize the toggle, and route embedded folder access to the settings tab');
   assert.deepEqual(errors,[]);
-  console.log('UI checks passed: five locales, live updates, preserved inputs, saved rules, reload, save failure, AI request language, webpage lookup and video controls.');
+  console.log('UI checks passed: five locales, live updates, preserved inputs and legacy preferences, reload, save failure, AI request language, webpage lookup and video controls.');
 } finally {
   await context.close();await rm(profile,{recursive:true});
 }

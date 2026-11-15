@@ -7,21 +7,42 @@
 // 专名或同语输入返回原文不算失败，由调用方按需展示。
 
 import { isLanguageTag, normalizeLangTag } from '@/shared/languages';
-import { cached } from './onlineCache';
+import { cached, cacheGet } from './onlineCache';
 import type { TranslationService } from '@/shared/translationService';
 import { requestNativeTranslation } from './nativeTranslation';
+import { TRANSLATION_TIMEOUT_MS } from './translationDeadline';
 
 export function translationCacheKey(text: string, source: string, target: string, service: TranslationService = 'google-gtx'): string {
   return JSON.stringify(['translation', service, 'v2', source === 'und' ? 'auto' : source, target, text.trim()]);
 }
-export function queryTranslation(text: string, source: string, target: string, signal?: AbortSignal, fresh = false, service: TranslationService = 'google-gtx') {
-  const langs = {source:source === 'und' ? 'auto' : source, target};
-  return cached(translationCacheKey(text, source, target, service), s => service === 'browser-native' ? requestNativeTranslation(text, langs, s) : translateRegularText(text, s, langs), signal, fresh);
+export async function cachedTranslation(text: string, source: string, target: string) {
+  return await cacheGet<RegularTranslationResult>(translationCacheKey(text, source, target, 'browser-native'))
+    ?? await cacheGet<RegularTranslationResult>(translationCacheKey(text, source, target));
+}
+
+export function queryTranslation(text: string, source: string, target: string, signal?: AbortSignal, fresh = false) {
+  return routeTranslation(text, {source, target}, signal, fresh);
+}
+
+function routeTranslation(text: string, langs: TranslationLangs, signal?: AbortSignal, fresh = false, subtitle = false) {
+  const source = !langs.source || langs.source === 'und' ? 'auto' : langs.source;
+  const target = langs.target;
+  const key = (service: TranslationService) => subtitle
+    ? JSON.stringify(['subtitle-translation', service, `${source}|${target}`, text])
+    : translationCacheKey(text, source, target, service);
+  return cached<RegularTranslationResult>(key('browser-native'), async requestSignal => {
+    if (!text.trim()) return {ok:false, source:'google-gtx', error:'empty'};
+    const native = await requestNativeTranslation(text, {source, target}, requestSignal);
+    requestSignal.throwIfAborted();
+    if (native.ok || native.error === 'aborted' || native.error === 'extension-context-invalidated') return native;
+    const google = await translateRegularText(text, requestSignal, {source:native.detectedLang ?? source, target});
+    return native.detectedLang ? {...google, detectedLang:native.detectedLang} : google;
+  }, signal, fresh, {key:key('google-gtx'), used:result => result.source === 'google-gtx'});
 }
 
 export type RegularTranslationResult =
   | { ok: true; source: TranslationService; text: string; detectedLang?: string }
-  | { ok: false; source: TranslationService; error: 'empty' | 'restricted' | 'network' | 'http' | 'bad-response' | 'aborted' | 'native-unavailable' | 'native-needs-setup'; detail?: string; detectedLang?: string; httpStatus?: number; retryAt?: number };
+  | { ok: false; source: TranslationService; error: 'empty' | 'restricted' | 'network' | 'http' | 'bad-response' | 'aborted' | 'extension-context-invalidated' | 'native-unavailable' | 'native-needs-setup'; detail?: string; detectedLang?: string; httpStatus?: number; retryAt?: number };
 
 type TranslationFailure = Extract<RegularTranslationResult, {ok:false}>;
 const ACCESS_STORE = 'google-translation-restriction';
@@ -99,6 +120,7 @@ export async function translateRegularText(
     await previous;
     if (signal?.aborted) return {ok:false, source:'google-gtx', error:'aborted'};
     await loadRestriction();
+    if (signal?.aborted) return {ok:false, source:'google-gtx', error:'aborted'};
     if (restriction?.retryAt && restriction.retryAt > Date.now()) return {...restriction};
     return await requestGoogle(input, sl, tl, signal);
   } finally { release(); }
@@ -107,7 +129,7 @@ export async function translateRegularText(
 async function requestGoogle(input: string, sl: string, tl: string, signal?: AbortSignal): Promise<RegularTranslationResult> {
   const url = new URL('https://translate.googleapis.com/translate_a/single');
   url.search = new URLSearchParams({ client: 'gtx', sl, tl, dt: 't', q: input }).toString();
-  const timeout = AbortSignal.timeout(12000);
+  const timeout = AbortSignal.timeout(TRANSLATION_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
@@ -134,32 +156,31 @@ async function requestGoogle(input: string, sl: string, tl: string, signal?: Abo
 /** Keep cue IDs and partial results, but never call an empty failed batch successful. */
 export type RegularCueReply = (
   | TranslationFailure
-  | { ok:true; source:TranslationService; translations:{id:number;text:string}[]; failure?:TranslationFailure }
+  | { ok:true; translations:{id:number;text:string;source:TranslationService}[]; failure?:TranslationFailure }
 ) & { deferred?: number[] };
 
 export async function translateRegularCues(
-  items: {id:number; text:string}[], signal: AbortSignal, langs: TranslationLangs, service: TranslationService = 'google-gtx',
+  items: {id:number; text:string}[], signal: AbortSignal, langs: TranslationLangs,
 ): Promise<RegularCueReply> {
-  const translations: {id:number; text:string}[] = [];
+  const translations: {id:number; text:string; source:TranslationService}[] = [];
   let failure: TranslationFailure | undefined;
   let deferred: number[] | undefined;
   for (const [index,item] of items.entries()) {
     if (signal.aborted) {
-      failure = {ok:false, source:service, error:'aborted'};
+      failure = {ok:false, source:'google-gtx', error:'aborted'};
       deferred = items.slice(index).map(item => item.id);
       break;
     }
-    const r = await cached(JSON.stringify(['subtitle-translation', service, `${langs.source}|${langs.target}`, item.text]),
-      s => service === 'browser-native' ? requestNativeTranslation(item.text, langs, s) : translateRegularText(item.text, s, langs), signal);
-    if (r.ok) translations.push({id:item.id, text:r.text});
+    const r = await routeTranslation(item.text, langs, signal, false, true);
+    if (r.ok) translations.push({id:item.id, text:r.text, source:r.source});
     else {
       failure = r;
-      if (r.error === 'restricted' || r.error === 'network' || r.error === 'aborted' || r.error === 'native-unavailable' || r.error === 'native-needs-setup' || (r.httpStatus ?? 0) >= 500) {
+      if (r.error === 'restricted' || r.error === 'network' || r.error === 'aborted' || r.error === 'extension-context-invalidated' || (r.httpStatus ?? 0) >= 500) {
         deferred = items.slice(index).map(item => item.id);
         break;
       }
     }
   }
-  const outcome = !translations.length && failure ? failure : {ok:true as const, source:service, translations, ...(failure ? {failure} : {})};
+  const outcome = !translations.length && failure ? failure : {ok:true as const, translations, ...(failure ? {failure} : {})};
   return deferred ? { ...outcome, deferred } : outcome;
 }
