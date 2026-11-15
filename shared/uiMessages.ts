@@ -17,6 +17,7 @@ export const UI_MESSAGES: Record<string, readonly [string, string, string, strin
   "访问未获允许": ["访问未获允许", "存取未獲允許", "Access not allowed", "Zugriff nicht erlaubt", "Accès non autorisé"],
   "需要授权": ["需要授权", "需要授權", "Access needed", "Berechtigung erforderlich", "Autorisation requise"],
   "允许访问": ["允许访问", "允許存取", "Allow access", "Zugriff erlauben", "Autoriser l’accès"],
+  "如有「每次访问都允许」，请选择该项。": ["如有「每次访问都允许」，请选择该项。", "如有「每次造訪皆允許」，請選擇該項。", "Choose “Allow on every visit” if available.", "Wähle „Bei jedem Besuch zulassen“, falls verfügbar.", "Choisissez « Autoriser à chaque visite » si cette option est disponible."],
   "打开双语字幕": ["开启双语字幕", "開啟雙語字幕", "Turn on bilingual subtitles", "Zweisprachige Untertitel einschalten", "Activer les sous-titres bilingues"],
   "关闭双语字幕": ["关闭双语字幕", "關閉雙語字幕", "Turn off bilingual subtitles", "Zweisprachige Untertitel ausschalten", "Désactiver les sous-titres bilingues"],
   "字幕开关保存失败，请重试": ["字幕开关保存失败，请重试", "字幕開關儲存失敗，請重試", "Could not save subtitle setting. Try again.", "Untertiteleinstellung konnte nicht gespeichert werden. Erneut versuchen.", "Impossible d’enregistrer le réglage des sous-titres. Réessayez."],
