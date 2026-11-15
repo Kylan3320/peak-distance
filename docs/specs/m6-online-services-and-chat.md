@@ -4,6 +4,8 @@ M6 阶段规格，当时的通过项和未验项见 [M6 验收报告](m6-verific
 
 后续 AI 配置由 [M9](m9-ai-services.md) 扩展，会话与临时编辑由 [M10](m10-chat-and-popup-interactions.md) 修订，语言与查询路由由 [M11](m11-multilingual-local-vault.md) 扩展。
 
+本页保留阶段历史；常规翻译来源选择已由[自动路由与设置简化目标](translation-learning.md#8-多语言连续翻译实施与验收)替代，实施时不得恢复本页的旧来源设置。
+
 ## 1. 先验证来源
 
 在实际扩展请求环境验证下列候选，结果记入 [REFERENCES](../REFERENCES.md) 的接入记录；验证后继续实现，不停在调研结论。
