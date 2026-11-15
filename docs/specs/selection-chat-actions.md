@@ -1,12 +1,12 @@
 # 选区查词与添加到对话
 
-状态：已实施。范围、根因与验证见 [验收报告](selection-chat-actions-verification.md)；剩余实机项以报告为准。
+本文维护选区查词与附加材料的行为。当前待验条件见 [ROADMAP](../ROADMAP.md#待实机验证)，阶段证据见[选区验收报告](selection-chat-actions-verification.md)。
 
 ## 目标与范围
 
 普通网页、X、YouTube 页面正文（描述 / 评论 / 标题）与字幕（播放器字幕栏、侧栏字幕列表）支持选区直接添加到当前聊天；附加内容可预览；查词容忍标点及漏选字母；长句、段落隐藏查词。
 
-本规格决定本轮行为；其余沿用 [PRD](../PRD.md)。布局沿用 [design.md](../../design.md)，消息与存储边界按需查阅 [ARCHITECTURE](../ARCHITECTURE.md)。
+产品概述见 [PRD](../PRD.md)，布局见 [design.md](../../design.md)，消息与存储边界见 [ARCHITECTURE](../ARCHITECTURE.md)。
 
 ## 选区入口
 
@@ -67,9 +67,7 @@
 | 附加菜单与预览 | entrypoints/sidepanel/chatView.ts、index.html、style.css |
 | 材料与会话、面板打开 | shared/chat.ts、shared/messages.ts、lib/chatService.ts、lib/chatWorkspace.ts、lib/panelService.ts |
 
-分别定位“附加选区”和“附加页面”的实际失败点；无材料提示不能直接当作选区丢失的证据。完成本范围实现、验证及必要文档更新，普通实现选择自行决定。
-
-## 验收与交付
+## 行为用例
 
 | 场景 | 通过条件 |
 | --- | --- |
@@ -83,4 +81,4 @@
 | 固定/浮动切换、窄面板、长内容 | 预览、展开、移除可用，输入区不被挤出，无重复材料区 |
 | 历史与调用 | 首次发送前无持久会话，旧引用可读，本地处理/附加零 LLM |
 
-运行现有类型、构建和相关回归检查；用少量边界用例和真实入口验证表中行为。检查通过后，仅为新修改、失败或未解决问题重跑。交付实际根因、改动及验证结果；实机不可用时单列未验证项。
+选区消息与材料构建的受控检查见 `tools/selection-check.mjs`。真实页面的验收条件见 [ROADMAP](../ROADMAP.md#待实机验证)。
