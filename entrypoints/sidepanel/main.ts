@@ -1,7 +1,7 @@
 import { applyAppearance } from '@/shared/appearance';
 import { t as tr, localize, onDisplayLanguageChange, initDisplayLanguage, getDisplayLocale , message, setText, setLocalizedAttribute, languageLabel, type UiText } from '@/shared/i18n';
 import '@/shared/theme.css';
-import { mountSettings } from '@/shared/settingsView';
+import { mountSettings, openVaultPage } from '@/shared/settingsView';
 import { createYoutubeWorkspace, stableWorkspaceMap, type WorkspaceState } from '@/shared/youtubeWorkspace';
 import { isPanelView, panelStateKey, panelTransportFailure, type SelectionSnapshot, type PanelFrameState } from '@/shared/panel';
 import { createTranslationPopup } from '@/shared/translationPopup';
@@ -127,6 +127,30 @@ let closeTimer:ReturnType<typeof setTimeout>|undefined;
 let lookupTarget='';
 const currentMain=()=>document.getElementById('view-'+currentView);
 const searchInput = document.querySelector<HTMLInputElement>('#search')!;
+const libraryViews = ['list','sentences','knowledge'];
+const librarySyncNotice = document.getElementById('library-sync-notice')!;
+const librarySyncAction = librarySyncNotice.querySelector('button')!;
+let librarySyncing = false;
+async function syncLibraryOnActivity() {
+  if (!ready || !activePanel || document.hidden || !libraryViews.includes(currentView) || librarySyncing) return;
+  librarySyncing = true;
+  librarySyncAction.disabled = true;
+  try {
+    const result = await send<{ok:boolean;error?:string}>({type:'vaultFlush'});
+    librarySyncNotice.hidden = !!result?.ok || result?.error === 'not-connected';
+    if (librarySyncNotice.hidden) return;
+    const needsAccess = result?.error === 'no-permission';
+    setText(librarySyncNotice.querySelector('span')!, message(needsAccess ? '需要授权'
+      : result?.error === 'conflict' ? '存在同一记录的修改冲突，双方内容已保留'
+      : result?.error === 'format' ? '学习文档格式有误，请检查文档后重试'
+      : '文件读写失败，未完成的内容仍保留在本机，请重试'));
+    setText(librarySyncAction, message(needsAccess ? '允许访问' : '重试'));
+    librarySyncAction.onclick = needsAccess ? () => void openVaultPage('authorize') : () => void syncLibraryOnActivity();
+  } finally {
+    librarySyncing = false;
+    librarySyncAction.disabled = false;
+  }
+}
 let listGeneration = 0;
 let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
 const feedback=(text:string|UiText, transient=false)=>{
@@ -179,7 +203,7 @@ function switchView(view: string): void {
   setLocalizedAttribute(searchInput, 'aria-label', message(view === 'sentences' ? '搜索句子' : view === 'knowledge' ? '搜索知识点标题或正文' : '搜索表达'));
   // 侧栏各视图共用同一连接；显式停止或窗口关闭才停止生成
   if (view === 'chat') chatViewEnter();
-  if (['list','sentences','knowledge'].includes(view)) void refresh();
+  if (libraryViews.includes(view)) {void refresh();void syncLibraryOnActivity();}
   if (view === 'sentences') (libraryReview as HTMLButtonElement).disabled=false;
   if (view === 'subs') pollSubs();
   if (view === 'review') {if(reviewQueue.length||knowledgeQueue.length){renderReview();void refreshReviewQueue();}else void startReview();}
@@ -1343,6 +1367,7 @@ async function boot(){
  // 启动时不由可见性事件打断恢复；就绪后按实际可见性同步聊天状态。
  ready=activePanel;setChatActive(activePanel&&document.visibilityState!=='hidden');document.body.inert=!activePanel;
  workspaceInitialized=true;
+ void syncLibraryOnActivity();
  browser.runtime.onMessage.addListener((m:unknown)=>{const v=m as {type?:string;windowId?:number;tabId?:number;mode?:string;view?:unknown;origin?:string;at?:number};if(v.type==='pd-popup-outside'&&v.windowId===panelWindow&&v.origin==='page'){document.dispatchEvent(new CustomEvent('pd-popup-outside',{detail:{at:v.at}}));return;}if(v.type==='pd-panel-closed'&&v.windowId===panelWindow){closePanelSelectionActions();void restoreChat();return;}if(v.type==='pd-panel-view'&&v.windowId===panelWindow){activePanel=v.mode===(floating?'floating':'fixed')&&(!floating||v.tabId===panelTabId);closePanelSelectionActions();setChatActive(false);restoreVersion++;ready=false;document.body.inert=true;if(activePanel)void restorePanel(v.view).catch(error=>workspaceFailed('restore',error));}});
  if(floating)void send({type:'panelReady'});
  browser.runtime.onMessage.addListener((m:unknown)=>{const v=m as {type?:string;tabId?:number;fullscreen?:boolean};if(v.type==='pd-panel-fullscreen'&&v.tabId===panelTabId)inVideoFullscreen=!!v.fullscreen;});
@@ -1374,6 +1399,8 @@ async function restorePanel(view?:unknown) {
   if(version!==restoreVersion)return;
   if(!s && isPanelView(view))switchView(view);
   workspaceFailureStage='';setChatActive(activePanel&&document.visibilityState!=='hidden');ready=true;document.body.inert=false;
+  void syncLibraryOnActivity();
 }
-document.addEventListener('visibilitychange',()=>{if(!ready)return;if(document.visibilityState==='hidden'){closePanelSelectionActions();void saveDraft(true);void persistPanel();setChatActive(false);}else setChatActive(activePanel);});
+document.addEventListener('visibilitychange',()=>{if(!ready)return;if(document.visibilityState==='hidden'){closePanelSelectionActions();void saveDraft(true);void persistPanel();setChatActive(false);}else {setChatActive(activePanel);void syncLibraryOnActivity();}});
+browser.windows.onFocusChanged.addListener(windowId => {if(windowId===panelWindow)void syncLibraryOnActivity();});
 void boot().catch(error=>workspaceFailed('boot',error));

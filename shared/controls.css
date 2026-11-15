@@ -1,11 +1,28 @@
-/* Keep native selection, keyboard navigation and viewport placement. */
+/* Use the same placement for native pickers and action menus. */
 select:not([multiple]):not([size]),
 select:not([multiple]):not([size])::picker(select) {appearance:base-select}
 select:not([multiple]):not([size]) {display:inline-flex;cursor:pointer;gap:8px;align-items:center;justify-content:space-between;min-height:32px}
-select::picker-icon {content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;rotate:45deg;margin:-3px 3px 0 0;flex:none;color:var(--pd-muted);transition:rotate .12s}
-select:open::picker-icon {rotate:225deg}
-@media(prefers-reduced-motion:reduce) {select::picker-icon {transition:none}}
-select::picker(select) {background:var(--pd-surface);color:var(--pd-ink);border:1px solid var(--pd-line);border-radius:8px;padding:4px;box-shadow:var(--pd-menu-shadow);max-height:min(320px,60dvh);max-width:calc(100vw - 24px);overflow:auto;overscroll-behavior:contain;font:13px/1.5 system-ui,sans-serif}
+select::picker-icon {content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;rotate:45deg;margin:-3px 3px 0 0;flex:none;color:var(--pd-muted)}
+select::picker(select),.ui-action-menu[popover] {
+  position:fixed;inset:auto;position-area:block-end span-inline-start;justify-self:end;
+  position-try-order:normal;
+  position-try-fallbacks:flip-inline,flip-block,flip-block flip-inline,--menu-scroll-below,--menu-scroll-above;
+  margin:6px 0;box-sizing:border-box;max-block-size:320px;max-inline-size:calc(100dvw - 24px);
+  overflow:auto;overscroll-behavior:contain;overflow-wrap:anywhere;
+  border:1px solid var(--pd-line);border-radius:8px;background:var(--pd-surface);color:var(--pd-ink);
+  box-shadow:var(--pd-menu-shadow);font:13px/1.5 system-ui,sans-serif;
+}
+/* Only after the full-height options fail. The minimum rejects the smaller side. */
+@position-try --menu-scroll-below {
+  position-area:block-end span-all;justify-self:end;margin:6px 12px;
+  min-block-size:max(0px, calc((100dvh - anchor-size(height, 32px) - 12px) / 2));
+  max-block-size:stretch;
+}
+@position-try --menu-scroll-above {
+  position-area:block-start span-all;justify-self:end;margin:6px 12px;
+  max-block-size:stretch;
+}
+select::picker(select) {padding:4px}
 select option {min-height:34px;padding:6px 10px;border-radius:5px;gap:8px;overflow-wrap:anywhere}
 select option:hover {background:var(--pd-paper)}
 select option:checked {background:var(--pd-selected);color:var(--pd-blue)}
@@ -18,7 +35,7 @@ select option::checkmark {order:1;margin-left:auto}
 .ui-icon-button.learning-status:hover:not(:disabled),.ui-icon-button[aria-pressed=true]:hover:not(:disabled) {color:var(--pd-blue)}
 .ui-icon-button svg {width:var(--pd-icon-size);height:var(--pd-icon-size);fill:none;stroke:currentColor;stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
 .ui-action-wrap {display:inline-flex;flex:none}
-.ui-action-menu[popover] {position:fixed;position-area:block-end span-inline-start;position-try-fallbacks:flip-block,flip-inline;inset:auto;margin:6px 0;padding:6px;min-width:160px;max-width:calc(100vw - 24px);overflow-wrap:anywhere;max-height:60dvh;overflow:auto;border:1px solid var(--pd-line);border-radius:8px;background:var(--pd-surface);color:var(--pd-ink);box-shadow:var(--pd-menu-shadow);font:13px/1.5 system-ui,sans-serif}
+.ui-action-menu[popover] {padding:6px;min-inline-size:min(160px, calc(100dvw - 24px))}
 .ui-action-menu > button {display:flex;align-items:center;gap:8px;width:100%;min-height:34px;border:0;background:transparent;text-align:start;padding:6px 10px}
 .ui-action-menu > button:hover {background:var(--pd-hover)}
 .ui-action-menu > button[aria-pressed=true] {background:var(--pd-selected);color:var(--pd-blue)}

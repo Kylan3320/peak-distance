@@ -33,10 +33,10 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       #original{margin:12px 0 0;font-size:14px;line-height:1.6;color:var(--pd-muted)}#result{margin:12px 0 0;font-size:14px;line-height:1.6;color:var(--pd-ink)}#result:empty{display:none}#query-state{margin:12px 0 0;font-size:13px;color:var(--pd-muted)}#query-state:empty{display:none}.query-feedback{display:flex;flex-wrap:wrap;align-items:center;gap:8px}#retry-inline{flex-shrink:0;border:0;background:transparent;padding:2px 0;color:var(--pd-blue);font-size:13px}
       .attribution{display:flex;gap:6px;align-items:center;min-width:0;flex:1;color:var(--pd-muted);font-size:11px}.attribution span{overflow-wrap:anywhere}.attribution span:empty{display:none}.attribution span:not(:empty)::after{content:'·';margin-left:6px}#source{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration:none}#source:hover{text-decoration:underline;color:var(--pd-blue)}
       main{padding-bottom:20px}footer{flex-shrink:0;padding:8px 12px 8px 20px;border-top:1px solid var(--pd-line)}.actions{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}.action-buttons{margin-inline-start:auto}.action-buttons,.save-actions{display:flex;align-items:center;gap:2px}.actions button{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;min-height:34px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pd-muted)}.actions button:hover{background:var(--pd-selected);color:var(--pd-ink)}.actions button:disabled{color:#91979a}#view{color:var(--pd-blue)}#view svg{fill:currentColor;stroke:currentColor}#save[aria-busy=true] svg{opacity:.5}#copy.copied{color:var(--pd-blue)}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}#save-state{display:block;margin:4px 0;font-size:12px;color:var(--pd-muted);overflow-wrap:anywhere}#save-state:empty{display:none}
-      #more-panel{position:absolute;z-index:1;top:46px;right:12px;width:min(256px,calc(100% - 24px));max-height:calc(100% - 58px);overflow:auto;overscroll-behavior:contain;padding:6px;background:var(--pd-surface);border:1px solid var(--pd-line);border-radius:8px;box-shadow:var(--pd-menu-shadow)}#more-panel button{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;text-align:start;padding:7px 10px;font-size:13px}#more-panel button:hover{background:var(--pd-selected)}#destination{display:block;padding:9px 10px 3px;font-size:12px;color:var(--pd-muted);overflow-wrap:anywhere}#more-panel .library-options{border-top:1px solid var(--pd-line);margin-top:4px;padding-top:3px}
+      #more{anchor-name:--translation-more}#more-panel{position-anchor:--translation-more;inline-size:min(256px,calc(100dvw - 24px))}#more-panel button{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;text-align:start;padding:7px 10px;font-size:13px}#more-panel button:hover{background:var(--pd-selected)}#destination{display:block;padding:9px 10px 3px;font-size:12px;color:var(--pd-muted);overflow-wrap:anywhere}#more-panel .library-options{border-top:1px solid var(--pd-line);margin-top:4px;padding-top:3px}
       @media(max-width:360px){.languages{grid-template-columns:minmax(0,1fr)}header{padding-left:16px}main{padding:0 16px}footer{padding:10px 12px}}@media(prefers-reduced-motion:reduce){button{transition:none}}
     </style><section class="card" role="dialog"><header tabindex="0"><strong data-i18n="翻译"></strong><button id="pin" class="icon" aria-pressed="false" data-i18n-title="保持展开" data-i18n-aria-label="保持展开">${icon('<path d="m16 3 5 5-4 1-3 5-1 4-3-3-6 6 6-6-3-3 4-1 5-3z"/>')}</button><button id="more" class="icon" aria-expanded="false" aria-controls="more-panel" data-i18n-title="更多翻译操作" data-i18n-aria-label="更多翻译操作">${uiIcon('more')}</button><button id="close" class="icon" data-i18n-title="关闭翻译" data-i18n-aria-label="关闭翻译">${uiIcon('close')}</button></header>
-      <div id="more-panel" role="group" data-i18n-aria-label="更多翻译操作" hidden><button id="retry" disabled>${icon('<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-2l2 2M4 17l2 2a7 7 0 0 0 12-2"/>')}<span data-i18n="重新翻译"></span></button><div class="library-options"><small id="destination"></small><button id="connect" data-i18n="管理学习库"></button></div></div>
+      <div id="more-panel" class="ui-action-menu" popover="auto" role="group" data-i18n-aria-label="更多翻译操作"><button id="retry" disabled>${icon('<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-2l2 2M4 17l2 2a7 7 0 0 0 12-2"/>')}<span data-i18n="重新翻译"></span></button><div class="library-options"><small id="destination"></small><button id="connect" data-i18n="管理学习库"></button></div></div>
       <main><button id="language-toggle" aria-expanded="false" aria-controls="languages" data-i18n-title="调整本次翻译语言"><span id="direction"></span>${uiIcon('expand')}</button><div id="languages" class="languages" hidden><label><span data-i18n="原文语言"></span><select id="from"></select></label><label><span data-i18n="目标语言"></span><select id="to"></select></label></div><p id="original"></p><p id="result"></p><div class="query-feedback"><p id="query-state" role="status" data-i18n="正在加载…"></p><button id="retry-inline" data-i18n="重试" hidden></button></div></main>
       <footer><div class="actions"><div class="attribution"><span></span><a id="source" target="_blank" rel="noopener"></a></div><div class="action-buttons"><button id="copy" class="quiet" disabled>${uiIcon('copy')}<span class="sr-only" id="copy-label" role="status" data-i18n="复制译文"></span></button><div class="save-actions"><button id="save" class="primary" disabled>${uiIcon('bookmark')}<span class="sr-only" id="save-label" data-i18n="收藏原文"></span></button><button id="view" class="primary" data-i18n-title="查看收藏" data-i18n-aria-label="查看收藏" hidden>${uiIcon('saved')}<span class="sr-only" data-i18n="查看收藏"></span></button></div></div></div><small id="save-state" role="status"></small></footer></section>`;
     const card = root.querySelector<HTMLElement>('.card')!, header = root.querySelector<HTMLElement>('header')!;
@@ -167,7 +167,10 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
     button('close').onclick = () => close();
     button('pin').onclick = () => { state.pinned = !state.pinned; button('pin').setAttribute('aria-pressed', String(state.pinned)); };
     function more(open: boolean, restoreFocus = false) {
-      node('more-panel').hidden = !open; button('more').setAttribute('aria-expanded',String(open));
+      const panel = node('more-panel');
+      if (open && !panel.matches(':popover-open')) panel.showPopover();
+      if (!open && panel.matches(':popover-open')) panel.hidePopover();
+      button('more').setAttribute('aria-expanded',String(open));
       if (restoreFocus) button('more').focus({preventScroll:true});
       if (open) { languages(false); button('retry').disabled ? button('connect').focus({preventScroll:true}) : button('retry').focus({preventScroll:true}); }
     }
@@ -177,7 +180,10 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       if (open) { more(false); from.focus({preventScroll:true}); }
       constrain();
     }
-    button('more').onclick = () => more(node('more-panel').hidden);
+    button('more').onclick = () => more(!node('more-panel').matches(':popover-open'));
+    node('more-panel').addEventListener('toggle', () => {
+      button('more').setAttribute('aria-expanded', String(node('more-panel').matches(':popover-open')));
+    });
     button('language-toggle').onclick = () => languages(node('languages').hidden);
     button('retry').onclick = () => {more(false,true);void run(true);};
     button('retry-inline').onclick = () => void run(true);
@@ -221,7 +227,7 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       const delta: Record<string,[number,number]> = {ArrowLeft:[-16,0],ArrowRight:[16,0],ArrowUp:[0,-16],ArrowDown:[0,16]};
       const d=delta[e.key]; if(d){e.preventDefault();move(parseFloat(card.style.left)+d[0],parseFloat(card.style.top)+d[1]);}
     };
-    host.addEventListener('keydown', e => { e.stopPropagation(); if(e.key === 'Escape'){if(from.matches(':open') || to.matches(':open')) return; e.preventDefault(); if(!node('more-panel').hidden) more(false,true); else if(!node('languages').hidden) languages(false,true); else close();} });
+    host.addEventListener('keydown', e => { e.stopPropagation(); if(e.key === 'Escape'){if(from.matches(':open') || to.matches(':open')) return; e.preventDefault(); if(node('more-panel').matches(':popover-open')) more(false,true); else if(!node('languages').hidden) languages(false,true); else close();} });
     host.addEventListener('mousedown', e => e.stopPropagation());
     button('close').focus({preventScroll:true});
     void send({type:'selectionSnapshot',snapshot});

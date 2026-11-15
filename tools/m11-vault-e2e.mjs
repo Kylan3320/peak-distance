@@ -112,14 +112,35 @@ try {
     await new Promise((done, fail) => { const tx = db.transaction('sentences', 'readwrite'); tx.objectStore('sentences').clear(); tx.oncomplete = done; tx.onerror = () => fail(tx.error); });
     db.close();
   });
-  await page.locator('#vault-flush').click();
-  await page.waitForFunction(() => document.querySelector('#vault-state').textContent.includes('同步完成'));
+  const library=await ctx.newPage();
+  await library.addInitScript(()=>{
+    const add=chrome.windows.onFocusChanged.addListener.bind(chrome.windows.onFocusChanged);
+    window.testWindowFocus=[];
+    chrome.windows.onFocusChanged.addListener=listener=>{window.testWindowFocus.push(listener);add(listener);};
+  });
+  await library.goto(`chrome-extension://${id}/sidepanel.html#sentences`);
+  await library.getByText('A senior engineer.',{exact:true}).waitFor();
   const restored = await send({ type: 'listSentences' });
-  check('设置页立即同步读回句子与完整视频位置', restored?.sentences?.[0]?.video?.startMs === 1000 && restored.sentences[0].endMs === 3500 && restored.sentences[0].zh === '资深工程师。', JSON.stringify(restored));
+  check('打开生词本自动读回句子与完整视频位置', restored?.sentences?.[0]?.video?.startMs === 1000 && restored.sentences[0].endMs === 3500 && restored.sentences[0].zh === '资深工程师。', JSON.stringify(restored));
+  await page.bringToFront();
+  await page.evaluate(async () => {
+    const handle = await (await navigator.storage.getDirectory()).getFileHandle('句子.md');
+    const content = await (await handle.getFile()).text();
+    if(!content.includes('资深工程师。'))throw Error('Missing sentence translation');
+    const writable = await handle.createWritable();
+    await writable.write(content.replace('资深工程师。','高级工程师。')); await writable.close();
+  });
+  assert.equal((await send({type:'listSentences'})).sentences[0].zh,'资深工程师。');
+  // Headless tabs report visible even while another tab is selected. Exercise the window-focus listener with real files and routing.
+  await library.evaluate(async()=>{const {id}=await chrome.windows.getCurrent();window.testWindowFocus.forEach(listener=>listener(id));});
+  await library.getByText('高级工程师。',{exact:true}).waitFor();
+  check('切回已打开的生词本自动读回外部修改',true);
+  await library.close();
+  await page.bringToFront();
   for (const width of [320, 1200]) {
     await page.setViewportSize({ width, height: 900 });
     check(`学习库设置 ${width}px 无横向溢出`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-    await page.locator('#vault-flush').scrollIntoViewIfNeeded();
+    await page.locator('#vault-label').scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(output, `vault-settings-${width}.png`) });
   }
   await worker.evaluate(()=>{globalThis.__queryPermission=FileSystemDirectoryHandle.prototype.queryPermission;FileSystemDirectoryHandle.prototype.queryPermission=async()=> 'prompt';});
@@ -142,7 +163,7 @@ try {
   await page.locator('#vault-authorize').click();
   await page.locator('#vault-authorize:enabled').waitFor();
   check('待授权状态通过顶部状态和操作显示',!(await page.locator('#vault-state').isVisible()));
-  check('权限未获得时显示授权操作，原目录保持连接', await page.locator('#vault-authorize').isEnabled() && await page.locator('#vault-flush').isDisabled());
+  check('权限未获得时显示授权操作，原目录保持连接', await page.locator('#vault-authorize').isEnabled() && !(await page.locator('#vault-retry').isVisible()));
   await page.evaluate(() => {
     FileSystemDirectoryHandle.prototype.queryPermission = window.__queryPermission;
     FileSystemDirectoryHandle.prototype.requestPermission = window.__requestPermission;
@@ -150,7 +171,7 @@ try {
   await worker.evaluate(()=>{FileSystemDirectoryHandle.prototype.queryPermission=globalThis.__queryPermission;});
   await page.locator('#vault-authorize').click();
   await page.locator('#vault-authorize').waitFor({state:'hidden'});
-  check('授权恢复后继续原库同步，无需重新选择文件夹',await page.locator('#vault-flush').isEnabled());
+  check('授权恢复后隐藏恢复动作',!(await page.locator('#vault-retry').isVisible()));
   check('重新授权后写入原待办',(await send({type:'vaultStatus'})).status.pendingCount===0 && (await page.evaluate(call(READ_VOCAB_FILE))).text.includes('en::daybreak'));
   const intactBook = await page.evaluate(async () => {
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('生词本.md');
@@ -158,13 +179,17 @@ try {
     const writable = await handle.createWritable(); await writable.write(text.replaceAll('<!-- peak-distance:vocab -->', '')); await writable.close();
     return text;
   });
-  await page.locator('#vault-flush').click();
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
   await page.waitForFunction(() => document.querySelector('#vault-state').textContent.includes('文档格式有误'));
+  await page.locator('#vault-retry').waitFor();
   check('格式损坏如实报错且本机词条不被清空', !!(await send({ type: 'getEntry', key: 'ja::学ぶ' }))?.entry);
   await page.evaluate(async text => {
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('生词本.md');
     const writable = await handle.createWritable(); await writable.write(text); await writable.close();
   }, intactBook);
+  await page.locator('#vault-retry').click();
+  await page.locator('#vault-retry').waitFor({state:'hidden'});
+  check('修正文档后点击重试，成功后隐藏恢复操作',true);
 
   // 3. 外部编辑：status → learning + 我的笔记（不同字段，应自动合并）
   const EDIT_EXTERNAL = `async (mode) => {

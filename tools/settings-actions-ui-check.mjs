@@ -45,7 +45,7 @@ try {
   await panel.locator('#ai-settings > summary').click();await panel.locator('#ai-current').filter({hasText:'deepseek-flash'}).waitFor();
   assert.equal(await panel.locator('#state').isVisible(),false);
   assert.equal(await panel.locator('#clear').innerText(),'');assert.equal(await panel.locator('#key-help').count(),0);
-  assert.equal(await panel.locator('#vault-flush').isVisible(),false);assert.equal(await panel.locator('#vault-disconnect').isVisible(),false);
+  assert.equal(await panel.locator('#vault-retry').isVisible(),false);assert.equal(await panel.locator('#vault-disconnect').isVisible(),false);
   // Control only status reads; directory permissions and synchronization are unchanged.
   const settings=await context.newPage();
   await settings.addInitScript(()=>{
@@ -63,8 +63,8 @@ try {
   assert.equal(await settings.locator('#vault-connect').getAttribute('aria-label'),'更换文件夹');
   assert.equal(await settings.locator('#vault-connect').innerText(),'');
   assert.equal(await settings.locator('#vault-state').isVisible(),false);
-  await settings.locator('#vault-flush').waitFor();await settings.locator('#vault-disconnect').waitFor();
-  assert.match(await settings.locator('#vault-flush').getAttribute('title'),/上次同步/);
+  assert.equal(await settings.locator('#vault-retry').isVisible(),false);await settings.locator('#vault-disconnect').waitFor();
+  assert.match(await settings.locator('#vault-label').getAttribute('title'),/上次同步/);
   await settings.evaluate(()=>{vaultFixture.pendingCount=0;for(const listener of vaultListeners)listener({type:'vault-changed'}, {},()=>{});});
   await settings.locator('#vault-pending').waitFor({state:'hidden'});
   await settings.locator('summary[data-i18n="查询缓存"]').click();
@@ -105,7 +105,7 @@ try {
   assert.equal(await settings.locator('#vault-authorize').innerText(),'允许访问');
   assert.equal(await settings.locator('#vault-connect').getAttribute('aria-label'),'更换文件夹');
   assert.equal(await settings.locator('#vault-state').isVisible(),false);
-  assert.equal(await settings.locator('#vault-flush').isDisabled(),true);
+  assert.equal(await settings.locator('#vault-retry').isVisible(),false);
   assert.match(await settings.locator('#vault-pending').innerText(),/1/);
   await settings.setViewportSize({width:360,height:780});await settings.locator('#vault-label').evaluate(n=>{const main=n.closest('main');main.scrollTop+=n.closest('section').getBoundingClientRect().top-main.getBoundingClientRect().top-16;});
   assert.ok(await settings.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -122,6 +122,30 @@ try {
   await settings.waitForFunction(async()=>!(await chrome.storage.local.get('aiServices')).aiServices.profiles.deepseek.apiKey);
   await settings.locator('#state[data-i18n="未配置"]').waitFor();
   assert.equal(await settings.locator('#clear').isVisible(),false);assert.equal(await settings.locator('#key-help').count(),0);
+  const opened = context.waitForEvent('page');
+  await settings.locator('#vault-authorize').click();
+  const authorization = await opened;
+  await authorization.waitForURL(base+'/options.html?vault=authorize');
+  await authorization.close();
+  await settings.bringToFront();
+  const picker = settings.locator('#defaultComprehensionLang');
+  for (const [height,top,direction,scrolls] of [[550,50,'end',false],[550,470,'start',false],[400,160,'block-end',true],[400,220,'block-start',true]]) {
+    await settings.setViewportSize({width:360,height});
+    await picker.evaluate((node,top)=>{node.style.cssText=`position:fixed;right:24px;top:${top}px;z-index:1`;},top);
+    await picker.click();
+    await settings.locator('#defaultComprehensionLang:open').waitFor();
+    assert.equal(Math.round((await picker.boundingBox()).y),top);
+    const {placement,...bounds}=await picker.evaluate(async node=>{
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const menu = getComputedStyle(node,'::picker(select)');
+      return {placement:{direction:menu.positionArea.split(' ')[0],scrolls:menu.maxBlockSize==='stretch',arrow:getComputedStyle(node,'::picker-icon').rotate},
+        screen:innerHeight,trigger:node.getBoundingClientRect().toJSON(),first:node.options[0].getBoundingClientRect().toJSON(),size:menu.blockSize,direction:menu.positionArea,options:node.length};
+    });
+    assert.deepEqual(placement,{direction,scrolls,arrow:'45deg'},JSON.stringify(bounds));
+    await settings.keyboard.press('Escape');
+    await settings.locator('#defaultComprehensionLang:open').waitFor({state:'detached'});
+  }
+  console.log('PASS independent directory authorization tab and shared dropdown placement at the top, bottom, and both constrained sides');
   assert.deepEqual(errors,[]);
   console.log('PASS direct delete cancel/confirm; SVG review navigation; separate live vault permission and folder replacement; aligned SVG header, AI icon save/permission failure/clear, locale update and 360px layout');
 } finally {await context.close();await rm(profile,{recursive:true,force:true});}

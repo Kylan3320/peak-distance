@@ -561,7 +561,7 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
 /** Manual sync publishes local pending changes and then refreshes the running copy from the shared files. */
 export const synchronizeVault = () => runVaultOperation(synchronize);
 async function synchronize() {
-  if (await getSyncSnapshot('preference:main')) await queuePreferenceWrite();
+  if (await getVaultIdentity() && await getSyncSnapshot('preference:main')) await queuePreferenceWrite();
   const flush = await flushPendingWrites();
   const sync = await readVaultChanges();
   return { ...flush, ...sync, error: flush.error ?? sync.error ?? (sync.conflicts ? 'conflict' as const : undefined) };
