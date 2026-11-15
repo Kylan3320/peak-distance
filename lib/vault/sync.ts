@@ -487,7 +487,8 @@ async function readVaultChanges(): Promise<VaultSyncResult> {
       draft: '',
       pendingQuote: null,
     };
-    if (await upsertChatRecordFromVault(record) !== 'kept-local') updated++;
+    if (await upsertChatRecordFromVault(record) === 'kept-local') continue;
+    updated++;
     const { draft: _draft, pendingQuote: _quote, ...base } = record;
     await setSyncSnapshot(`chat:${record.id}`, vaultRecordJson(base));
   }

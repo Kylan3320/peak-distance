@@ -147,10 +147,72 @@ async function open(kind) {
   await page.evaluate(() => window.Vault.db.setVaultHandle("shared-test-directory"));
   return page;
 }
+async function addTurn(page, id, label, material = null, streaming = false) {
+  return page.evaluate(async ({ id, label, material, streaming }) => {
+    const current = await Vault.db.getChat(id, () => true) ?? Vault.emptyChat();
+    const context = material ? { ...current, source:material.source, sourceKey:material.source.sourceKey, snapshots:[...current.snapshots,material], activeSnapshotVersion:material.version } : current;
+    const requestId = crypto.randomUUID();
+    await Vault.db.appendChatTurn({ chatId:id, turnId:requestId, requestId, question:label, quote:material?{blockIds:['p1']}:null, snapshotVersion:material?.version??0, segmentIndex:0, scopeLabel:'Test', context, create:!current.id });
+    if (!streaming) await Vault.db.saveAssistantProgress({ chatId:id, requestId, text:`Answer ${label}`, state:'done' });
+    return requestId;
+  }, { id, label, material, streaming });
+}
+
+const chatFile = id => join(directory, '对话', readdirSync(join(directory, '对话')).find(name => readFileSync(join(directory, '对话', name), 'utf8').includes('id: '+id+'\n')));
+
+async function checkChatConflicts(chrome, edge) {
+  for (const readDuringGeneration of [false, true]) {
+    const id = readDuringGeneration ? 'streaming-chat' : 'stale-chat';
+    await addTurn(edge, id, 'Base');
+    assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    await chrome.evaluate(() => Vault.syncFromVault());
+    const base = await chrome.evaluate(id => Vault.db.getSyncSnapshot('chat:'+id), id);
+    assert.ok(base);
+    const requestId = readDuringGeneration ? await addTurn(chrome, id, 'Local continuation', null, true) : null;
+    await addTurn(edge, id, 'Remote continuation');
+    assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    const remoteChat = readFileSync(chatFile(id), 'utf8');
+    assert.ok(remoteChat.includes('Answer Remote continuation'));
+    if (readDuringGeneration) {
+      const read = await chrome.evaluate(async id => {
+        await Vault.syncFromVault();
+        return {
+          base: await Vault.db.getSyncSnapshot('chat:'+id),
+          state: (await Vault.db.getChat(id, () => true)).messages.at(-1).state,
+        };
+      }, id);
+      assert.equal(read.state, 'streaming');
+      assert.equal(read.base, base, 'declining the remote import must preserve the shared base');
+      await chrome.evaluate(({id,requestId}) => Vault.db.saveAssistantProgress({
+        chatId:id, requestId, text:'Answer Local continuation', state:'done',
+      }), { id, requestId });
+    } else {
+      await addTurn(chrome, id, 'Local continuation');
+    }
+    const after = await chrome.evaluate(async id => ({
+      flushed: await Vault.flushVaultWrites(),
+      local: await Vault.db.getChat(id, () => true),
+      conflict: await Vault.db.getVaultRaw('conflict:chat:'+id),
+      pending: (await Vault.db.listVaultQueue()).find(write => write.recordId === id),
+    }), id);
+    assert.equal(after.flushed.error, 'conflict');
+    assert.equal(readFileSync(chatFile(id), 'utf8'), remoteChat);
+    assert.equal(after.local.messages.at(-1).text, 'Answer Local continuation');
+    assert.equal(after.conflict.local.messages.at(-1).text, 'Answer Local continuation');
+    assert.ok(after.conflict.remote.some(file => file.text.includes('Answer Remote continuation')));
+    assert.equal(after.pending.payload.messages.at(-1).text, 'Answer Local continuation');
+    console.log(`PASS ${readDuringGeneration ? 'readback during generation' : 'stale continuation'} preserves both chat branches`);
+  }
+}
+
 try {
   const chrome = await open("chrome");
   const edge = await open("edge");
-  if (process.argv.includes('--translation-only')) {
+  if (process.argv.includes('--chat-conflict-only')) {
+    assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
+    assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
+    await checkChatConflicts(chrome, edge);
+  } else if (process.argv.includes('--translation-only')) {
     // Keep this mode limited to the new source and its existing collection lifecycle.
     const snapshot={text:'US policy\nCafé!',url:'https://example.com/translation#section',title:'Translation'};
     const first=await chrome.evaluate(async snapshot=>{
@@ -865,16 +927,6 @@ try {
   assert.ok(readFileSync(join(directory,'生词本.md'),'utf8').includes('EXTERNAL COLLECTION NOTE'));
   console.log('PASS external collection changes stop publication; retry preserves the external note');
 
-  async function addTurn(page, id, label, material = null) {
-    return page.evaluate(async ({ id, label, material }) => {
-      const current = await Vault.db.getChat(id, () => true) ?? Vault.emptyChat();
-      const context = material ? { ...current, source:material.source, sourceKey:material.source.sourceKey, snapshots:[...current.snapshots,material], activeSnapshotVersion:material.version } : current;
-      const requestId = crypto.randomUUID();
-      await Vault.db.appendChatTurn({ chatId:id, turnId:requestId, requestId, question:label, quote:material?{blockIds:['p1']}:null, snapshotVersion:material?.version??0, segmentIndex:0, scopeLabel:'Test', context, create:!current.id });
-      await Vault.db.saveAssistantProgress({ chatId:id, requestId, text:`Answer ${label}`, state:'done' });
-    }, { id, label, material });
-  }
-  const chatFile = id => join(directory, '对话', readdirSync(join(directory, '对话')).find(name => readFileSync(join(directory, '对话', name), 'utf8').includes('id: '+id+'\n')));
   const material = text => ({ version:1, source:{sourceType:'article',sourceKey:'web:quality',title:'Source',url:'https://example.com/quality'}, label:'Quality material', createdAt:1, blocks:[{id:'p1',text}] });
 
   await addTurn(chrome, 'write-receipt', 'Committed before receipt');
@@ -894,20 +946,7 @@ try {
   assert.ok(await chrome.evaluate(() => Vault.db.getVaultRaw('conflict:chat:material-race')));
   console.log('PASS an external edit during material publication prevents replacing the chat and preserves a conflict');
 
-  await addTurn(edge, 'stale-chat', 'Base');
-  await edge.evaluate(() => Vault.flushVaultWrites());
-  await chrome.evaluate(() => Vault.syncFromVault());
-  await addTurn(edge, 'stale-chat', 'Remote continuation');
-  await edge.evaluate(() => Vault.flushVaultWrites());
-  const remoteChat = readFileSync(chatFile('stale-chat'), 'utf8');
-  await addTurn(chrome, 'stale-chat', 'Local continuation');
-  assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'conflict');
-  assert.equal(readFileSync(chatFile('stale-chat'), 'utf8'), remoteChat);
-  const chatConflict = await chrome.evaluate(() => Vault.db.getVaultRaw('conflict:chat:stale-chat'));
-  assert.ok(chatConflict.local.messages.some(m => m.text === 'Local continuation'));
-  assert.ok(chatConflict.remote.some(file => file.text.includes('Remote continuation')));
-  assert.ok((await chrome.evaluate(() => Vault.db.listVaultQueue())).some(w => w.recordId === 'stale-chat'));
-  console.log('PASS stale continuation cannot overwrite another profile; both branches remain recoverable');
+  await checkChatConflicts(chrome, edge);
 
   await addTurn(edge, 'material-collision', 'Base');
   await edge.evaluate(() => Vault.flushVaultWrites());
