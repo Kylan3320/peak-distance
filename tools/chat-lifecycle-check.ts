@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { build } from 'esbuild';
-import type { ChatRecordView } from '../shared/chat';
+import { historyForTurn, type ChatRecordView } from '../shared/chat';
 import type { ChatPortEvent, ChatPortMessage } from '../shared/messages';
 
 function deferred<T>() {
@@ -172,8 +172,8 @@ boundaries.appendChatTurn = async input => {
   return structuredClone(durable);
 };
 boundaries.saveAssistantProgress = async input => {
-  const progress = input as { state?: 'error' | 'stopped'; text?: string };
-  Object.assign(durable.messages[1]!, { state: progress.state, text: progress.text });
+  const { state, text, errorKind } = input as Pick<ChatRecordView['messages'][number], 'state' | 'text' | 'errorKind'>;
+  Object.assign(durable.messages[1]!, { state, text, errorKind });
   return true;
 };
 for (const [index, failure] of ['session', 'read'].entries()) {
@@ -264,3 +264,16 @@ await restoredRequest({type:'chatRemoveMaterial',chatId:'',editId:temporaryEdito
 await restoredRequest({type:'chatEnsure',chatId:'',editId:temporaryEditor.editId,source:temporarySource,material:{label:'Second',blocks:[{id:'p1',text:'Second temporary material'}]}});
 assert.notEqual((await reopened.readChatEdit(42)).activeSnapshotVersion,oldVersion);
 console.log('PASS: removing temporary material does not reuse its editor version before submission.');
+
+boundaries.getChat=async id=>durable?.id===id?structuredClone(durable):null;
+boundaries.chatCompletionStream=async()=>({ok:false,error:'truncated',text:'Partial answer'});
+await request(43,{type:'chatNew'});
+const retryDraft=await api.readChatEdit(43);
+const retryPort=testPort(43);
+retryPort.receive({type:'chat-send',chatId:'',editId:retryDraft.editId,question:'Truncated answer',quote:null,snapshotVersion:0,segmentIndex:0});
+await until(()=>retryPort.events.some(e=>e.type==='chat-ev'&&e.kind==='interrupted'));
+assert.equal(durable.messages[1]!.text,'Partial answer');
+assert.equal(durable.messages[1]!.state,'interrupted');
+assert.equal(durable.messages[1]!.errorKind,'truncated');
+assert.deepEqual(historyForTurn(durable.messages,'next-turn',0),[]);
+console.log('PASS: truncated answers survive as retryable interruptions and stay out of model history.');

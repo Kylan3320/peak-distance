@@ -248,6 +248,7 @@ export type ChatStreamErrorKind =
 
 export type ChatStreamResult =
   | { ok: true; text: string; finishReason: string | null }
+  | { ok: false; error: 'interrupted' | 'truncated'; text: string }
   | { ok: false; error: ChatStreamErrorKind; detail?: string };
 
 /**
@@ -292,6 +293,7 @@ export async function chatCompletionStream(
   let rest = '';
   let text = '';
   let finishReason: string | null = null;
+  let ended = false;
   const consume = (chunk: string): boolean => {
     const fed = feedSSE(rest, chunk);
     rest = fed.rest;
@@ -299,20 +301,20 @@ export async function chatCompletionStream(
     for (const ev of fed.events) {
       const parsed = parseAiStreamEvent(config.protocol, ev);
       if (parsed.error) throw Error('stream-error');
-      if (parsed.done) return true;
       if (parsed.content) {
         text += parsed.content;
         opts.onText?.(text);
       }
       if (parsed.finishReason) finishReason = parsed.finishReason;
+      if (parsed.done) return true;
     }
     return fed.done;
   };
   try {
     while (true) {
       const { value, done } = await reader.read();
-      if (done) break; // 流自然结束（无 [DONE] 也视为截断收尾）
-      if (consume(decoder.decode(value, { stream: true }))) break;
+      ended = consume(done ? decoder.decode() + '\n' : decoder.decode(value, { stream: true }));
+      if (done || ended) break;
     }
   } catch (err) {
     if (opts.signal.aborted) return { ok: false, error: 'aborted' };
@@ -325,6 +327,7 @@ export async function chatCompletionStream(
       /* ignore */
     }
   }
+  if (opts.signal.aborted) return { ok: false, error: 'aborted' };
   if (!text.trim()) {
     return {
       ok: false,
@@ -332,6 +335,12 @@ export async function chatCompletionStream(
       detail: `empty stream finish=${finishReason ?? '?'}`,
     };
   }
+  const reason: string = (finishReason ?? '').toLowerCase();
+  if (reason === 'length' || reason === 'max_tokens') return { ok: false, error: 'truncated', text };
+  const completed = reason
+    ? (config.protocol === 'anthropic' ? reason === 'end_turn' || reason === 'stop_sequence' : reason === 'stop')
+    : ended;
+  if (!completed) return { ok: false, error: 'interrupted', text };
   return { ok: true, text, finishReason };
 }
 

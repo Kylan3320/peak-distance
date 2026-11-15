@@ -129,6 +129,8 @@ export default defineContentScript({
     let apLastStopped = -1;
     const translationSources = new Map<number, string>();
     let translationEpoch = 0;
+    let fallbackEpoch = 0;
+    let fallbackRetryAt = 0;
     let requestId: string | null = null;
     let platformRequest: { id: string; cacheKey: string; fragmentCacheKey: string; targetLang: string } | null = null;
     let platformState: 'idle' | 'waiting' | 'done' = 'idle';
@@ -770,10 +772,11 @@ export default defineContentScript({
           } else if (settingsFailed) {
             const error = document.createElement('div'); error.className = 'notice'; setText(error, message('无法连接扩展，请刷新页面')); bar.appendChild(error);
             const reload = document.createElement('button'); setText(reload, message('刷新页面')); reload.addEventListener('click', () => location.reload()); bar.appendChild(reload);
-          } else if (failedFragmentCues.has(currentFragmentIdx)) {
+          } else if (failedFragmentCues.has(currentFragmentIdx) || fallbackRetryAt > Date.now() && pendingFragments.has(currentFragmentIdx)) {
             const error = document.createElement('div'); error.className = 'notice'; setText(error, message('翻译暂不可用')); bar.appendChild(error);
             const ai = document.createElement('button'); setText(ai, message('用 AI 翻译')); ai.addEventListener('click', () => void setTranslationMode('ai')); bar.appendChild(ai);
             const retry = document.createElement('button'); setText(retry, message('重试')); retry.addEventListener('click', () => {
+              fallbackRetryAt = 0;
               const window = intervalTranslationWindow(cues[currentIdx]?.interval ?? -1);
               if (window) for (let i = window.from; i < window.to; i++) failedCues.delete(i);
               for (let i = Math.max(0, currentFragmentIdx - 1); i <= Math.min(fragments.length - 1, currentFragmentIdx + 4); i++) failedFragmentCues.delete(i);
@@ -1130,10 +1133,16 @@ export default defineContentScript({
       }
     }
 
-    function stopTranslation(): void {
-      translationEpoch++;
+    function stopFallbackTranslation(): void {
+      fallbackEpoch++;
       if (requestId) void send({ type: 'cancelOnline', requestId });
       requestId = null; translating = false;
+      fallbackRetryAt = 0;
+    }
+
+    function stopTranslation(): void {
+      translationEpoch++;
+      stopFallbackTranslation();
       pendingCues.clear(); pendingFragments.clear();
       queuedInterval = queuedFragment = -1;
       postToInject({ type: 'translation-cancel' });
@@ -1175,10 +1184,15 @@ export default defineContentScript({
       settingsFailed = false;
       const next: Settings = { ...DEFAULT_SETTINGS, ...r.settings };
       const previousTarget = targetLangOf();
+      const serviceChanged = translationMode === 'regular' && settings.regularTranslation !== next.regularTranslation;
       settings = next; settingsReady = true;
       const targetChanged = previousTarget !== targetLangOf();
       if (targetChanged) {
         stopTranslation(); clearTranslationResults(); platformState = 'idle';
+      } else if (serviceChanged) {
+        stopFallbackTranslation();
+        failedCues.clear(); failedFragmentCues.clear();
+        queuedInterval = queuedFragment = -1;
       }
       setDisplayLanguage(settings.displayLanguage,browser.i18n.getUILanguage());
       const wasBilingual = bilingualOn;
@@ -1189,7 +1203,7 @@ export default defineContentScript({
       if (bilingualOn) { if (!wasBilingual) sendConfig(); hideNativeCaptions(); ensureCaptionsOn(20); }
       else { if (wasBilingual) cancelSourceAcquisition(); restoreNativeCaptions(); }
       renderBar();
-      if (targetChanged) { queueRender(); scheduleTranslate(); }
+      if (targetChanged || serviceChanged) { queueRender(); scheduleTranslate(); }
     }
 
     /** 当前内容的理解语言（M11：按源语言覆盖优先；轨道语言缺省用全局默认）。 */
@@ -1270,7 +1284,7 @@ export default defineContentScript({
           }
         }
       }
-      if (translating || (!pendingCues.size && !pendingFragments.size)) return;
+      if (translating || fallbackRetryAt > Date.now() || (!pendingCues.size && !pendingFragments.size)) return;
       if (translationMode === 'regular' && platformState !== 'done') {
         if (platformState === 'idle') requestPlatform();
         return;
@@ -1283,21 +1297,29 @@ export default defineContentScript({
       const targets = batch.targets.filter(target => ids.has(target.id));
       translating = true;
       queueRender();
-      const epoch = translationEpoch;
+      const epoch = fallbackEpoch;
+      const service = translationMode === 'regular' ? settings.regularTranslation : undefined;
       requestId = crypto.randomUUID();
-      void send<{ ok: boolean; source?: import('@/shared/translationService').TranslationService; translations?: { id: number; text: string }[] }>({
+      void send<import('@/lib/regularTranslation').RegularCueReply>({
         type: 'translateCues', mode: translationMode, requestId, videoId: currentVideoId, trackId: lastTrackId,
         sourceLang: lastTrackLang || undefined, targetLang: targetLangOf(),
-        items,
+        items, service,
       }).then(r => {
-        if (epoch !== translationEpoch) return;
+        if (epoch !== fallbackEpoch) return;
         requestId = null; translating = false;
+        const deferred = new Set(r?.deferred);
+        if (deferred.size) {
+          const failure = r.ok ? r.failure : r;
+          fallbackRetryAt = failure?.error === 'native-needs-setup' || failure?.error === 'native-unavailable'
+            ? Infinity : Math.max(Date.now() + 1_000, failure?.retryAt ?? Date.now() + 5_000);
+        } else fallbackRetryAt = 0;
         const results = new Map(r?.ok ? (r.translations ?? []).filter(result => ids.has(result.id) && result.text).map(result => [result.id, result.text]) : []);
         for (const target of targets) {
           const translated = results.get(target.id);
           const output = target.view === 'groups' ? translations : fragmentTranslations;
           const failed = target.view === 'groups' ? failedCues : failedFragmentCues;
           const pending = target.view === 'groups' ? pendingCues : pendingFragments;
+          if (deferred.has(target.id)) continue;
           pending.delete(target.index);
           if (translated) {
             output.set(target.index, translated); failed.delete(target.index);

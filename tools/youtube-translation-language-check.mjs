@@ -39,9 +39,13 @@ try {
             trackId: 'https://www.youtube.com/api/timedtext?v=abcdefghijk&lang=en',
             trackLang: 'en', trackKind: 'manual', seen: 1, revision: 'fixture',
             cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', from: 0, to: 20,
-              firstFragment: 0, lastFragment: 0, firstOffset: 0, lastOffset: 20, interval: 0 }],
-            fragments: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', firstEvent: 0, lastEvent: 0 }],
-            intervals: [{ start: 0, dur: 3000, firstCue: 0, lastFragment: 0 }] }, '*');
+              firstFragment: 0, lastFragment: 0, firstOffset: 0, lastOffset: 20, interval: 0 },
+              { start: 3000, dur: 3000, lastOff: 0, text: 'The next subtitle.', from: 21, to: 39,
+                firstFragment: 1, lastFragment: 1, firstOffset: 0, lastOffset: 18, interval: 1 }],
+            fragments: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', firstEvent: 0, lastEvent: 0 },
+              { start: 3000, dur: 3000, lastOff: 0, text: 'The next subtitle.', firstEvent: 1, lastEvent: 1 }],
+            intervals: [{ start: 0, dur: 3000, firstCue: 0, lastFragment: 0 },
+              { start: 3000, dur: 3000, firstCue: 1, lastFragment: 1 }] }, '*');
         }
         if (m.type === 'translation-request') window.translationRequests.push(m);
       });
@@ -146,6 +150,7 @@ try {
     const state=await waitForState(s=>s.cues[0].zh===text,'Regular fallback should translate');
     const ack=await worker.evaluate(({tabId,state})=>chrome.tabs.sendMessage(tabId,{
       type:'pd-video-action',action:'save',index:0,text:state.cues[0].text,
+      vaultId:null,removeId:null,
       videoId:state.videoId,trackId:state.trackId,generation:state.generation,
     }),{tabId,state});
     assert.equal(ack.ok,true);
@@ -156,6 +161,49 @@ try {
     assert.equal((await control.evaluate(id=>chrome.runtime.sendMessage({type:'deleteSentence',id}),saved.sentences[0].id)).ok,true);
   }
   console.log('PASS native and Google fallback receipts keep their actual source when captions are bookmarked through the video row action');
+
+  await worker.evaluate(()=>{
+    globalThis.attemptedFallback=[];
+    globalThis.rejectFallback=true;
+    globalThis.fetch=async url=>{
+      const text=new URL(String(url)).searchParams.get('q');
+      globalThis.attemptedFallback.push(text);
+      if(globalThis.rejectFallback)return new Response('',{status:503});
+      return Response.json([[[`Recovered ${text}`]],null,'en']);
+    };
+  });
+  const recoveryIndex=(await requests()).length;
+  await changeSettings({regularTranslation:'google-gtx',comprehensionOverrides:{en:'pl'}});
+  await video.waitForFunction(n=>window.translationRequests.length>n,recoveryIndex);
+  await reply(recoveryIndex,'');
+  await video.locator('#blc-subs .notice').filter({hasText:'翻译暂不可用'}).waitFor();
+  assert.equal(await worker.evaluate(()=>globalThis.attemptedFallback.length),1);
+  await worker.evaluate(()=>{globalThis.rejectFallback=false;});
+  const recovered=await waitForState(s=>s.cues.every(c=>c.zh===`Recovered ${c.text}`),'Transient failure must keep every eligible subtitle pending');
+  assert.equal(recovered.cues.length,2);
+
+  await worker.evaluate(()=>{
+    globalThis.delayedGoogle=false;
+    globalThis.fetch=async ()=>{
+      globalThis.delayedGoogle=true;
+      return await new Promise(resolve=>globalThis.finishGoogle=()=>resolve(Response.json([[['Late Google']],null,'en'])));
+    };
+  });
+  const switchIndex=(await requests()).length;
+  await changeSettings({comprehensionOverrides:{en:'pt'}});
+  await video.waitForFunction(n=>window.translationRequests.length>n,switchIndex);
+  await reply(switchIndex,'Existing platform translation');
+  const waitUntilGoogle=Date.now()+10000;
+  while(!await worker.evaluate(()=>globalThis.delayedGoogle)){
+    assert.ok(Date.now()<waitUntilGoogle,'expected an in-flight Google fallback');
+    await new Promise(resolve=>setTimeout(resolve,50));
+  }
+  await changeSettings({regularTranslation:'browser-native'});
+  await waitForState(s=>s.cues[0].zh==='Existing platform translation'&&s.cues[1].zh==='内置字幕译文','Service switch must preserve the platform result and fill the missing row');
+  await worker.evaluate(()=>globalThis.finishGoogle());
+  assert.equal((await readState()).cues[1].zh,'内置字幕译文');
+  assert.equal((await requests()).length,switchIndex+1);
+  console.log('PASS early batch failure preserves unattempted work; provider switch uses new fallback and keeps platform subtitles');
 } finally {
   await context?.close();
   if (resolve(profile).startsWith(temporaryRoot + sep)) await rm(profile, { recursive: true, force: true });

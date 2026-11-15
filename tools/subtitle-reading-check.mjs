@@ -346,11 +346,31 @@ try {
     await row(0).locator('.zh').textContent()===learnedTranslations[0]&&await readingPreserved()&&
     await worker.evaluate(sentences=>globalThis.fallbackBatches.some(items=>sentences.slice(0,2).every((text,id)=>items.some(i=>i.id===id&&i.text===text))),sentences));
   const save=row(1).getByRole('button',{name:'收藏句子',exact:true});
+  await frame.evaluate(()=>{
+    const send=chrome.runtime.sendMessage, tabSend=chrome.tabs.sendMessage;
+    globalThis.pollsSinceHeldList=0;
+    chrome.runtime.sendMessage=function(message,callback){
+      if(message.type!=='listSentences')return send.apply(this,arguments);
+      return send.call(this,message,value=>{
+        if(!globalThis.heldList && value?.sentences?.length===1)globalThis.heldList=()=>callback(value);
+        else callback(value);
+      });
+    };
+    chrome.tabs.sendMessage=function(tabId,message,callback){
+      if(message.type==='blc-sub-get'&&globalThis.heldList)globalThis.pollsSinceHeldList++;
+      return tabSend.apply(this,arguments);
+    };
+    globalThis.releaseList=()=>{chrome.runtime.sendMessage=send;chrome.tabs.sendMessage=tabSend;globalThis.heldList();};
+  });
   await save.evaluate(el=>{el.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,composed:true}));el.click();});
   await row(1).getByRole('button',{name:'取消收藏',exact:true}).waitFor();
+  await frame.waitForFunction(()=>globalThis.pollsSinceHeldList>=2);
+  assert.equal(await total.textContent(),'2');
+  await frame.evaluate(()=>globalThis.releaseList());
   const records=()=>control.evaluate(()=>chrome.runtime.sendMessage({type:'listSentences'}));
   const saved=(await records()).sentences;
   await expectTotal(3);
+  check('a collection response surviving two subtitle polls still updates the saved count',true);
   check('saving the second row persists only its visible text, track and interval and keeps reading state',
     saved.length===1&&saved[0].text===sentences[1]&&saved[0].video.trackId===state.trackId&&
     saved[0].video.startMs===0&&saved[0].endMs===2000&&await readingPreserved());
