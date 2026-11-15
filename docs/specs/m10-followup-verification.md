@@ -26,4 +26,4 @@ Chrome 文档身份与定向检查依据：[Runtime API](https://developer.chrom
 
 ## 剩余事项
 
-白屏现场观察与旧空记录清理见 [ROADMAP](../ROADMAP.md#未完成项)及[诊断记录](m10-followup-diagnosis.md)。
+白屏现场观察和旧空记录的可选清理见[诊断记录](m10-followup-diagnosis.md)。

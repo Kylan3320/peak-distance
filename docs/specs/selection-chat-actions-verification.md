@@ -36,4 +36,4 @@
 | 工作区、翻译与播放 | 受控交互通过，见 `tools/check-m8.mjs` |
 | 扩展消息及持久化 | 隔离扩展检查通过；真实 AI 请求当时因缺少 Key 未验，见 `tools/e2e-check.mjs` |
 
-真实 X、登录态 YouTube 和用户面板选区入口的待验操作见 [ROADMAP](../ROADMAP.md#未完成项)。当时的用例结果及测试夹具修订见[历史版本](https://github.com/Kylan3320/peak-distance/blob/b1f2ab02fd907e2b8f4e3aa2804194d3a85ef8cc/docs/specs/selection-chat-actions-verification.md)。
+当时的用例结果及测试夹具修订见[历史版本](https://github.com/Kylan3320/peak-distance/blob/b1f2ab02fd907e2b8f4e3aa2804194d3a85ef8cc/docs/specs/selection-chat-actions-verification.md)。

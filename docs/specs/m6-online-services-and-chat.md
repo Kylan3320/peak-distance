@@ -1,8 +1,8 @@
 # M6：在线服务与独立问答
 
-状态：主体实现与集成已完成，统一验收尚未全部通过；见 [验收报告](m6-verification-report.md)。产品行为以 [PRD](../PRD.md) 为准。本轮完成免 key 在线词典、常规字幕翻译、显式 AI 兜底、独立问答，以及直接影响这些链路的缓存 / 复习修正。
+M6 阶段规格，当时的通过项和未验项见 [M6 验收报告](m6-verification-report.md)。现行产品行为见 [PRD](../PRD.md)，当前待验条件见 [ROADMAP](../ROADMAP.md#待实机验证)。
 
-阶段规格。后续 AI 配置由 [M9](m9-ai-services.md) 扩展，会话与临时编辑由 [M10](m10-chat-and-popup-interactions.md) 修订，语言与查询路由由 [M11](m11-multilingual-local-vault.md) 扩展；本阶段未被替代的来源与缓存约定继续保留。
+后续 AI 配置由 [M9](m9-ai-services.md) 扩展，会话与临时编辑由 [M10](m10-chat-and-popup-interactions.md) 修订，语言与查询路由由 [M11](m11-multilingual-local-vault.md) 扩展。
 
 ## 1. 先验证来源
 
@@ -103,6 +103,4 @@
 | 问答生命周期 | 切侧栏视图不中止；停止 / 重试 / 删除 / 重启状态正确；首次发送不误报中断，句级引用带入、跨会话引用清理通过 |
 | 迁移 | 旧学习记录、聊天、草稿、引用、保留解释和 key 完整；重启后读回；重复迁移不新增副本 |
 
-使用网络请求记录证明“零 LLM”，不以界面文案代替。复用 verify-local、render-check 和真实浏览器检查，仅补来源解析、路由、对齐、取消、迁移的针对性用例；外部来源与真实 AI 至少各验证一次。对历史报告中的网页标记问题做实际页面回归。
-
-隔离 profile 用于重启 / 迁移测试，仅清理本次测试数据；扩展重载后核实目标站点访问权限。来源验证、构建和验收全部完成后更新 ROADMAP，并保留精简结果记录；未通过项明确列出，不重复追加逐工具日志。
+[M6 原验收安排](https://github.com/Kylan3320/peak-distance/blob/7f53d4803ba915b18c795ba4c1952fe9d065b2aa/docs/specs/m6-online-services-and-chat.md#8-验收)保留当时的命令与环境要求。当前按改动选择 [README 的验证入口](../../README.md#开发检查)。

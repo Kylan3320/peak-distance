@@ -1,6 +1,6 @@
 # 产品约定
 
-Peak Distance 是个人自用的桌面 Chrome / Edge 多语言学习扩展，覆盖普通网页 / X 与 YouTube 常规视频。原文用于学习，理解语言可按源语言设置。本文维护已确认的产品约定；交付状态、已知缺陷与当前任务见 [ROADMAP](ROADMAP.md)。多语言与学习库范围见 [M11 spec](specs/m11-multilingual-local-vault.md)，选区翻译及查询缓存修订见 [翻译学习规格](specs/translation-learning.md)。
+Peak Distance 是个人自用的桌面 Chrome / Edge 多语言学习扩展，覆盖普通网页 / X 与 YouTube 常规视频。原文用于学习，理解语言可按源语言设置。本文维护已确认的产品约定。当前任务、已知缺陷和待验条件见 [ROADMAP](ROADMAP.md)。多语言与学习库范围见 [M11 spec](specs/m11-multilingual-local-vault.md)，选区翻译及查询缓存见 [翻译学习规格](specs/translation-learning.md)。
 
 ## 核心行为
 
