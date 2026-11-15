@@ -1,6 +1,6 @@
 # 选区查词与添加到对话
 
-本文维护选区查词与附加材料的行为。当前待验条件见 [ROADMAP](../ROADMAP.md#待实机验证)，阶段证据见[选区验收报告](selection-chat-actions-verification.md)。
+本文维护选区查词与附加材料的行为。阶段证据见[选区验收报告](selection-chat-actions-verification.md)。
 
 ## 目标与范围
 
@@ -81,4 +81,4 @@
 | 固定/浮动切换、窄面板、长内容 | 预览、展开、移除可用，输入区不被挤出，无重复材料区 |
 | 历史与调用 | 首次发送前无持久会话，旧引用可读，本地处理/附加零 LLM |
 
-选区消息与材料构建的受控检查见 `tools/selection-check.mjs`。真实页面的验收条件见 [ROADMAP](../ROADMAP.md#待实机验证)。
+选区消息与材料构建的受控检查见 `tools/selection-check.mjs`。用户已在日常使用中验证真实页面选区，见[当时核对范围](https://github.com/Kylan3320/peak-distance/blob/0e53ada6b8211ac1c5ef3f33dfddba6161649f97/docs/ROADMAP.md#待实机验证)。

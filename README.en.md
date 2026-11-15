@@ -48,7 +48,8 @@ Regular lookups and translations work without an API key. To ask questions about
 | --- | --- |
 | [Product](docs/PRD.md) | Features and supported use cases |
 | [Development](docs/ARCHITECTURE.md) | Code entry points and modules |
-| [Roadmap](docs/ROADMAP.md) | Next task, known issues, and acceptance criteria |
+| [Roadmap](docs/ROADMAP.md) | Phase goals, priorities, and exit criteria |
+| [Issue tracker](https://github.com/Kylan3320/peak-distance/issues) | Bugs and individual acceptance checks |
 
 <details>
 <summary>Build from source</summary>

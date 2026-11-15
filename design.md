@@ -1,6 +1,6 @@
 # Peak Distance 设计规范
 
-本文维护全插件的视觉与控件规范。当前待验条件见 [ROADMAP](docs/ROADMAP.md#待实机验证)，UI 改造阶段证据见 [整体前端改造规格](docs/specs/ui-refresh.md)。产品行为见 [PRD](docs/PRD.md)，文案与本地化见 [ui-copy](docs/ui-copy.md)、[ui-i18n](docs/specs/ui-i18n.md)。
+本文维护全插件的视觉与控件规范。双主题确认稿与阶段证据见 [界面确认稿](docs/specs/ui-refresh.md)。产品行为见 [PRD](docs/PRD.md)，文案与本地化见 [ui-copy](docs/ui-copy.md)、[ui-i18n](docs/specs/ui-i18n.md)。
 
 ## 设计方向与主题
 

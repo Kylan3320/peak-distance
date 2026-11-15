@@ -1,6 +1,6 @@
 # 学习库集合文档与双向同步
 
-本文维护学习库文件组织、迁移及混用版本限制。学习库行为见 [M11](m11-multilingual-local-vault.md)，当前缺陷和待验条件见 [ROADMAP](../ROADMAP.md)。
+本文维护学习库文件组织、迁移及混用版本限制。学习库行为见 [M11](m11-multilingual-local-vault.md)，已知缺陷见[问题跟踪](https://github.com/Kylan3320/peak-distance/issues)。
 
 ## 结果与边界
 
@@ -36,6 +36,6 @@
 - `node tools/vault-sync-check.mjs`：真实 Chrome / Edge 独立 IndexedDB、生产同步与格式代码共用一份磁盘目录；只有目录句柄边界采用适配。覆盖词语／完整释义／视频句子交换、重复同步、不同字段合并、旧快照与新待办竞争、删除提交、并发保存保护、句子笔记、损坏文档和迁移备份。
 - `node tools/m11-vault-e2e.mjs`：构建后的真实扩展、原生 OPFS 目录句柄和实际消息路由；通过设置页点击同步读回句子，并检查权限拒绝、格式损坏与冲突反馈。
 
-[集合改造的调查与验证记录](https://github.com/Kylan3320/peak-distance/blob/7f53d4803ba915b18c795ba4c1952fe9d065b2aa/docs/specs/vault-collections-sync.md)保留原始证据。用户原生目录和 Obsidian 的待验条件见 [ROADMAP](../ROADMAP.md#待实机验证)。迁移复读与删除之间仍有原生 API 无法原子化的间隙。
+[集合改造的调查与验证记录](https://github.com/Kylan3320/peak-distance/blob/7f53d4803ba915b18c795ba4c1952fe9d065b2aa/docs/specs/vault-collections-sync.md)保留原始证据。迁移复读与删除之间仍有原生 API 无法原子化的间隙。
 
 原生权限约束依据：[Chrome File System Access 文档](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access)。可写流模式依据：[FileSystemFileHandle.createWritable](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemFileHandle/createWritable)。

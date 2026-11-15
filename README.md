@@ -48,7 +48,8 @@ Peak Distance 是我做给自己用的浏览器扩展。读网页、刷 X 或看
 | --- | --- |
 | [产品说明](docs/PRD.md) | 功能和支持范围 |
 | [开发](docs/ARCHITECTURE.md) | 代码入口和模块 |
-| [路线图](docs/ROADMAP.md) | 下一项、缺陷与待验条件 |
+| [路线图](docs/ROADMAP.md) | 阶段目标、优先顺序与准出条件 |
+| [问题跟踪](https://github.com/Kylan3320/peak-distance/issues) | 缺陷与单项验收 |
 
 <details>
 <summary>从源码构建</summary>
