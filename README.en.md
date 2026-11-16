@@ -11,11 +11,11 @@
 
 ![Peak Distance cover on graph paper. The browser extension rises from the bottom edge with one saved sentence in view.](assets/readme/hero-en.jpg)
 
-I built Peak Distance for my own language learning. When I run into an expression on a webpage, on X, or on YouTube, I can save it with its original sentence and source. Next time I open my vocabulary list, I can pick up from that sentence.
+Peak Distance is a browser extension for looking up and reviewing words and phrases as you browse the web, read posts on X, or watch YouTube. When you save an expression, the extension keeps the original sentence and a link back to the page, post, or spot in the video where you found it. Open **Current content** to review what you’ve saved from the page or video you’re on.
 
 ## From lookup to review
 
-Select **slow down** on a webpage, look it up, and hit the bookmark. Choose **Review in context** in your vocabulary list and try to recall the expression in the same sentence.
+Select **slow down** on a webpage, look it up, and click the bookmark icon to save it. Open your vocabulary list and choose **Review in context** to do a fill-in-the-blank exercise with the original sentence.
 
 [![Two screenshots of the extension. The lookup card shows slow down, its source sentence, and a filled bookmark. The review panel shows the same sentence with the expression blanked out.](assets/readme/demo-en.png)](assets/readme/demo-en.png)
 
@@ -31,9 +31,9 @@ The current release is [v0.73.1](https://github.com/Kylan3320/peak-distance/rele
 
 Refresh a webpage and select a word to try it. To update, extract the new package into an empty folder and replace the files at the original installation path. Click **Reload** on the extensions page, then refresh webpages.
 
-## Where your notes live
+## Where your records are stored
 
-Records stay in your browser by default. To work with them in Obsidian, connect a local folder under **Settings → Shared files**. Words, sentences, and notes can be written to Markdown. Chrome and Edge on the same computer can use the same folder. [Learning vault docs](docs/specs/vault-collections-sync.md)
+Your learning records stay in your browser by default. To save them as files, choose a local folder under **Settings → Shared files**. Peak Distance saves your words, sentences, and notes as Markdown files you can open in Obsidian. If you use Chrome and Edge on the same computer, connect both browsers to the same folder to share your records. [Learning vault docs](docs/specs/vault-collections-sync.md)
 
 <details>
 <summary>AI chat and online services</summary>
