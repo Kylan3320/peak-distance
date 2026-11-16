@@ -11,12 +11,13 @@
 - 阶段目标与优先顺序：[docs/ROADMAP.md](docs/ROADMAP.md)
 - 已确认缺陷与单项验收：[GitHub Issues](https://github.com/Kylan3320/peak-distance/issues)
 - 上游来源与许可：[docs/REFERENCES.md](docs/REFERENCES.md)
-- 启动、使用与检查：[README.md](README.md)
+- 安装与使用：[README.md](README.md)
+- 构建、检查与发布：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 
 ## 项目约定
 
 - 仅在已确认的阶段目标、优先顺序或准出条件变化时更新 ROADMAP。缺陷的复现、关闭条件和单项待验维护在对应 Issue；达成关闭条件后关闭 Issue。历史证据引用具体版本或提交。
-- main 为唯一长期主线。跨机器接续前推送功能分支，接续主线用 git pull --ff-only。发布步骤见 [README](README.md#发布)。
+- main 为唯一长期主线。跨机器接续前推送功能分支，接续主线用 git pull --ff-only。
 - 默认复用合适的当前检出目录。另开工作树前确认隔离需求和如何回到原目录。工作结束后核对提交与未跟踪文件，交回原目录并归档不再使用的工作树。
 - 网页与视频共用词汇和学习状态；来源差异留在内容模块。
 - 复制上游代码时记录 commit、原文件、本地落点并保留许可声明。

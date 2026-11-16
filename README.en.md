@@ -23,7 +23,7 @@ On YouTube, you can also read bilingual captions, save a whole sentence, and rep
 
 ## Quick start
 
-The current release is [v0.73.1](https://github.com/Kylan3320/peak-distance/releases/tag/v0.73.1). Desktop Chrome requires version 142 or newer.
+Desktop Chrome requires version 142 or newer.
 
 1. Download and extract the `-chrome.zip` from the [latest release](https://github.com/Kylan3320/peak-distance/releases/latest).
 2. Open `chrome://extensions` (or `edge://extensions` in Edge) and turn on **Developer mode**.
@@ -47,21 +47,7 @@ Regular lookups and translations work without an API key. To ask questions about
 | Where | What you'll find |
 | --- | --- |
 | [Product](docs/PRD.md) | Features and supported use cases |
-| [Development](docs/ARCHITECTURE.md) | Code entry points and modules |
-| [Roadmap](docs/ROADMAP.md) | Phase goals, priorities, and exit criteria |
-| [Issue tracker](https://github.com/Kylan3320/peak-distance/issues) | Bugs and individual acceptance checks |
-
-<details>
-<summary>Build from source</summary>
-
-With Node.js 22.12 or newer, run `npm ci` and `npm run build`. Load `.output/build/chrome-mv3` in a separate browser profile.
-
-</details>
-
-## Development checks
-
-Choose checks for the change: verify facts and affected links for documentation; reproduce logic defects and check adjacent behavior; use the current build for affected UI/browser actions, testing both browsers when their behavior differs. Reuse results for the same commit and artifact.
-
-For a release, follow the [packaging and validation steps](README.md#发布). Check out the version tag for the full source tree. `e2e-check` can send real AI requests using the key in `BLC_SETTINGS_PATH`.
+| [Issue tracker](https://github.com/Kylan3320/peak-distance/issues) | Report a problem or see existing reports |
+| [Development guide (Chinese)](docs/DEVELOPMENT.md) | Build from source, run checks, and prepare a release |
 
 [MIT](LICENSE)

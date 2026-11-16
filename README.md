@@ -23,7 +23,7 @@ Peak Distance 是一个用来查词和复习的浏览器扩展。读网页、刷
 
 ## 快速开始
 
-当前发布版为 [v0.73.1](https://github.com/Kylan3320/peak-distance/releases/tag/v0.73.1)。桌面 Chrome 需要 142 或更新版本。
+桌面 Chrome 需要 142 或更新版本。
 
 1. 下载并解压 [最新 Release](https://github.com/Kylan3320/peak-distance/releases/latest) 里的 `-chrome.zip`。
 2. 打开 `chrome://extensions`（Edge 用 `edge://extensions`），开启「开发者模式」。
@@ -49,27 +49,7 @@ Peak Distance 是一个用来查词和复习的浏览器扩展。读网页、刷
 | 入口 | 内容 |
 | --- | --- |
 | [产品说明](docs/PRD.md) | 功能和支持范围 |
-| [开发](docs/ARCHITECTURE.md) | 代码入口和模块 |
-| [路线图](docs/ROADMAP.md) | 阶段目标、优先顺序与准出条件 |
-| [问题跟踪](https://github.com/Kylan3320/peak-distance/issues) | 缺陷与单项验收 |
-
-<details>
-<summary>从源码构建</summary>
-
-用 Node.js 22.12 或更新版本运行 `npm ci` 和 `npm run build`，再在独立浏览器配置中加载 `.output/build/chrome-mv3`。
-
-</details>
-
-## 开发检查
-
-文档核对事实和受影响的链接；逻辑修复检查复现及相邻回归；界面改动用当前构建检查相关操作。涉及浏览器差异时分别检查 Chrome／Edge。
-
-### 发布
-
-1. 新功能递增次版本，修复递增补丁版本。同步提交 `package.json` 和 `package-lock.json`。在版本提交上运行 `npm ci` 和 `npm run zip`。
-2. 将 `.output/build` 中的待发布 ZIP 解压到空目录，确认该目录的 `manifest.json` 版本与包名一致。将 `PEAK_DISTANCE_UI_EXTENSION` 指向该目录，再运行 `npm run verify-local`；浏览器专项使用同一目录。改动界面语言或设置交互时加跑 `npm run check-ui-i18n`。
-3. 通过后给版本提交打 `v<version>` 标签，上传已验收的 ZIP 为 Release 附件。Release 写本版变化，中英文 README 更新下载版本。完整工程可检出该标签。
-
-`e2e-check` 用于实机检查；提供 `BLC_SETTINGS_PATH` 时会读取其中的 Key 并可发送真实 AI 请求。
+| [反馈问题](https://github.com/Kylan3320/peak-distance/issues) | 报告问题或查看已有反馈 |
+| [开发指南](docs/DEVELOPMENT.md) | 从源码构建、验证和发布 |
 
 [MIT](LICENSE)
