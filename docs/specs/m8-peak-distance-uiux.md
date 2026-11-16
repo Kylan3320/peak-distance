@@ -1,6 +1,6 @@
 # M8：Peak Distance UI/UX 重构
 
-阶段交付记录，结果见 [M8 验收报告](m8-verification-report.md)。原规格见[历史版本](https://github.com/Kylan3320/peak-distance/blob/b1f2ab02fd907e2b8f4e3aa2804194d3a85ef8cc/docs/specs/m8-peak-distance-uiux.md)。
+阶段交付记录，结果见 [M8 验收报告](../VERIFICATION.md)。原规格见[历史版本](https://github.com/Kylan3320/peak-distance/blob/b1f2ab02fd907e2b8f4e3aa2804194d3a85ef8cc/docs/specs/m8-peak-distance-uiux.md)。
 
 | 当前规则 | 维护位置 |
 | --- | --- |

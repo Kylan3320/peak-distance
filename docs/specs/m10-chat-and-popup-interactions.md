@@ -1,6 +1,6 @@
 # M10：问答会话与查词交互修正
 
-会话与临时编辑见第 2 节，卡外关闭见第 4 节。当前产品行为见 [PRD](../PRD.md)，控件呈现见 [design.md](../../design.md)。阶段结果见 [M10 报告](m10-verification-report.md)。
+会话与临时编辑见第 2 节，卡外关闭见第 4 节。当前产品行为见 [PRD](../PRD.md)，控件呈现见 [design.md](../../design.md)。阶段结果见 [M10 报告](../VERIFICATION.md)。
 
 ## 2. 会话与临时编辑
 
