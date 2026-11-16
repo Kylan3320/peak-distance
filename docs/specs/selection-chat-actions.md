@@ -1,6 +1,6 @@
 # 选区查词与添加到对话
 
-本文维护选区查词与附加材料的行为。阶段证据见[选区验收报告](selection-chat-actions-verification.md)。
+本文维护选区查词与附加材料的行为。阶段证据见[选区验收报告](../VERIFICATION.md)。
 
 ## 目标与范围
 

@@ -159,4 +159,4 @@
 
 ## 7. 验收证据
 
-[M11 验收报告](m11-verification-report.md)记录早期模块与受控浏览器结果，[集合同步规格](vault-collections-sync.md#验证)记录后续格式与双向同步验证。阶段证据见[原用例矩阵](https://github.com/Kylan3320/peak-distance/blob/356da234221b64f001666ee639931ff448fd05f5/docs/specs/m11-multilingual-local-vault.md#8-阶段验收用例)与[问答并发读回复现及回归](https://github.com/Kylan3320/peak-distance/commit/7f53d4803ba915b18c795ba4c1952fe9d065b2aa)。用户已在日常使用中验证原生目录与 Obsidian 链路，见[当时核对范围](https://github.com/Kylan3320/peak-distance/blob/0e53ada6b8211ac1c5ef3f33dfddba6161649f97/docs/ROADMAP.md#待实机验证)。
+[M11 验收报告](../VERIFICATION.md)记录早期模块与受控浏览器结果，[集合同步规格](vault-collections-sync.md#验证)记录后续格式与双向同步验证。阶段证据见[原用例矩阵](https://github.com/Kylan3320/peak-distance/blob/356da234221b64f001666ee639931ff448fd05f5/docs/specs/m11-multilingual-local-vault.md#8-阶段验收用例)与[问答并发读回复现及回归](https://github.com/Kylan3320/peak-distance/commit/7f53d4803ba915b18c795ba4c1952fe9d065b2aa)。用户已在日常使用中验证原生目录与 Obsidian 链路，见[当时核对范围](https://github.com/Kylan3320/peak-distance/blob/0e53ada6b8211ac1c5ef3f33dfddba6161649f97/docs/ROADMAP.md#待实机验证)。

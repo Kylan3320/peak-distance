@@ -4,7 +4,7 @@
 
 | 来源 | 用途与状态 |
 | --- | --- |
-| [yt-dual-subs](https://github.com/Gythiro/yt-dual-subs) | 已移植字幕获取、tlang URL 构造及 Google 翻译；真实服务与逐来源检查边界见 [M6 报告](specs/m6-verification-report.md)，视频观看实机证据见 [M7 报告](specs/m7-verification-report.md) |
+| [yt-dual-subs](https://github.com/Gythiro/yt-dual-subs) | 已移植字幕获取、tlang URL 构造及 Google 翻译。真实服务与视频观看的验证范围见[历史验证摘要](VERIFICATION.md)。 |
 | [Saladict](https://github.com/crimx/ext-saladict) | M6 在线词典调研参考，未复制其源码；本地解析按实际响应实现。参考 [剑桥](https://github.com/crimx/ext-saladict/blob/dev/src/components/dictionaries/cambridge/engine.ts)、[牛津](https://github.com/crimx/ext-saladict/blob/dev/src/components/dictionaries/oaldict/engine.ts)、[有道](https://github.com/crimx/ext-saladict/blob/dev/src/components/dictionaries/youdao/engine.ts) |
 | [Language Reactor](https://www.languagereactor.com/) | 产品交互参考；[开发者说明](https://forum.languagelearningwithnetflix.com/t/user-dictionary-syntax/994)确认外部词典 URL 模板，不据此推断内置词典来源 |
 | [asbplayer](https://github.com/asbplayer/asbplayer) | 字幕学习与播放交互参考 |
@@ -56,4 +56,4 @@ commit：[5657c8a18ca30c84b5d4662bca58e3e9214ffdff](https://github.com/Gythiro/y
 
 Google 路径参考 / 移植自 [yt-dual-subs commit 5657c8a](https://github.com/Gythiro/yt-dual-subs/commit/5657c8a18ca30c84b5d4662bca58e3e9214ffdff) 的 `background.js` `gtxFetch`；本地落点 `lib/regularTranslation.ts`。MIT，Copyright (c) 2026 Gythiro；许可全文见上节。词典模块 `lib/onlineDictionary.ts` 按本轮实际响应实现，未复制 Saladict 源码。
 
-M6 产品接入：`entrypoints/youtube-inject.content.ts` 复用同一 commit 的 `inject.js` `buildUrl` 参数规则；中文独立轨道按时间交集对齐，平台配对先按时间匹配再随 ASR 合并转换。对齐与取消实现位于 `shared/cues.ts` 及两个 YouTube 入口。当时受控测试与真实视频验证边界记录在 [M6 报告](specs/m6-verification-report.md)，后续人工／自动英文视频观看证据见 [M7 报告](specs/m7-verification-report.md)。
+M6 产品接入：`entrypoints/youtube-inject.content.ts` 复用同一 commit 的 `inject.js` `buildUrl` 参数规则；中文独立轨道按时间交集对齐，平台配对先按时间匹配再随 ASR 合并转换。对齐与取消实现位于 `shared/cues.ts` 及两个 YouTube 入口。M6–M7 的验证范围见[历史验证摘要](VERIFICATION.md)。
