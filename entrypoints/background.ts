@@ -75,7 +75,6 @@ const MAX_EXPRESSION = 300;
 const MAX_SENTENCE = 2000;
 const MAX_TITLE = 300;
 const MAX_TRANSLATE_BATCH = 8;
-const MAX_CUE_TEXT = 500;
 
 function bad(error: string, detail?: string): BgcError {
   return { ok: false, error, detail };
@@ -569,7 +568,7 @@ async function handle(
         if (typeof x.text !== 'string' || !x.text.trim()) {
           return bad('bad-payload', 'text');
         }
-        items.push({ id: x.id, text: x.text.slice(0, MAX_CUE_TEXT) });
+        items.push({ id: x.id, text: x.text });
       }
       const sourceLang = parseLangField(m.sourceLang);
       const targetLang = parseLangField(m.targetLang);
