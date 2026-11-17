@@ -95,7 +95,7 @@ export function scopeLabel(label: string): string | UiText {
 export function localize(root: ParentNode) {
   if(root instanceof ShadowRoot) (root.host as HTMLElement).lang=locale;
   for (const element of root.querySelectorAll<HTMLElement>('[data-i18n]')) element.textContent = t(element.getAttribute('data-i18n')!,JSON.parse(element.getAttribute('data-i18n-values') ?? '{}'));
-  for (const attribute of ['title', 'aria-label', 'placeholder']) {
+  for (const attribute of ['title', 'aria-label', 'aria-description', 'placeholder']) {
     for (const element of root.querySelectorAll<HTMLElement>(`[data-i18n-${attribute}]`)) {
       element.setAttribute(attribute, t(element.getAttribute(`data-i18n-${attribute}`)!,JSON.parse(element.getAttribute(`data-i18n-${attribute}-values`) ?? '{}')));
     }

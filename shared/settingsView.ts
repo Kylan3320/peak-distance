@@ -39,8 +39,13 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     <label class="settings-field"><span data-i18n="显示译文字幕"></span><input id="chineseVisible" type="checkbox"></label>
     <label class="settings-field"><span data-i18n="字幕字号"></span><select id="subtitleSize"><option value="small" data-i18n="小"></option><option value="standard" data-i18n="标准"></option><option value="large" data-i18n="大"></option></select></label>
     <div id="video-settings" class="settings-context" hidden></div></section>
-    <section class="settings-section vault-section"><h2 data-i18n="学习库"></h2>
-    <div class="vault-overview"><div class="vault-summary"><span id="vault-label"></span><span id="vault-pending" class="hint" hidden></span><span id="vault-folder" class="hint vault-folder" hidden></span></div><div class="vault-tools"><button id="vault-authorize" class="primary" data-i18n="允许访问" hidden></button><button id="vault-connect" class="primary"><span id="vault-connect-label" data-i18n="连接学习文件夹"></span><span id="vault-folder-icon" hidden>${uiIcon('folder')}</span></button><button id="vault-retry" type="button" data-i18n="重试" hidden></button><button id="vault-disconnect" class="ui-icon-button" hidden>${uiIcon('disconnect')}</button></div></div>
+    <section class="settings-section vault-section"><div class="vault-head"><h2 id="vault-heading" data-i18n="学习库"></h2><div class="vault-tools">
+      <button id="vault-authorize" class="primary" data-i18n="允许访问" hidden></button>
+      <button id="vault-connect" class="ui-icon-button" type="button" data-i18n-title="连接学习文件夹" data-i18n-aria-label="连接学习文件夹">${uiIcon('folder')}</button>
+      <button id="vault-retry" type="button" data-i18n="重试" hidden></button>
+      <button id="vault-disconnect" class="ui-icon-button" data-i18n-title="断开" data-i18n-aria-label="断开" hidden>${uiIcon('disconnect')}</button>
+    </div></div>
+    <div id="vault-summary" class="vault-summary" hidden><span id="vault-folder" class="hint" hidden></span><span id="vault-pending" class="hint" hidden></span></div>
     <div id="vault-state" class="settings-status" role="status"></div><button id="vault-access-page" class="settings-action" data-i18n="在独立页面授权" hidden></button>
     </section>
     ${aiSettingsMarkup}
@@ -63,10 +68,6 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   const ai = mountAiSettings(get('ai-settings'));
   const themeControl=get<HTMLSelectElement>('appearanceTheme');
   onAppearanceChange(theme=>{themeControl.value=theme;});
-  for(const [id,label] of [['vault-disconnect','断开']] as const) {
-    setLocalizedAttribute(get(id), 'title', message(label));
-    setLocalizedAttribute(get(id), 'aria-label', message(label));
-  }
   const display = get<HTMLSelectElement>('displayLanguage');
   display.add(new Option(t('跟随浏览器'), 'auto'));
   for (const language of DISPLAY_LANGUAGES) display.add(new Option(DISPLAY_LANGUAGE_NAMES[language], language));
@@ -168,36 +169,57 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   function showVaultNotice(text:string|UiText,error=false) {
     setText(get('vault-state'),text);get('vault-state').classList.toggle('err',error);
   }
+  const connectVault = get<HTMLButtonElement>('vault-connect');
+  function showVaultStatus(status: UiText, color: 'idle' | 'ready' | 'attention', lastSync?: UiText, connected = false) {
+    const action = message(connected ? '更换文件夹' : '连接学习文件夹');
+    connectVault.dataset.connection = color;
+    setLocalizedAttribute(connectVault, 'aria-label', action);
+    setLocalizedAttribute(connectVault, 'aria-description', status);
+    setLocalizedAttribute(connectVault, 'title', message('{action} · {status}', { action, status: lastSync ?? status }));
+  }
   async function refreshVault():Promise<VaultAccessStatus|null> {
     if(vaultBusy)return null;
     const request=++vaultRefresh;
+    const wasConnected = !!vaultStatus?.connected;
     try{
       const r=await browser.runtime.sendMessage({type:'vaultStatus'}) as {ok?:boolean;status?:VaultAccessStatus}|null;
       if(request!==vaultRefresh||vaultBusy)return null;
       const s=r?.status; vaultStatus=s??null;
-      if(!s){retry.hidden=false;showVaultNotice(message('状态读取失败'),true);return null;}
+      if(!s){
+        showVaultStatus(message('状态读取失败'), 'attention', undefined, wasConnected);
+        retry.hidden=false;
+        showVaultNotice(message('状态读取失败'),true);
+        return null;
+      }
       const needsAccess=s.connected&&s.permission!=='granted';
-      setText(get('vault-label'),message(!s.connected?'未连接。':s.accessError?'访问状态读取失败':s.permission==='prompt'?'需要授权':s.permission==='denied'?'访问未获允许':'已连接'));
+      const accessFailed = !!s.accessError || needsAccess;
+      const status = message(!s.connected ? '未连接。' : s.accessError ? '访问状态读取失败' :
+        s.permission === 'prompt' ? '需要授权' : s.permission === 'denied' ? '访问未获允许' : '已连接');
+      const lastSync=s.lastCommitAt ? message('上次同步 {time}',{time:new Intl.DateTimeFormat(getDisplayLocale(),{dateStyle:'short',timeStyle:'short'}).format(s.lastCommitAt)}) : undefined;
+      const error=s.lastError?(vaultErrors[s.lastError]?message(vaultErrors[s.lastError]!):s.lastError):null;
+      const failed = !!(syncFailed || error || vaultFormatDiagnostic || vaultFeedbackError);
+      showVaultStatus(!accessFailed && failed ? message('同步未完成') : status, !s.connected ? 'idle' : accessFailed || failed ? 'attention' : 'ready',
+        accessFailed || failed ? undefined : lastSync, s.connected);
+      get('vault-summary').hidden=!s.folderName&&s.pendingCount===0;
       get('vault-folder').hidden=!s.folderName;setText(get('vault-folder'),s.folderName??'');
       get('vault-pending').hidden=s.pendingCount===0;
       setText(get('vault-pending'),message('待同步 {count} 项',{count:s.pendingCount}));
-      const lastSync=s.lastCommitAt ? message('上次同步 {time}',{time:new Intl.DateTimeFormat(getDisplayLocale(),{dateStyle:'short',timeStyle:'short'}).format(s.lastCommitAt)}) : null;
-      if (lastSync) setLocalizedAttribute(get('vault-label'),'title',lastSync);
-      else {get('vault-label').removeAttribute('title');get('vault-label').removeAttribute('data-i18n-title');}
-      const connect=get<HTMLButtonElement>('vault-connect');
-      connect.className=s.connected?'ui-icon-button':'primary';
-      get('vault-connect-label').hidden=s.connected;get('vault-folder-icon').hidden=!s.connected;
-      const connectLabel=message(s.connected?'更换文件夹':'连接学习文件夹');
-      setText(get('vault-connect-label'),connectLabel);
-      setLocalizedAttribute(connect,'title',connectLabel);setLocalizedAttribute(connect,'aria-label',connectLabel);
       get('vault-authorize').hidden=!needsAccess||!!s.accessError;
       get('vault-disconnect').hidden=!s.connected;
-      const error=s.lastError?(vaultErrors[s.lastError]?message(vaultErrors[s.lastError]!):s.lastError):null;
-      const access=s.accessError?message('访问状态读取失败'):null;
+      const access=s.accessError?message('访问状态读取失败'):
+        s.connected&&s.permission==='denied'?message('访问未获允许'):null;
       retry.hidden=!(s.accessError||s.connected&&!needsAccess&&(syncFailed||error));
       showVaultNotice(!get('vault-access-page').hidden?vaultFeedback??access??'':access??vaultDiagnosticNotice()??error??vaultFeedback??'',!!s.accessError||s.permission==='denied'||!!vaultFormatDiagnostic||!!error||vaultFeedbackError);
       return s;
-    }catch{if(request===vaultRefresh){vaultStatus=null;retry.hidden=false;showVaultNotice(message('状态读取失败，请重试'),true);}return null;}
+    }catch{
+      if(request===vaultRefresh){
+        vaultStatus=null;
+        showVaultStatus(message('状态读取失败'), 'attention', undefined, wasConnected);
+        retry.hidden=false;
+        showVaultNotice(message('状态读取失败，请重试'),true);
+      }
+      return null;
+    }
   }
   function setVaultBusy(busy:boolean) {
     vaultBusy=busy;vaultRefresh++;
@@ -221,7 +243,8 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     }catch(error){syncFailed=true;throw error;}
     syncFailed=false;
     vaultFeedbackError=false;get('vault-access-page').hidden=true;
-    vaultFeedback=quiet?null:message('同步完成：写入 {written} 项，读回 {read} 项，移除 {deleted} 项',{written:r.committed??0,read:r.updated??0,deleted:r.deleted??0});
+    const { committed = 0, updated = 0, deleted = 0 } = r;
+    vaultFeedback=quiet||!(committed||updated||deleted)?null:message('同步完成：写入 {written} 项，读回 {read} 项，移除 {deleted} 项',{written:committed,read:updated,deleted});
   }
   get('vault-connect').addEventListener('click',async()=>{
     if(vaultBusy)return;
@@ -282,7 +305,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   if(root.checkVisibility())void syncOnActivity();else void refreshVault();
   const vaultAction=new URL(location.href).searchParams.get('vault');
   if(vaultAction==='authorize'||vaultAction==='connect')void refreshVault().then(()=>{
-    get('vault-label').scrollIntoView({block:'center'});
+    get('vault-heading').scrollIntoView({block:'center'});
     get(vaultAction==='authorize'&&!get('vault-authorize').hidden?'vault-authorize':'vault-connect').focus({preventScroll:true});
   });
   get('version').textContent=`v${browser.runtime.getManifest().version}`;

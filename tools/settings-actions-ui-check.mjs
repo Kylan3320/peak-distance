@@ -46,6 +46,20 @@ try {
   assert.equal(await panel.locator('#state').isVisible(),false);
   assert.equal(await panel.locator('#clear').innerText(),'');assert.equal(await panel.locator('#key-help').count(),0);
   assert.equal(await panel.locator('#vault-retry').isVisible(),false);assert.equal(await panel.locator('#vault-disconnect').isVisible(),false);
+  const folderButton = panel.locator('#vault-connect[data-connection="idle"]');
+  await folderButton.waitFor();
+  assert.equal(await folderButton.innerText(),'');
+  assert.equal(await folderButton.locator('svg').count(),1);
+  const aiSummary = panel.locator('#ai-settings > summary');
+  const aiKey = panel.locator('#ai-view');
+  await aiKey.hover();
+  assert.equal(await aiSummary.evaluate(el=>getComputedStyle(el,'::after').opacity),'0');
+  await aiSummary.hover();
+  assert.equal(await aiSummary.evaluate(el=>getComputedStyle(el,'::after').opacity),'1');
+  await aiSummary.press('Enter');
+  await aiKey.waitFor({state:'hidden'});
+  await aiSummary.press('Space');
+  await aiKey.waitFor();
   // Control only status reads; directory permissions and synchronization are unchanged.
   const settings=await context.newPage();
   await settings.addInitScript(()=>{
@@ -64,7 +78,10 @@ try {
   assert.equal(await settings.locator('#vault-connect').innerText(),'');
   assert.equal(await settings.locator('#vault-state').isVisible(),false);
   assert.equal(await settings.locator('#vault-retry').isVisible(),false);await settings.locator('#vault-disconnect').waitFor();
-  assert.match(await settings.locator('#vault-label').getAttribute('title'),/上次同步/);
+  assert.match(await settings.locator('#vault-connect').getAttribute('title'),/上次同步/);
+  assert.equal(await settings.locator('#vault-connect').getAttribute('data-connection'),'ready');
+  assert.equal(await settings.locator('#vault-connect').getAttribute('aria-description'),'已连接');
+  assert.equal(await settings.getByText('已连接',{exact:true}).count(),0);
   await settings.evaluate(()=>{vaultFixture.pendingCount=0;for(const listener of vaultListeners)listener({type:'vault-changed'}, {},()=>{});});
   await settings.locator('#vault-pending').waitFor({state:'hidden'});
   await settings.locator('summary[data-i18n="查询缓存"]').click();
@@ -84,9 +101,10 @@ try {
   await settings.screenshot({path:tmpdir()+'/peak-distance-settings-overview.png'});
   await settings.setViewportSize({width:1100,height:850});
   await settings.locator('#ai-settings > summary').click();
-  assert.equal(await settings.locator('#save').innerText(),'');assert.equal(await settings.locator('#save').getAttribute('aria-label'),'保存启用');
-  assert.equal(await settings.locator('#save').locator('svg').count(),1);
-  await settings.locator('#key').fill('unsaved-test-key');await settings.locator('#state').filter({hasText:'尚未保存'}).waitFor();
+  await settings.locator('#ai-view').click();
+  assert.equal(await settings.locator('#save').isVisible(),false);
+  await settings.locator('#key').fill('unsaved-test-key');
+  await settings.locator('#save').waitFor();
   assert.equal((await settings.evaluate(()=>chrome.storage.local.get('aiServices'))).aiServices.profiles.deepseek.apiKey,'fixture-key');
   await settings.evaluate(()=>{globalThis.permissionAllowed=false;chrome.permissions.request=async()=>permissionAllowed;});
   await settings.locator('#save').click();await settings.locator('#state.err').waitFor();
@@ -97,20 +115,23 @@ try {
   await settings.evaluate(()=>{permissionAllowed=true;});await settings.locator('#save').click();
   await settings.waitForFunction(async()=>(await chrome.storage.local.get('aiServices')).aiServices.profiles.deepseek.apiKey==='unsaved-test-key');
   await settings.locator('#state').waitFor({state:'hidden'});
-  await settings.locator('#key').fill('');await settings.locator('#key').dispatchEvent('input');await settings.locator('#state').waitFor({state:'hidden'});
-  await settings.locator('#key').blur();await settings.locator('#vault-label').evaluate(n=>{const main=n.closest('main');main.scrollTop+=n.closest('section').getBoundingClientRect().top-main.getBoundingClientRect().top-16;});await settings.screenshot({path:tmpdir()+'/peak-distance-settings-actions.png'});
+  await settings.locator('#ai-quick').waitFor();
+  assert.equal(await settings.locator('#key').isVisible(),false);
+  await settings.locator('#vault-heading').evaluate(n=>{const main=n.closest('main');main.scrollTop+=n.closest('section').getBoundingClientRect().top-main.getBoundingClientRect().top-16;});await settings.screenshot({path:tmpdir()+'/peak-distance-settings-actions.png'});
   await settings.locator('.ai-section').screenshot({path:tmpdir()+'/peak-distance-ai-form-wide.png'});
   await settings.evaluate(()=>{Object.assign(vaultFixture,{permission:'prompt',pendingCount:1});for(const listener of vaultListeners)listener({type:'vault-changed'}, {},()=>{});});
-  await settings.locator('#vault-label').filter({hasText:'需要授权'}).waitFor();
+  await settings.locator('#vault-connect[data-connection="attention"][aria-description="需要授权"]').waitFor();
+  assert.equal(await settings.getByText('需要授权',{exact:true}).count(),0);
   assert.equal(await settings.locator('#vault-authorize').innerText(),'允许访问');
   assert.equal(await settings.locator('#vault-connect').getAttribute('aria-label'),'更换文件夹');
   assert.equal(await settings.locator('#vault-state').isVisible(),false);
   assert.equal(await settings.locator('#vault-retry').isVisible(),false);
   assert.match(await settings.locator('#vault-pending').innerText(),/1/);
-  await settings.setViewportSize({width:360,height:780});await settings.locator('#vault-label').evaluate(n=>{const main=n.closest('main');main.scrollTop+=n.closest('section').getBoundingClientRect().top-main.getBoundingClientRect().top-16;});
+  await settings.setViewportSize({width:360,height:780});await settings.locator('#vault-heading').evaluate(n=>{const main=n.closest('main');main.scrollTop+=n.closest('section').getBoundingClientRect().top-main.getBoundingClientRect().top-16;});
   assert.ok(await settings.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await checkHeader(settings);await settings.screenshot({path:tmpdir()+'/peak-distance-settings-actions-narrow.png'});
   await settings.locator('.ai-section').screenshot({path:tmpdir()+'/peak-distance-ai-form-narrow.png'});
+  await settings.locator('#ai-view').click();
   await settings.locator('#ai-advanced summary').click();await settings.locator('#ai-model').scrollIntoViewIfNeeded();
   assert.ok(await settings.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await settings.screenshot({path:tmpdir()+'/peak-distance-settings-ai-expanded.png'});
   await settings.locator('#ai-advanced summary').click();
@@ -119,8 +140,9 @@ try {
   assert.ok(await settings.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await settings.locator('.ai-section').screenshot({path:tmpdir()+'/peak-distance-ai-form-de.png'});
   await settings.locator('#clear').click();
+  await settings.locator('#ai-remove').click();
   await settings.waitForFunction(async()=>!(await chrome.storage.local.get('aiServices')).aiServices.profiles.deepseek.apiKey);
-  await settings.locator('#state[data-i18n="未配置"]').waitFor();
+  await settings.locator('#ai-view[data-saved="false"]').waitFor();
   assert.equal(await settings.locator('#clear').isVisible(),false);assert.equal(await settings.locator('#key-help').count(),0);
   const opened = context.waitForEvent('page');
   await settings.locator('#vault-authorize').click();
@@ -146,6 +168,20 @@ try {
     await settings.locator('#defaultComprehensionLang:open').waitFor({state:'detached'});
   }
   console.log('PASS independent directory authorization tab and shared dropdown placement at the top, bottom, and both constrained sides');
+  const preparation = await context.newPage();
+  await preparation.addInitScript(()=>{
+    Object.defineProperty(globalThis,'Translator',{configurable:true,value:{create:async()=>({destroy(){}})}});
+  });
+  await preparation.goto(base+'/native-translator.html?source=en&target=zh-Hans');
+  await preparation.locator('#prepare').click();
+  await preparation.locator('#prepare[data-ready] svg').waitFor();
+  assert.equal(await preparation.locator('#state.ready').getAttribute('data-i18n'),'语言模型已准备好。');
+  await preparation.locator('#source').selectOption('ja');
+  assert.equal(await preparation.locator('#prepare svg').isVisible(),false);
+  await preparation.evaluate(()=>{globalThis.Translator.create=async()=>{throw new Error('fixture-failure');};});
+  await preparation.locator('#prepare').click();
+  await preparation.locator('#state[data-i18n="无法准备此语言对的内置翻译。"]:not(.ready)').waitFor();
+  await preparation.close();
   assert.deepEqual(errors,[]);
-  console.log('PASS direct delete cancel/confirm; SVG review navigation; separate live vault permission and folder replacement; aligned SVG header, AI icon save/permission failure/clear, locale update and 360px layout');
+  console.log('PASS direct delete cancel/confirm; SVG review navigation; separate live vault permission and folder replacement; icon connection status, keyboard AI disclosure, save/permission failure/clear, local translation confirmation, locale update and 360px layout');
 } finally {await context.close();await rm(profile,{recursive:true,force:true});}

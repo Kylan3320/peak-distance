@@ -140,7 +140,7 @@ try {
   for (const width of [320, 1200]) {
     await page.setViewportSize({ width, height: 900 });
     check(`学习库设置 ${width}px 无横向溢出`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-    await page.locator('#vault-label').scrollIntoViewIfNeeded();
+    await page.locator('#vault-heading').scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(output, `vault-settings-${width}.png`) });
   }
   await worker.evaluate(()=>{globalThis.__queryPermission=FileSystemDirectoryHandle.prototype.queryPermission;FileSystemDirectoryHandle.prototype.queryPermission=async()=> 'prompt';});
