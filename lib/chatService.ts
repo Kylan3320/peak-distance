@@ -54,7 +54,7 @@ interface ActiveChat {
   windowId: number;
   vaultId: string | null;
   config: AiConfig;
-  stopped?: boolean;
+  finishing?: Promise<void>;
   chatId: string;
   turnId: string;
   requestId: string;
@@ -79,18 +79,36 @@ function clearChatTimers(active: ActiveChat): void {
   active.idleTimer = active.totalTimer = active.checkpointTimer = null;
 }
 
+async function finishTurn(
+  active: ActiveChat,
+  state: 'done' | 'stopped' | 'error' | 'interrupted',
+  errorKind?: string,
+  abortReason?: string,
+): Promise<void> {
+  const { chatId, requestId, turnId, vaultId, text } = active;
+  if (activeChats.get(chatId) !== active) return;
+  if (active.finishing) return active.finishing;
+  clearChatTimers(active);
+  active.finishing = (async () => {
+    try {
+      if (await saveAssistantProgress({ chatId, requestId, text, state, errorKind, vaultId })) {
+        flushChatToVault();
+        broadcast(chatId, { type: 'chat-ev', chatId, requestId, turnId, kind: state, text, errorKind, saved: true });
+      }
+    } catch (error) {
+      console.warn('[pd] chat terminal state was not saved', { requestId, error: String(error) });
+    } finally {
+      activeChats.delete(chatId);
+      broadcastActive(chatId);
+    }
+  })();
+  if (abortReason) active.controller.abort(abortReason);
+  return active.finishing;
+}
+
 async function failTurn(active: ActiveChat, error: unknown): Promise<void> {
   console.warn('[pd] chat turn failed', { requestId: active.requestId, error: String((error as Error)?.message ?? error) });
-  clearChatTimers(active);
-  if (activeChats.get(active.chatId) !== active || active.stopped) return;
-  active.stopped = true;
-  active.controller.abort('internal');
-  const saved = await saveAssistantProgress({ chatId: active.chatId, requestId: active.requestId, text: active.text, state: 'error', errorKind: 'internal', vaultId: active.vaultId }).catch(() => false);
-  if (activeChats.get(active.chatId) !== active) return;
-  activeChats.delete(active.chatId);
-  flushChatToVault();
-  broadcast(active.chatId, { type: 'chat-ev', chatId: active.chatId, requestId: active.requestId, turnId: active.turnId, kind: 'error', text: active.text, errorKind: 'internal', saved });
-  broadcastActive(active.chatId);
+  await finishTurn(active, 'error', 'internal', 'internal');
 }
 
 export async function stopWindowChats(windowId: number): Promise<void> {
@@ -236,7 +254,8 @@ async function runTurn(active: ActiveChat): Promise<void> {
     const record = await getChat(chatId, isLiveRequest(chatId), active.vaultId);
     if (!record) { await failTurn(active, new Error('workspace-changed')); return; }
     const userMsg = record.messages.find((m) => m.role === 'user' && m.turnId === turnId);
-    if (!userMsg || controller.signal.aborted) return;
+    if (controller.signal.aborted) return;
+    if (!userMsg) throw Error('missing user message');
     const snapshot = record.snapshots.find(s => s.version === userMsg.snapshotVersion) ?? null;
     const segments = snapshot ? (snapshotChars(snapshot.blocks) <= CHAT_MATERIAL_BUDGET_CHARS
       ? [{ index: 0, label: snapshot.label, blocks: snapshot.blocks }]
@@ -244,6 +263,7 @@ async function runTurn(active: ActiveChat): Promise<void> {
     const segment = segments[userMsg.segmentIndex ?? 0] ?? null;
     const history = historyForTurn(record.messages, turnId, userMsg.snapshotVersion ?? 0);
     const preferences = await browser.storage.local.get('displayLanguage');
+    if (controller.signal.aborted) return;
     const responseLanguage = resolveDisplayLocale(
       isDisplayLanguage(preferences.displayLanguage) ? preferences.displayLanguage : DEFAULT_SETTINGS.displayLanguage,
       browser.i18n.getUILanguage(),
@@ -258,40 +278,12 @@ async function runTurn(active: ActiveChat): Promise<void> {
     });
 
     const armIdle = () => {
+      if (controller.signal.aborted) return;
       if (active.idleTimer) clearTimeout(active.idleTimer);
       active.idleTimer = setTimeout(() => {
         controller.abort('idle-timeout');
       }, STREAM_IDLE_TIMEOUT_MS);
     };
-    const finish = async (
-      state: 'done' | 'stopped' | 'error' | 'interrupted',
-      errorKind?: string,
-    ) => {
-      clearChatTimers(active);
-      if (activeChats.get(chatId) !== active || active.stopped) return;
-      const saved = await saveAssistantProgress({
-        chatId,
-        requestId,
-        text: active.text,
-        state,
-        errorKind,
-        vaultId: active.vaultId,
-      });
-      if (activeChats.get(chatId) === active) activeChats.delete(chatId);
-      flushChatToVault();
-      broadcast(chatId, {
-        type: 'chat-ev',
-        chatId,
-        requestId,
-        turnId,
-        kind: state,
-        text: active.text,
-        errorKind,
-        saved,
-      });
-      broadcastActive(chatId);
-    };
-
     active.totalTimer = setTimeout(() => {
       controller.abort('total-timeout');
     }, STREAM_TOTAL_TIMEOUT_MS);
@@ -335,19 +327,20 @@ async function runTurn(active: ActiveChat): Promise<void> {
         }
       },
     });
+    if (active.finishing) return;
     if (r.ok) {
       active.text = r.text;
-      await finish('done');
+      await finishTurn(active, 'done');
     } else if (r.error === 'interrupted' || r.error === 'truncated') {
       active.text = r.text;
-      await finish('interrupted', r.error);
+      await finishTurn(active, 'interrupted', r.error);
     } else if (r.error === 'aborted') {
       // 停止（用户）或超时中止：保留已生成正文
       const reason = controller.signal.reason;
       const kind = reason === 'idle-timeout' || reason === 'total-timeout' ? 'timeout' : undefined;
-      await finish(kind ? 'error' : 'stopped', kind);
+      await finishTurn(active, kind ? 'error' : 'stopped', kind);
     } else {
-      await finish('error', r.error);
+      await finishTurn(active, 'error', r.error);
     }
   } catch (e) {
     await failTurn(active, e);
@@ -369,14 +362,7 @@ function flushChatToVault(): void {
 async function stopChat(chatId: string, reason: string): Promise<void> {
   const active = activeChats.get(chatId);
   if (!active) return;
-  active.stopped = true;
-  active.controller.abort(reason);
-  clearChatTimers(active);
-  let saved = false;
-  try { saved = await saveAssistantProgress({ chatId, requestId: active.requestId, text: active.text, state: 'stopped', vaultId: active.vaultId }); }
-  finally { if (activeChats.get(chatId) === active) activeChats.delete(chatId); broadcastActive(chatId); }
-  flushChatToVault();
-  broadcast(chatId, { type: 'chat-ev', chatId, requestId: active.requestId, turnId: active.turnId, kind: 'stopped', text: active.text, saved });
+  await finishTurn(active, 'stopped', undefined, reason);
 }
 
 // ---- 端口消息 -------------------------------------------------------------------

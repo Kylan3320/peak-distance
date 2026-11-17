@@ -214,7 +214,7 @@ function onPortEvent(ev: ChatPortEvent): void {
     return;
   }
   if (ev.type === 'chat-active') {
-    if (ev.chatId === chatId && ev.active) void reloadRecord();
+    if (ev.chatId === chatId && (ev.active || chatRecord?.messages.some(msg => msg.state === 'streaming'))) void reloadRecord();
     return;
   }
   if (ev.type !== 'chat-ev') return;

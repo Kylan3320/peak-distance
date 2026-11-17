@@ -651,8 +651,7 @@ export async function appendChatTurn(input: {
 }
 
 /**
- * 回答进度 / 终态写入。守卫：消息必须属于该 requestId；增量只写 streaming 态，
- * 终态（done/stopped/error/interrupted）允许覆盖。停止 / 清空后的迟到增量被丢弃。
+ * 回答进度和终态只写入该 requestId 的 streaming 记录。终态一旦提交即固定。
  */
 export async function saveAssistantProgress(input: {
   chatId: string;

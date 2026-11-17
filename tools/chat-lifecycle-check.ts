@@ -277,3 +277,40 @@ assert.equal(durable.messages[1]!.state,'interrupted');
 assert.equal(durable.messages[1]!.errorKind,'truncated');
 assert.deepEqual(historyForTurn(durable.messages,'next-turn',0),[]);
 console.log('PASS: truncated answers survive as retryable interruptions and stay out of model history.');
+
+for (const [index, first] of (['done', 'stopped'] as const).entries()) {
+  const raceWindow = 44 + index;
+  await request(raceWindow, { type: 'chatNew' });
+  const edit = await api.readChatEdit(raceWindow);
+  const port = testPort(raceWindow);
+  const streamStarted = deferred<void>();
+  const streamEnded = deferred<{ok: true; text: string}>();
+  const writeStarted = deferred<void>();
+  const commit = deferred<void>();
+  const writes: string[] = [];
+  boundaries.chatCompletionStream = () => { streamStarted.resolve(); return streamEnded.promise; };
+  boundaries.saveAssistantProgress = async input => {
+    const update = input as {state: 'done' | 'stopped'; text: string};
+    writes.push(update.state);
+    writeStarted.resolve();
+    await commit.promise;
+    if (durable.messages[1]!.state !== 'streaming') return false;
+    Object.assign(durable.messages[1]!, update);
+    return true;
+  };
+  port.receive({ type: 'chat-send', chatId: '', editId: edit.editId, question:'Terminal race', quote:null, snapshotVersion:0, segmentIndex:0 });
+  await streamStarted.promise;
+  const finish = () => streamEnded.resolve({ok:true, text:'Reply'});
+  const stop = () => port.receive({type:'chat-stop',chatId:durable.id});
+  (first === 'done' ? finish : stop)();
+  await writeStarted.promise;
+  (first === 'done' ? stop : finish)();
+  commit.resolve();
+  await until(() => port.events.some(e => e.type === 'chat-active' && !e.active));
+  const outcomes = port.events.filter(e => e.type === 'chat-ev').filter(e => e.kind === 'done' || e.kind === 'stopped');
+  assert.deepEqual(writes, [first]);
+  assert.deepEqual(outcomes.map(e => e.kind), [first]);
+  assert.equal(outcomes[0]?.saved, true);
+  assert.equal(durable.messages[1]!.state, first);
+}
+console.log('PASS: completion and stop share one committed terminal state in either order.');
