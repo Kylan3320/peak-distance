@@ -103,7 +103,7 @@ export function mountAiSettings(section: HTMLDetailsElement) {
   const clear = get<HTMLButtonElement>('clear');
   const panels = { quick: get('ai-quick'), connection: fields, model: get('ai-model-picker') };
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  const drafts = new Map<AiProvider, { profile: AiProfile; keyInput: string }>();
+  const drafts = new Map<AiProvider, AiProfile>();
   let services: AiServices | undefined;
   let selected: AiProvider = 'deepseek';
   let view: View = 'quick';
@@ -223,19 +223,21 @@ export function mountAiSettings(section: HTMLDetailsElement) {
   }
 
   function draft() {
-    const saved = services?.profiles[selected];
-    const profile: AiProfile = { protocol: protocol.value as AiProfile['protocol'], baseUrl: url.value.trim(), model: model.value.trim(), apiKey: key.value.trim() };
-    if (saved && sameEndpoint(saved, profile)) {
-      profile.apiKey ||= saved.apiKey;
-      if (saved.reasoningEffort && Object.hasOwn(aiReasoningOptions(profile), saved.reasoningEffort)) profile.reasoningEffort = saved.reasoningEffort;
-      if (saved.serviceTier && supportsAiFast(profile)) profile.serviceTier = saved.serviceTier;
-    }
-    return profile;
+    return { protocol: protocol.value as AiProfile['protocol'], baseUrl: url.value.trim(), model: model.value.trim(), apiKey: key.value };
+  }
+
+  function resolveConnection(input: AiProfile, previous?: AiProfile): AiProfile {
+    const profile = { ...input, apiKey: input.apiKey.trim() };
+    if (!previous || !sameEndpoint(previous, profile)) return profile;
+    return withModel({
+      ...profile, apiKey: profile.apiKey || previous.apiKey,
+      reasoningEffort: previous.reasoningEffort, serviceTier: previous.serviceTier,
+    }, profile.model);
   }
 
   function renderDraft() {
     const saved = services?.profiles[selected] ?? defaultAiProfile(selected);
-    const next = draft();
+    const next = resolveConnection(draft(), saved);
     save.hidden = selected === services?.active && !(['apiKey', 'protocol', 'baseUrl', 'model'] as const).some(field => saved[field] !== next[field]);
     clear.hidden = !saved.apiKey || !confirm.hidden;
     const note = get('ai-active-note');
@@ -248,12 +250,12 @@ export function mountAiSettings(section: HTMLDetailsElement) {
 
   function loadDraft() {
     const pending = drafts.get(selected);
-    const profile = pending?.profile ?? services?.profiles[selected] ?? defaultAiProfile(selected);
+    const profile = pending ?? services?.profiles[selected] ?? defaultAiProfile(selected);
     provider.value = selected;
     protocol.value = profile.protocol;
     url.value = profile.baseUrl;
     model.value = profile.model;
-    key.value = pending?.keyInput ?? '';
+    key.value = pending?.apiKey ?? '';
     confirm.hidden = true;
     advanced.open = selected === 'custom';
   }
@@ -312,10 +314,10 @@ export function mountAiSettings(section: HTMLDetailsElement) {
     render();
   }
 
-  async function mutate(change: (latest: AiServices) => void) {
+  async function mutate(change: (latest: AiServices) => void | false) {
     return navigator.locks.request('peak-distance-ai-services', async () => {
       const latest = readAiServices(await browser.storage.local.get(storageKeys));
-      change(latest);
+      if (change(latest) === false) return;
       await browser.storage.local.set({ aiServices: latest });
       return latest;
     });
@@ -370,7 +372,7 @@ export function mountAiSettings(section: HTMLDetailsElement) {
     switchView('quick');
   });
   provider.onchange = () => {
-    drafts.set(selected, { profile: draft(), keyInput: key.value });
+    drafts.set(selected, draft());
     selected = provider.value as AiProvider;
     loadDraft();
     report();
@@ -451,26 +453,30 @@ export function mountAiSettings(section: HTMLDetailsElement) {
   fast.onclick = () => updateActive(current => ({ ...current, serviceTier: current.serviceTier === 'fast' ? 'default' : 'fast' }));
 
   save.onclick = () => {
-    const profile = draft();
-    const error = validateAiProfile(profile);
-    if (error) { report(error); return; }
+    const input = draft();
     const target = selected;
-    profile.baseUrl = normalizeAiBaseUrl(profile.baseUrl);
+    const error = validateAiProfile(resolveConnection(input, services?.profiles[target]));
+    if (error) { report(error); return; }
+    input.baseUrl = normalizeAiBaseUrl(input.baseUrl);
     void perform(async () => {
       // Browser permissions must be requested within the save gesture.
-      if (!await browser.permissions.request({ origins: [new URL(profile.baseUrl).origin + '/*'] })) {
+      if (!await browser.permissions.request({ origins: [new URL(input.baseUrl).origin + '/*'] })) {
         report('未获得该 API 地址的访问权限，配置未更改。再次保存可重试。');
         return;
       }
-      services = await mutate(latest => {
-        const previous = latest.profiles[target];
-        if (previous && sameEndpoint(previous, profile)) {
-          profile.reasoningEffort = previous.reasoningEffort && Object.hasOwn(aiReasoningOptions(profile), previous.reasoningEffort) ? previous.reasoningEffort : undefined;
-          profile.serviceTier = supportsAiFast(profile) ? previous.serviceTier : undefined;
+      const saved = await mutate(latest => {
+        const profile = resolveConnection(input, latest.profiles[target]);
+        const error = validateAiProfile(profile);
+        if (error) {
+          services = latest;
+          report(error);
+          return false;
         }
         latest.active = target;
         latest.profiles[target] = profile;
       });
+      if (!saved) return;
+      services = saved;
       drafts.clear();
       key.value = '';
       switchView('quick', false);
