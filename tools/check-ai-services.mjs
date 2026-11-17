@@ -47,11 +47,34 @@ try {
     await page.locator('#ai-provider').selectOption(provider);
     check(`${provider} 预设无需展开高级设置`,!await page.locator('#ai-model').isVisible());
     if(provider!=='deepseek')await page.locator('#key').fill('fixture-'+provider);
+    if(provider==='openai'){
+      await page.locator('#ai-advanced summary').click();
+      const model=page.locator('#ai-model');
+      const effort=page.locator('#ai-reasoning');
+      await model.fill('gpt-6.1-terra');
+      await model.press('Tab');
+      check('Terra 提供所需档位',await effort.locator('option:not([disabled])').evaluateAll(options=>options.map(option=>option.value).join(','))===',off,low,high,max');
+      await effort.selectOption('off');
+      await model.fill('gpt-6.1-sol');
+      await model.press('Tab');
+      check('换成不可关闭推理的模型后恢复默认',await effort.inputValue()===''&&await page.locator('#ai-reasoning-hint').isVisible());
+      await model.fill('gpt-6.1-terra');
+      await model.press('Tab');
+      await effort.selectOption('max');
+      for(const width of [400,800]){
+        await page.setViewportSize({width,height:950});
+        await effort.scrollIntoViewIfNeeded();
+        check(`推理选项在 ${width}px 内完整显示`,await effort.evaluate(el=>el.getBoundingClientRect().right<=innerWidth&&el.scrollWidth<=el.clientWidth));
+        await page.screenshot({path:join(output,`reasoning-${width}.png`)});
+      }
+      await page.setViewportSize({width:420,height:950});
+    }
     await page.locator('#save').click();
     await page.waitForFunction(async provider=>(await chrome.storage.local.get('aiServices')).aiServices?.active===provider,provider);
     await page.locator('#state').waitFor({state:'hidden'});
     const state=await worker.evaluate(async()=> (await chrome.storage.local.get('aiServices')).aiServices);
     check(`${provider} 选择加 Key 完成持久化`,state.active===provider&&!!state.profiles[provider].baseUrl&&!!state.profiles[provider].model&&!!state.profiles[provider].apiKey);
+    if(provider==='openai')check('保存后读回最高档',state.profiles.openai.reasoningEffort==='max'&&await page.locator('#ai-reasoning').inputValue()==='max');
     const explanation=await send({type:'explainContext',snapshot:snap,requestId:provider});
     check(`${provider} 解释使用对应服务与来源`,explanation.ok&&explanation.provider===provider&&explanation.model===state.profiles[provider].model);
     const translated=await send({type:'translateCues',mode:'ai',videoId:'fixture',trackId:'en',items:[{id:9,text:'Stay with me.'}],requestId:provider+'-translation'});
@@ -68,6 +91,10 @@ try {
     const key=r.headers.Authorization?.replace('Bearer ','')??r.headers['x-api-key']??r.headers['x-goog-api-key'];
     return key==='fixture-'+expected;
   }));check('服务切换不会串用其他服务的 Key',requestChecks);
+  check('解释、字幕和问答都发送 Terra 最高档',await worker.evaluate(()=>{
+    const requests=globalThis.__requests.filter(r=>r.body.model==='gpt-6.1-terra');
+    return requests.length===3&&requests.some(r=>r.body.stream)&&requests.every(r=>r.body.reasoning_effort==='max');
+  }));
   await page.locator('#ai-provider').selectOption('custom');
   await page.locator('#ai-url').fill('https://compatible.example/v1');await page.locator('#ai-model').fill('custom-model');await page.locator('#key').fill('fixture-custom');
   await page.evaluate(()=>window.__allowPermission=false);await page.locator('#save').click();await page.locator('#state[data-i18n="未获得该 API 地址的访问权限，配置未更改。再次保存可重试。"]').waitFor();

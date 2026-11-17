@@ -1,5 +1,6 @@
 export type AiProtocol = 'openai' | 'anthropic' | 'gemini';
-export interface AiProfile { protocol: AiProtocol; baseUrl: string; model: string; apiKey: string }
+export type AiReasoningEffort = 'off' | 'low' | 'high' | 'max';
+export interface AiProfile { protocol: AiProtocol; baseUrl: string; model: string; apiKey: string; reasoningEffort?: AiReasoningEffort }
 export const AI_PRESETS = {
   deepseek: { label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' },
   openai: { label: 'OpenAI', protocol: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini' },
@@ -12,6 +13,64 @@ export const AI_PRESETS = {
 export type AiProvider = keyof typeof AI_PRESETS;
 export interface AiServices { active: AiProvider; profiles: Partial<Record<AiProvider, AiProfile>> }
 export type AiConfig = AiProfile & { provider: AiProvider };
+
+type ReasoningParameters = {
+  reasoning_effort?: 'none' | 'low' | 'high' | 'xhigh' | 'max';
+  thinking?: { type: 'disabled' | 'enabled' | 'between_tools'; budget_tokens?: number };
+  output_config?: { effort: 'low' | 'high' | 'max' };
+  thinkingConfig?: { thinkingLevel: 'low' | 'high' };
+};
+type ReasoningOptions = Partial<Record<AiReasoningEffort, ReasoningParameters>>;
+
+const effortOptions = {
+  low: { reasoning_effort: 'low' },
+  high: { reasoning_effort: 'high' },
+  max: { reasoning_effort: 'max' },
+} satisfies ReasoningOptions;
+const off = { reasoning_effort: 'none' } satisfies ReasoningParameters;
+const claudeEffort = {
+  low: { output_config: { effort: 'low' } },
+  high: { output_config: { effort: 'high' } },
+  max: { output_config: { effort: 'max' } },
+} satisfies ReasoningOptions;
+
+export function aiReasoningOptions(profile: Pick<AiProfile, 'protocol' | 'baseUrl' | 'model'>): ReasoningOptions {
+  let host: string;
+  try { host = new URL(normalizeAiBaseUrl(profile.baseUrl)).hostname; } catch { return {}; }
+  const model = profile.model.replace(/^(models\/)|-\d{4}-?\d{2}-?\d{2}$/g, '');
+  if (profile.protocol === 'openai') {
+    if (host === 'api.openai.com') {
+      if (/^(gpt-6\.1-terra|gpt-6-(sol|luna))$/.test(model)) return { off, ...effortOptions };
+      if (/^(gpt-6-astra|gpt-6\.1-sol|gpt-5\.6-(sol|terra|luna))$/.test(model)) return effortOptions;
+      if (/^gpt-5\.(5|4(-mini)?|2)$/.test(model)) return { off, ...effortOptions, max: { reasoning_effort: 'xhigh' } };
+    }
+    if (host === 'api.deepseek.com' && /^deepseek-(flash|v4-pro)$/.test(model)) return { off, ...effortOptions };
+    if (host === 'open.bigmodel.cn' && model === 'glm-5.3') return effortOptions;
+    if (host === 'api.moonshot.cn' && /^kimi-k3(\.1-pro(-highspeed)?)?$/.test(model)) return effortOptions;
+  }
+  if (profile.protocol === 'anthropic' && host === 'api.anthropic.com') {
+    if (model === 'claude-haiku-4-5') {
+      return {
+        off: { thinking: { type: 'disabled' } },
+        low: { thinking: { type: 'enabled', budget_tokens: 1024 } },
+        high: { thinking: { type: 'enabled', budget_tokens: 2048 } },
+        max: { thinking: { type: 'enabled', budget_tokens: 3072 } },
+      };
+    }
+    if (model === 'claude-sonnet-5-5') return { off: { thinking: { type: 'between_tools' } }, ...claudeEffort };
+    if (/^claude-(haiku-5-5|opus-5|sonnet-5)$/.test(model)) return { off: { thinking: { type: 'disabled' }, output_config: { effort: 'high' } }, ...claudeEffort };
+    if (/^claude-(opus-5-5|(fable|mythos)-5(-[12])?)$/.test(model)) return claudeEffort;
+  }
+  if (profile.protocol === 'gemini' && host === 'generativelanguage.googleapis.com'
+    && /^gemini-3\.[5678]-flash$/.test(model)) {
+    return { low: { thinkingConfig: { thinkingLevel: 'low' } }, high: { thinkingConfig: { thinkingLevel: 'high' } } };
+  }
+  return {};
+}
+
+export function aiReasoningParameters(profile: AiProfile): ReasoningParameters {
+  return profile.reasoningEffort ? aiReasoningOptions(profile)[profile.reasoningEffort] ?? {} : {};
+}
 
 export function isAiProvider(value: unknown): value is AiProvider {
   return typeof value === 'string' && Object.hasOwn(AI_PRESETS, value);
@@ -30,6 +89,7 @@ export function validateAiProfile(profile: AiProfile): string | null {
   if (!['openai', 'anthropic', 'gemini'].includes(profile.protocol)) return '请选择接口格式';
   try { normalizeAiBaseUrl(profile.baseUrl); } catch { return '请填写有效的 HTTPS API 地址（Base URL）'; }
   if (!profile.model.trim() || profile.model.length > 200 || /[\s?#]/.test(profile.model)) return '请填写有效的模型 ID';
+  if (profile.reasoningEffort && !Object.hasOwn(aiReasoningOptions(profile), profile.reasoningEffort)) return '此模型不支持所选推理强度';
   if (!profile.apiKey.trim() || /[\r\n]/.test(profile.apiKey) || profile.apiKey.length > 4096) return '请填写有效的 API Key';
   return null;
 }
@@ -40,10 +100,16 @@ export function readAiServices(stored: Record<string, unknown>): AiServices {
   const profiles: AiServices['profiles'] = {};
   for (const provider of Object.keys(AI_PRESETS) as AiProvider[]) {
     const p = value?.profiles?.[provider];
-    if (p && ['openai', 'anthropic', 'gemini'].includes(p.protocol) && ['baseUrl','model','apiKey'].every(k => typeof p[k as keyof AiProfile] === 'string')) profiles[provider] = { protocol:p.protocol, baseUrl:p.baseUrl, model:p.model, apiKey:p.apiKey };
+    if (p && ['openai', 'anthropic', 'gemini'].includes(p.protocol) && ['baseUrl','model','apiKey'].every(k => typeof p[k as keyof AiProfile] === 'string')) {
+      const profile: AiProfile = { protocol: p.protocol, baseUrl: p.baseUrl, model: p.model, apiKey: p.apiKey };
+      if (p.reasoningEffort && Object.hasOwn(aiReasoningOptions(profile), p.reasoningEffort)) profile.reasoningEffort = p.reasoningEffort;
+      profiles[provider] = profile;
+    }
   }
   return { active: isAiProvider(value?.active) ? value.active : 'custom', profiles };
 }
 export function aiCacheScope(config: AiConfig): string {
-  return JSON.stringify([config.provider, config.protocol, normalizeAiBaseUrl(config.baseUrl), config.model]);
+  const scope = [config.provider, config.protocol, normalizeAiBaseUrl(config.baseUrl), config.model];
+  if (config.reasoningEffort) scope.push(config.reasoningEffort);
+  return JSON.stringify(scope);
 }

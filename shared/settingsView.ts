@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS, validSetting } from './settings';
 import { onAppearanceChange } from './appearance';
-import { AI_PRESETS, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiProfile, type AiProvider, type AiServices, type AiProtocol } from './aiConfig';
+import { AI_PRESETS, aiReasoningOptions, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiProfile, type AiProvider, type AiServices, type AiProtocol, type AiReasoningEffort } from './aiConfig';
 import { TARGET_LANGUAGES, type LanguageTag } from './languages';
 import { authorizeVaultInPage, pickVaultDirectoryInPage } from '@/lib/vault/fs';
 import { iconButton, uiIcon } from './uiControls';
@@ -50,6 +50,17 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
       <label class="ai-field"><span data-i18n="接口格式"></span><select id="ai-protocol"><option value="openai" data-i18n="OpenAI 兼容"></option><option value="anthropic">Anthropic Messages</option><option value="gemini">Gemini</option></select></label>
       <label class="ai-field"><span data-i18n="API 地址（Base URL）"></span><input id="ai-url" type="url" placeholder="https://api.example.com/v1" spellcheck="false"></label>
       <label class="ai-field"><span data-i18n="模型 ID"></span><input id="ai-model" type="text" spellcheck="false"></label>
+      <div class="ai-field">
+        <label for="ai-reasoning" data-i18n="推理强度"></label>
+        <select id="ai-reasoning" aria-describedby="ai-reasoning-hint">
+          <option value="" data-i18n="服务商默认"></option>
+          <option value="off" data-i18n="关闭推理"></option>
+          <option value="low" data-i18n="低推理强度"></option>
+          <option value="high" data-i18n="高推理强度"></option>
+          <option value="max" data-i18n="最高推理强度"></option>
+        </select>
+        <p id="ai-reasoning-hint" class="hint" aria-live="polite" hidden></p>
+      </div>
     </details><div class="ai-footer"><button id="save" class="ui-icon-button" type="button">${uiIcon('save')}</button><div id="state" class="settings-status" role="status"></div></div></fieldset></details>
     <details class="settings-section settings-details settings-group"><summary data-i18n="翻译设置"></summary>
     <button id="prepare-native" class="settings-action" type="button"><span data-i18n="准备内置翻译"></span>${uiIcon('external')}</button></details>
@@ -123,7 +134,22 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     const saved=services.profiles[selected];
     let reusable=false;
     try {reusable=!!saved&&saved.protocol===protocol&&normalizeAiBaseUrl(saved.baseUrl)===normalizeAiBaseUrl(baseUrl);} catch { /* incomplete URL */ }
-    return {protocol,baseUrl,model:get<HTMLInputElement>('ai-model').value.trim(),apiKey:get<HTMLInputElement>('key').value.trim()||(reusable?saved!.apiKey:'')};
+    const reasoningEffort = get<HTMLSelectElement>('ai-reasoning').value as AiReasoningEffort | '';
+    return {protocol,baseUrl,model:get<HTMLInputElement>('ai-model').value.trim(),apiKey:get<HTMLInputElement>('key').value.trim()||(reusable?saved!.apiKey:''), ...(reasoningEffort && { reasoningEffort })};
+  }
+
+  function updateReasoningOptions(value = get<HTMLSelectElement>('ai-reasoning').value) {
+    const select = get<HTMLSelectElement>('ai-reasoning');
+    const hint = get('ai-reasoning-hint');
+    const options = aiReasoningOptions(draft());
+    for (const option of select.options) {
+      option.disabled = option.hidden = !!option.value && !Object.hasOwn(options, option.value);
+    }
+    const reset = !!value && !Object.hasOwn(options, value);
+    select.value = reset ? '' : value;
+    const notice = reset ? '已恢复为服务商默认' : !Object.keys(options).length ? '此配置暂无可调推理档位' : !options.off ? '此模型不支持关闭推理' : '';
+    hint.hidden = !notice;
+    if (notice) setText(hint, message(notice));
   }
   function showActiveAi() {
     const active=services.profiles[services.active];
@@ -132,26 +158,30 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   }
   function showAiState() {
     const saved=services.profiles[selected]??defaultAiProfile(selected),current=draft();
-    const changed=(['protocol','baseUrl','model','apiKey'] as const).some(key=>current[key]!==saved[key]);
+    const changed=(['protocol','baseUrl','model','apiKey','reasoningEffort'] as const).some(key=>current[key]!==saved[key]);
     get('save').classList.toggle('is-pending',changed||selected!==services.active||!saved.apiKey);
     if(changed)reportAi('尚未保存');
     else if(!saved.apiKey)reportAi('未配置');
     else if(selected!==services.active)reportAi('保存后切换至此服务');
     else reportAi('');
   }
-  function showProvider() {
+  function showProvider(advancedOpen = selected === 'custom') {
     const pending=drafts.get(selected);
     const p=pending?.profile??services.profiles[selected]??defaultAiProfile(selected);
     provider.value=selected;get<HTMLSelectElement>('ai-protocol').value=p.protocol;
     get<HTMLInputElement>('ai-url').value=p.baseUrl;get<HTMLInputElement>('ai-model').value=p.model;
     get<HTMLInputElement>('key').value=pending?.keyInput??'';
     updateKeyControls();
-    get<HTMLDetailsElement>('ai-advanced').open=selected==='custom';
+    updateReasoningOptions(p.reasoningEffort ?? '');
+    get<HTMLDetailsElement>('ai-advanced').open=advancedOpen;
     showActiveAi();showAiState();
   }
   provider.addEventListener('change',()=>{drafts.set(selected,{profile:draft(),keyInput:get<HTMLInputElement>('key').value});selected=provider.value as AiProvider;showProvider();});
   for(const id of ['key','ai-url','ai-model'])get(id).addEventListener('input',()=>{updateKeyControls();showAiState();});
-  get('ai-protocol').addEventListener('change',()=>{updateKeyControls();showAiState();});
+  for (const id of ['ai-url', 'ai-model', 'ai-protocol']) {
+    get(id).addEventListener('change', () => { updateKeyControls(); updateReasoningOptions(); showAiState(); });
+  }
+  get('ai-reasoning').addEventListener('change', () => { updateReasoningOptions(); showAiState(); });
   let aiLoaded = false;
   const savedSettings: Record<string, unknown> = {...DEFAULT_SETTINGS};
   async function load() {
@@ -356,6 +386,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     get(vaultAction==='authorize'&&!get('vault-authorize').hidden?'vault-authorize':'vault-connect').focus({preventScroll:true});
   });
   get('save').addEventListener('click',async()=>{
+    const advancedOpen = get<HTMLDetailsElement>('ai-advanced').open;
     const profile=draft(),error=validateAiProfile(profile);
     if(error){reportAi(error,true);return;}
     profile.baseUrl=normalizeAiBaseUrl(profile.baseUrl);
@@ -368,7 +399,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
       const next:AiServices={active:target,profiles:{...latest.profiles,[target]:profile}};
       await browser.storage.local.set({aiServices:next});
       services=readAiServices(await browser.storage.local.get('aiServices'));
-      selected=services.active;drafts.delete(target);showProvider();
+      selected=services.active;drafts.delete(target);showProvider(advancedOpen);
     } catch {reportAi('保存失败，请重试；新地址需要允许浏览器访问',true);}
     finally {get<HTMLFieldSetElement>('ai-fields').disabled=false;}
   });

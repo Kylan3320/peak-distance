@@ -1,4 +1,4 @@
-import { defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiConfig, type AiProtocol } from '@/shared/aiConfig';
+import { aiReasoningParameters, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiConfig, type AiProtocol } from '@/shared/aiConfig';
 import { parseStreamEvent, type ChatCompletionMessage } from '@/shared/chat';
 
 export async function getAiConfig(): Promise<AiConfig> {
@@ -11,11 +11,13 @@ export function buildAiRequest(config: AiConfig, messages: ChatCompletionMessage
   const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
   const turns = messages.filter(m => m.role !== 'system');
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const { thinkingConfig, ...reasoning } = aiReasoningParameters(config);
   if (config.protocol === 'anthropic') {
     headers['x-api-key'] = config.apiKey;
     headers['anthropic-version'] = '2023-06-01';
     headers['anthropic-dangerous-direct-browser-access'] = 'true';
-    return { url: `${base}/messages`, headers, body: { model: config.model, system, messages: turns, max_tokens: maxTokens, stream } };
+    const budget = reasoning.thinking?.budget_tokens ?? 0;
+    return { url: `${base}/messages`, headers, body: { model: config.model, system, messages: turns, max_tokens: maxTokens + budget, stream, ...reasoning } };
   }
   if (config.protocol === 'gemini') {
     headers['x-goog-api-key'] = config.apiKey;
@@ -24,14 +26,14 @@ export function buildAiRequest(config: AiConfig, messages: ChatCompletionMessage
       headers, body: {
         systemInstruction: { parts: [{ text: system }] },
         contents: turns.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-        generationConfig: { maxOutputTokens: maxTokens },
+        generationConfig: { maxOutputTokens: maxTokens, ...(thinkingConfig && { thinkingConfig }) },
       },
     };
   }
   headers.Authorization = `Bearer ${config.apiKey}`;
   // OpenAI uses max_completion_tokens; compatible providers commonly require max_tokens.
   const tokenField = new URL(base).hostname === 'api.openai.com' ? 'max_completion_tokens' : 'max_tokens';
-  return { url: `${base}/chat/completions`, headers, body: { model: config.model, messages, stream, [tokenField]: maxTokens } };
+  return { url: `${base}/chat/completions`, headers, body: { model: config.model, messages, stream, [tokenField]: maxTokens, ...reasoning } };
 }
 
 export async function requestAi(config: AiConfig, messages: ChatCompletionMessage[], stream: boolean, maxTokens: number, signal: AbortSignal): Promise<Response> {

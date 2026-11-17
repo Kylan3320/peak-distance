@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { AI_PRESETS, aiCacheScope, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiConfig, type AiProvider } from '../shared/aiConfig';
+import { AI_PRESETS, aiCacheScope, aiReasoningOptions, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiConfig, type AiProvider, type AiReasoningEffort } from '../shared/aiConfig';
 import { buildAiRequest, parseAiResponse, parseAiStreamEvent } from '../lib/aiTransport';
 import { chatCompletionStream, lookupExpression, translateSentences } from '../lib/aiClient';
 
@@ -12,6 +12,25 @@ assert.equal(normalizeAiBaseUrl('https://example.com/v1/chat/completions/'),'htt
 assert.notEqual(aiCacheScope(config('deepseek')),aiCacheScope(config('kimi')));
 assert.notEqual(aiCacheScope(config('openai')),aiCacheScope({...config('openai'),model:'another'}));
 assert.ok(!aiCacheScope(config('openai')).includes('fixture-key'));
+const terra = { ...config('openai'), model: 'gpt-6.1-terra' };
+assert.deepEqual(Object.keys(aiReasoningOptions(terra)), ['off', 'low', 'high', 'max']);
+const requestBody = (config: AiConfig, reasoningEffort: AiReasoningEffort | undefined, stream = false): Record<string, unknown> =>
+  buildAiRequest({ ...config, reasoningEffort }, [], stream, 4000).body;
+assert.equal(requestBody(terra, undefined).reasoning_effort, undefined);
+assert.equal(requestBody(terra, 'off').reasoning_effort, 'none');
+assert.equal(requestBody(terra, 'max', true).reasoning_effort, 'max');
+assert.equal(requestBody({ ...terra, model: 'gpt-5.5-2026-04-23' }, 'max').reasoning_effort, 'xhigh');
+assert.deepEqual(aiReasoningOptions(config('openai')), {});
+assert.deepEqual(aiReasoningOptions({ ...terra, baseUrl: 'https://gateway.example/v1' }), {});
+assert.equal(requestBody(config('deepseek'), 'low').reasoning_effort, 'low');
+assert.equal(requestBody(config('glm'), 'max').reasoning_effort, 'max');
+assert.equal(requestBody(config('kimi'), 'high').reasoning_effort, 'high');
+assert.ok(validateAiProfile({ ...config('kimi'), reasoningEffort: 'off' }));
+assert.deepEqual(requestBody(config('gemini'), 'high').generationConfig, { maxOutputTokens: 4000, thinkingConfig: { thinkingLevel: 'high' } });
+assert.deepEqual(requestBody(config('anthropic'), 'max').thinking, { type: 'enabled', budget_tokens: 3072 });
+assert.deepEqual(requestBody({ ...config('anthropic'), model: 'claude-haiku-5-5' }, 'max').output_config, { effort: 'max' });
+assert.equal(readAiServices({ aiServices: { active: 'openai', profiles: { openai: { ...terra, reasoningEffort: 'high' } } } }).profiles.openai?.reasoningEffort, 'high');
+assert.notEqual(aiCacheScope(terra), aiCacheScope({ ...terra, reasoningEffort: 'high' }));
 let allowed=true;
 (globalThis as any).browser={permissions:{contains:async()=>allowed}};
 const originalFetch=globalThis.fetch;
@@ -22,7 +41,7 @@ try {
     const messages=[{role:'system' as const,content:'system'},{role:'user' as const,content:'hello'},{role:'assistant' as const,content:'answer'},{role:'user' as const,content:'again'}];
     const request=buildAiRequest(c,messages,false,100);
     assert.ok(!request.url.includes(c.apiKey));
-    if(c.protocol==='anthropic'){assert.equal(request.headers['x-api-key'],c.apiKey);assert.equal(request.body.system,'system');assert.equal(request.body.messages?.length,3);}
+    if(c.protocol==='anthropic'){assert.equal(request.headers['x-api-key'],c.apiKey);assert.ok('system' in request.body);assert.equal(request.body.system,'system');assert.equal(request.body.messages?.length,3);}
     if(c.protocol==='gemini'){assert.equal(request.headers['x-goog-api-key'],c.apiKey);assert.equal(request.body.contents?.[1]?.role,'model');assert.equal(request.body.systemInstruction?.parts[0]?.text,'system');}
     if(c.protocol==='openai') assert.equal(request.headers.Authorization,`Bearer ${c.apiKey}`);
     let sent=0;
