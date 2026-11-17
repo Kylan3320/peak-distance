@@ -212,7 +212,44 @@ async function checkChatConflicts(chrome, edge) {
 try {
   const chrome = await open("chrome");
   const edge = await open("edge");
-  if (process.argv.includes('--chat-conflict-only')) {
+  if (process.argv.includes('--collection-publication-only')) {
+    assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
+    assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
+    const key = 'en::publication';
+    await chrome.evaluate(async () => {
+      await Vault.db.saveSnapshot({source:'web',expression:'publication',lang:'en',sentence:'Fixture sentence.',url:'https://example.com/fixture',title:'Fixture'}, {});
+      await Vault.db.setEntryNote('en::publication', 'Old note');
+      await Vault.flushVaultWrites();
+    });
+    const path = join(directory, '生词本.md');
+    const modern = readFileSync(path, 'utf8');
+    const legacyLine = /^<!-- peak-distance:records (.*) -->\r?\n/m;
+    writeFileSync(join(directory, '.peak-distance', 'records.json'), legacyLine.exec(modern)[1]);
+    writeFileSync(path, modern.replace('collection vocab v5', 'collection vocab').replace(legacyLine, ''));
+    await edge.evaluate(() => Vault.syncFromVault());
+    assert.equal((await edge.evaluate(key => Vault.db.getEntry(key), key)).note, 'Old note');
+    await chrome.evaluate(async key => {
+      const ctx = (await Vault.db.getEntry(key)).contexts[0];
+      await Vault.db.backfillResult(ctx.id, undefined, {kind:'ai-context',source:'ai',text:'New explanation -->',sentence:ctx.sentence});
+      await Vault.db.setEntryNote(key, 'New note');
+    }, key);
+    const previous = readFileSync(path, 'utf8');
+    failDiskWritePath = '生词本.md';
+    assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'io');
+    assert.equal(readFileSync(path, 'utf8'), previous);
+    assert.ok((await chrome.evaluate(() => Vault.db.listVaultQueue())).some(write => write.recordId === key));
+    await edge.evaluate(() => Vault.syncFromVault());
+    const old = await edge.evaluate(key => Vault.db.getEntry(key), key);
+    assert.equal(old.note, 'Old note');
+    assert.equal(old.contexts[0].explanation, undefined);
+    assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    await edge.evaluate(() => Vault.syncFromVault());
+    const next = await edge.evaluate(key => Vault.db.getEntry(key), key);
+    assert.equal(next.note, 'New note');
+    assert.equal(next.contexts[0].explanation.text, 'New explanation -->');
+    assert.ok(!(await chrome.evaluate(() => Vault.db.listVaultQueue())).some(write => write.recordId === key));
+    console.log('PASS an interrupted collection publication exposes only the complete old version; retry exposes the complete new version');
+  } else if (process.argv.includes('--chat-conflict-only')) {
     assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
     assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
     await checkChatConflicts(chrome, edge);
@@ -256,7 +293,7 @@ try {
     mkdirSync(join(directory,'.peak-distance'),{recursive:true});
     writeFileSync(join(directory,'.peak-distance/identity.json'),JSON.stringify({vaultId:'translation-vault',formatVersion:3,createdAt:1}));
     const adopted=await chrome.evaluate(()=>Vault.adoptVault());assert.ok(adopted.ok,JSON.stringify(adopted));
-    assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/identity.json'),'utf8')).formatVersion,4);
+    assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/identity.json'),'utf8')).formatVersion,5);
     const oldReader=(await build({absWorkingDir:root,stdin:{contents:"export {ensureVault} from './lib/vault/fs';",resolveDir:root},bundle:true,write:false,platform:'browser',format:'iife',globalName:'OldVault',plugins:[{name:'version-3-reader',setup(builder){builder.onLoad({filter:/[/\\]shared[/\\]vault\.ts$/},({path})=>({contents:readFileSync(path,'utf8').replace(/VAULT_FORMAT_VERSION = \d+/, 'VAULT_FORMAT_VERSION = 3'),loader:'ts',resolveDir:root}));}}]})).outputFiles[0].text;
     await chrome.addScriptTag({content:oldReader});
     await assert.rejects(chrome.evaluate(()=>OldVault.ensureVault(__vaultDirectory)),/format: identity/);
@@ -272,7 +309,7 @@ try {
     assert.ok(!(await edge.evaluate(()=>Vault.db.listKnowledge())).some(k=>k.id===first.saved.record.id));
     const newRecord=await chrome.evaluate(async snapshot=>Vault.db.saveTranslationKnowledge(snapshot,'auto','zh-Hans','translation-vault'),snapshot);assert.notEqual(newRecord.record.id,first.saved.record.id);
     await chrome.evaluate(()=>Vault.synchronizeVault());await edge.evaluate(()=>Vault.syncFromVault());assert.equal((await edge.evaluate(()=>Vault.db.listKnowledge())).length,2);
-    console.log('PASS translation-only: offline/duplicate saving, v3→v4 upgrade, mixed AI + translation real disk collection, independent browser readback, exact-revision receipt, edit/delete propagation and explicit resave identity (adapted directory handles)');
+    console.log('PASS translation-only: offline/duplicate saving, directory upgrade, mixed AI + translation real disk collection, independent browser readback, exact-revision receipt, edit/delete propagation and explicit resave identity (adapted directory handles)');
   } else {
   const firstKnowledge = await chrome.evaluate(async () => {
     const {db,emptyChat}=Vault;
@@ -323,7 +360,7 @@ try {
     assert.equal(records.length,1);assert.equal(records[0].body,'Edited body [p1]');assert.equal(records[0].quotes[0].text,'An independently saved quotation.');
     assert.equal(await page.evaluate(()=>Vault.db.getChat('knowledge-chat')),null);
   }
-  assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/identity.json'),'utf8')).formatVersion,4);
+  assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/identity.json'),'utf8')).formatVersion,5);
   console.log('PASS offline independent knowledge survives original chat deletion, first connection and complete readback in another browser; duplicate saves preserve edits');
   assert.equal((await chrome.evaluate(() => window.Vault.synchronizeVault())).error, void 0);
   for (const page of [chrome, edge]) {
@@ -854,8 +891,9 @@ try {
   assert.ok(readFileSync(knowledgeBook,'utf8').includes(knowledgeId));
   assert.ok((await chrome.evaluate(()=>Vault.db.listVaultQueue())).some(w=>w.recordId===knowledgeId));
   assert.equal((await chrome.evaluate(()=>Vault.flushVaultWrites())).error,undefined);
-  assert.ok(!readFileSync(knowledgeBook,'utf8').includes(knowledgeId));
-  assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/records.json'),'utf8')).knowledge[knowledgeId],undefined);
+  const deletedKnowledge = await chrome.evaluate(() => Vault.files.scanVault(__vaultDirectory));
+  assert.ok(!deletedKnowledge.knowledge.some(({record}) => record.id === knowledgeId));
+  assert.ok(deletedKnowledge.deletedKnowledge.includes(knowledgeId));
   assert.ok(!(await chrome.evaluate(()=>Vault.db.listKnowledge())).length);
   await edge.evaluate(()=>Vault.synchronizeVault());
   assert.ok(!(await edge.evaluate(()=>Vault.db.listKnowledge())).length);
@@ -939,7 +977,6 @@ try {
   assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
   assert.equal(diskWrites.filter(path => path === '生词本.md').length, 1);
   assert.equal(diskWrites.filter(path => path === '句子.md').length, 1);
-  assert.ok(diskWrites.filter(path => path === '.peak-distance/records.json').length <= 2);
   await edge.evaluate(() => Vault.syncFromVault());
   assert.equal((await edge.evaluate(() => Vault.db.listEntries('batch'))).length, 20);
   console.log('PASS a mixed batch publishes each collection once and restores all records in the other profile');
@@ -955,7 +992,7 @@ try {
 
   await chrome.evaluate(async () => { for (let i = 0; i < 2; i++) await Vault.db.setEntryNote(`en::batch${i}`, 'CAPTURED BATCH'); });
   afterDiskWrite = async path => {
-    if (path !== '.peak-distance/records.json') return;
+    if (path !== '生词本.md') return;
     afterDiskWrite = null;
     await chrome.evaluate(() => Vault.db.setEntryNote('en::batch0', 'NEWER LOCAL EDIT'));
   };
@@ -992,7 +1029,7 @@ try {
     assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, undefined);
     await chrome.evaluate(id => Vault.db.setStatus(id, 'learning'), id);
     afterDiskWrite = async path => {
-      if (path !== (loseReceipt ? '生词本.md' : '.peak-distance/records.json')) return;
+      if (path !== '生词本.md') return;
       afterDiskWrite = null;
       await chrome.evaluate(({ id, latest }) => Vault.db.setStatus(id, latest), { id, latest });
       if (loseReceipt) throw Error('Controlled loss of publish acknowledgement');
@@ -1043,19 +1080,19 @@ try {
   });
   failDiskWritePath = '生词本.md';
   assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'io');
-  assert.ok(JSON.parse(readFileSync(join(directory,'.peak-distance/records.json'),'utf8')).vocab['en::batch1']);
   assert.ok(readFileSync(join(directory,'生词本.md'),'utf8').includes('en::batch1'));
   assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
-  assert.equal(JSON.parse(readFileSync(join(directory,'.peak-distance/records.json'),'utf8')).vocab['en::batch1'], undefined);
+  assert.ok(!readFileSync(join(directory,'生词本.md'),'utf8').includes('en::batch1'));
   await edge.evaluate(() => Vault.syncFromVault());
   assert.equal(await edge.evaluate(() => Vault.db.getEntry('en::batch1')), null);
   assert.equal((await edge.evaluate(() => Vault.db.getEntry('en::batch2'))).note, 'MIXED UPDATE');
   console.log('PASS a mixed update/deletion batch retains recovery data until visible deletion succeeds');
 
   await chrome.evaluate(() => Vault.db.setEntryNote('en::batch3', 'LOCAL NOTE AFTER EXTERNAL EDIT'));
-  afterDiskWrite = async path => {
-    if (path !== '.peak-distance/records.json') return;
-    afterDiskWrite = null;
+  let bookReads = 0;
+  beforeDiskRead = async path => {
+    if (path !== '生词本.md' || ++bookReads !== 2) return;
+    beforeDiskRead = null;
     const book = join(directory,'生词本.md');
     writeFileSync(book,readFileSync(book,'utf8')+'\n### 外部笔记\nEXTERNAL COLLECTION NOTE\n');
   };

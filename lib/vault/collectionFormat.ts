@@ -8,7 +8,10 @@ export const COLLECTION_FILES = { vocab: '生词本.md', sentence: '句子.md', 
 export interface CollectionDocument {
   prefix: string;
   documents: string[];
+  metadata?: string;
 }
+
+const metadataLine = /^<!-- peak-distance:records (.+) -->\n?/m;
 
 export function parseCollection(text: string, kind: CollectionKind): CollectionDocument {
   const normalized = text.replace(/\r\n?/g, '\n');
@@ -27,7 +30,12 @@ export function parseCollection(text: string, kind: CollectionKind): CollectionD
   }
   parts.push(normalized.slice(from));
   const prefix = parts.shift()!;
-  if (!prefix.startsWith(`<!-- peak-distance:collection ${kind} -->`)) throw new Error(`format: ${COLLECTION_FILES[kind]}`);
+  const header = `<!-- peak-distance:collection ${kind}`;
+  const firstLine = prefix.split('\n', 1)[0]!.trimEnd();
+  const metadata = prefix.match(metadataLine)?.[1];
+  if (firstLine !== header + ' -->' && (firstLine !== header + ' v5 -->' || !metadata)) {
+    throw new Error(`format: ${COLLECTION_FILES[kind]}`);
+  }
   const checkOrphanRecords = (body: string, hasKnowledgeBody = false) => {
     const envelope = hasKnowledgeBody ? knowledgeBodyEnvelope(body) : null;
     if (envelope && body.slice(envelope.end).trim()) throw new Error(`format: ${COLLECTION_FILES[kind]}`);
@@ -44,7 +52,7 @@ export function parseCollection(text: string, kind: CollectionKind): CollectionD
     const body = match[2]!.replace(/^(#{2,}) /gm, (_line, hashes: string) => `${hashes.slice(1)} `);
     return `---\n${match[1]}\n---\n${body}`;
   });
-  return { prefix, documents };
+  return { prefix: prefix.replace(metadataLine, ''), documents, metadata };
 }
 
 export function serializeCollection(collection: CollectionDocument, kind: CollectionKind): string {
@@ -54,7 +62,10 @@ export function serializeCollection(collection: CollectionDocument, kind: Collec
     const body = match[2]!.replace(/^(#+) /gm, (_line, hashes: string) => `#${hashes} `);
     return `<!-- peak-distance:${kind} -->\n\`\`\`yaml\n${match[1]}\n\`\`\`\n${body.trim()}\n`;
   });
-  return [collection.prefix.trimEnd(), ...parts].join('\n\n') + '\n';
+  const prefix = collection.metadata
+    ? collection.prefix.replace(/^.+/, () => `<!-- peak-distance:collection ${kind} v5 -->\n<!-- peak-distance:records ${collection.metadata} -->`)
+    : collection.prefix;
+  return [prefix.trimEnd(), ...parts].join('\n\n') + '\n';
 }
 
 export function emptyCollection(kind: CollectionKind): CollectionDocument {

@@ -9,7 +9,7 @@ import type { ChatRecord } from './chat';
 import type { VideoRef, VocabStatus, LearningResult, ContextExplanation } from './vocab';
 import type { LanguageTag } from './languages';
 
-export const VAULT_FORMAT_VERSION = 4;
+export const VAULT_FORMAT_VERSION = 5;
 export type VaultError = 'not-connected' | 'no-permission' | 'io' | 'conflict' | 'format';
 
 /** First known invalid document in one scan; path is relative to the connected vault. */
