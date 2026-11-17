@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS, validSetting } from './settings';
 import { onAppearanceChange } from './appearance';
-import { AI_PRESETS, aiReasoningOptions, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiProfile, type AiProvider, type AiServices, type AiProtocol, type AiReasoningEffort } from './aiConfig';
+import { aiSettingsMarkup, mountAiSettings } from './aiSettingsView';
 import { TARGET_LANGUAGES, type LanguageTag } from './languages';
 import { authorizeVaultInPage, pickVaultDirectoryInPage } from '@/lib/vault/fs';
 import { iconButton, uiIcon } from './uiControls';
@@ -43,25 +43,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     <div class="vault-overview"><div class="vault-summary"><span id="vault-label"></span><span id="vault-pending" class="hint" hidden></span><span id="vault-folder" class="hint vault-folder" hidden></span></div><div class="vault-tools"><button id="vault-authorize" class="primary" data-i18n="允许访问" hidden></button><button id="vault-connect" class="primary"><span id="vault-connect-label" data-i18n="连接学习文件夹"></span><span id="vault-folder-icon" hidden>${uiIcon('folder')}</span></button><button id="vault-retry" type="button" data-i18n="重试" hidden></button><button id="vault-disconnect" class="ui-icon-button" hidden>${uiIcon('disconnect')}</button></div></div>
     <div id="vault-state" class="settings-status" role="status"></div><button id="vault-access-page" class="settings-action" data-i18n="在独立页面授权" hidden></button>
     </section>
-    <details id="ai-settings" class="settings-section settings-details settings-group ai-section"><summary data-i18n="AI 服务"></summary>
-    <fieldset id="ai-fields"><div class="ai-form-row"><label for="ai-provider" data-i18n="服务商"></label><div class="ai-control"><select id="ai-provider" aria-describedby="ai-current"></select><p id="ai-current" class="hint" hidden></p></div></div>
-    <div class="ai-form-row"><label for="key" data-i18n="API Key"></label><div class="ai-control"><div class="ai-key-control"><input id="key" class="settings-key" type="password" autocomplete="off" spellcheck="false"><button id="clear" class="ui-icon-button ui-danger" type="button" hidden>${uiIcon('trash')}</button></div></div></div>
-    <details id="ai-advanced" class="settings-details"><summary data-i18n="高级设置"></summary>
-      <label class="ai-field"><span data-i18n="接口格式"></span><select id="ai-protocol"><option value="openai" data-i18n="OpenAI 兼容"></option><option value="anthropic">Anthropic Messages</option><option value="gemini">Gemini</option></select></label>
-      <label class="ai-field"><span data-i18n="API 地址（Base URL）"></span><input id="ai-url" type="url" placeholder="https://api.example.com/v1" spellcheck="false"></label>
-      <label class="ai-field"><span data-i18n="模型 ID"></span><input id="ai-model" type="text" spellcheck="false"></label>
-      <div class="ai-field">
-        <label for="ai-reasoning" data-i18n="推理强度"></label>
-        <select id="ai-reasoning" aria-describedby="ai-reasoning-hint">
-          <option value="" data-i18n="服务商默认"></option>
-          <option value="off" data-i18n="关闭推理"></option>
-          <option value="low" data-i18n="低推理强度"></option>
-          <option value="high" data-i18n="高推理强度"></option>
-          <option value="max" data-i18n="最高推理强度"></option>
-        </select>
-        <p id="ai-reasoning-hint" class="hint" aria-live="polite" hidden></p>
-      </div>
-    </details><div class="ai-footer"><button id="save" class="ui-icon-button" type="button">${uiIcon('save')}</button><div id="state" class="settings-status" role="status"></div></div></fieldset></details>
+    ${aiSettingsMarkup}
     <details class="settings-section settings-details settings-group"><summary data-i18n="翻译设置"></summary>
     <button id="prepare-native" class="settings-action" type="button"><span data-i18n="准备内置翻译"></span>${uiIcon('external')}</button></details>
     <details class="settings-section settings-details settings-group settings-about"><summary data-i18n="关于"></summary><div class="settings-field"><span data-i18n="版本"></span><span id="version" class="hint"></span></div></details>`;
@@ -78,27 +60,16 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   }
   const videoSettings = videoContext ? mountVideoSettings(get('video-settings'), videoContext) : null;
   get('prepare-native').onclick = () => void browser.runtime.sendMessage({type:'prepareNativeTranslation'});
-  const showAi = (reveal = false) => {
-    const section = get<HTMLDetailsElement>('ai-settings');
-    section.open = true;
-    if (reveal) section.scrollIntoView({block:'start'});
-  };
-  const reportAi = (key: string, error = false) => {
-    const status = get('state');
-    setText(status, key ? message(key) : '');
-    status.classList.toggle('err', error);
-    if (error) showAi();
-  };
+  const ai = mountAiSettings(get('ai-settings'));
   const themeControl=get<HTMLSelectElement>('appearanceTheme');
   onAppearanceChange(theme=>{themeControl.value=theme;});
-  for(const [id,label] of [['vault-disconnect','断开'],['clear','清除当前 Key'],['save','保存并使用']] as const) {
+  for(const [id,label] of [['vault-disconnect','断开']] as const) {
     setLocalizedAttribute(get(id), 'title', message(label));
     setLocalizedAttribute(get(id), 'aria-label', message(label));
   }
   const display = get<HTMLSelectElement>('displayLanguage');
   display.add(new Option(t('跟随浏览器'), 'auto'));
   for (const language of DISPLAY_LANGUAGES) display.add(new Option(DISPLAY_LANGUAGE_NAMES[language], language));
-  let services: AiServices = {active:'deepseek',profiles:{}};
   const clearCache = get<HTMLButtonElement>('clear-query-cache');
   let cacheConfirmation: ReturnType<typeof setTimeout>;
   clearCache.onclick = async () => {
@@ -117,72 +88,6 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     } catch {setText(get('cache-state'), message('清除失败，请重试'));}
     finally {clearCache.disabled = false;}
   };
-  let selected: AiProvider = 'deepseek';
-  const provider = get<HTMLSelectElement>('ai-provider');
-  const providerLabel = (value: AiProvider) => ['glm','kimi','custom'].includes(value) ? t(AI_PRESETS[value].label) : AI_PRESETS[value].label;
-  for (const value of Object.keys(AI_PRESETS) as AiProvider[]) provider.add(new Option(providerLabel(value), value));
-  const drafts = new Map<AiProvider, {profile:AiProfile;keyInput:string}>();
-  function updateKeyControls() {
-    const saved=services.profiles[selected];let reusable=false;
-    try{reusable=!!saved?.apiKey&&saved.protocol===get<HTMLSelectElement>('ai-protocol').value&&normalizeAiBaseUrl(saved.baseUrl)===normalizeAiBaseUrl(get<HTMLInputElement>('ai-url').value);}catch{/* incomplete URL */}
-    get('clear').hidden=!saved?.apiKey;
-    setLocalizedAttribute(get('key'), 'placeholder', message(reusable?'已保存；留空保留当前 Key':saved?.apiKey?'地址或接口已变更，请填写对应 Key':'输入所选服务的 API Key'));
-  }
-  function draft(): AiProfile {
-    const baseUrl=get<HTMLInputElement>('ai-url').value.trim();
-    const protocol=get<HTMLSelectElement>('ai-protocol').value as AiProtocol;
-    const saved=services.profiles[selected];
-    let reusable=false;
-    try {reusable=!!saved&&saved.protocol===protocol&&normalizeAiBaseUrl(saved.baseUrl)===normalizeAiBaseUrl(baseUrl);} catch { /* incomplete URL */ }
-    const reasoningEffort = get<HTMLSelectElement>('ai-reasoning').value as AiReasoningEffort | '';
-    return {protocol,baseUrl,model:get<HTMLInputElement>('ai-model').value.trim(),apiKey:get<HTMLInputElement>('key').value.trim()||(reusable?saved!.apiKey:''), ...(reasoningEffort && { reasoningEffort })};
-  }
-
-  function updateReasoningOptions(value = get<HTMLSelectElement>('ai-reasoning').value) {
-    const select = get<HTMLSelectElement>('ai-reasoning');
-    const hint = get('ai-reasoning-hint');
-    const options = aiReasoningOptions(draft());
-    for (const option of select.options) {
-      option.disabled = option.hidden = !!option.value && !Object.hasOwn(options, option.value);
-    }
-    const reset = !!value && !Object.hasOwn(options, value);
-    select.value = reset ? '' : value;
-    const notice = reset ? '已恢复为服务商默认' : !Object.keys(options).length ? '此配置暂无可调推理档位' : !options.off ? '此模型不支持关闭推理' : '';
-    hint.hidden = !notice;
-    if (notice) setText(hint, message(notice));
-  }
-  function showActiveAi() {
-    const active=services.profiles[services.active];
-    get('ai-current').hidden=!active?.apiKey;
-    get('ai-current').textContent=active?.apiKey?t('当前使用：{provider} · {model}',{provider:providerLabel(services.active),model:active.model}):'';
-  }
-  function showAiState() {
-    const saved=services.profiles[selected]??defaultAiProfile(selected),current=draft();
-    const changed=(['protocol','baseUrl','model','apiKey','reasoningEffort'] as const).some(key=>current[key]!==saved[key]);
-    get('save').classList.toggle('is-pending',changed||selected!==services.active||!saved.apiKey);
-    if(changed)reportAi('尚未保存');
-    else if(!saved.apiKey)reportAi('未配置');
-    else if(selected!==services.active)reportAi('保存后切换至此服务');
-    else reportAi('');
-  }
-  function showProvider(advancedOpen = selected === 'custom') {
-    const pending=drafts.get(selected);
-    const p=pending?.profile??services.profiles[selected]??defaultAiProfile(selected);
-    provider.value=selected;get<HTMLSelectElement>('ai-protocol').value=p.protocol;
-    get<HTMLInputElement>('ai-url').value=p.baseUrl;get<HTMLInputElement>('ai-model').value=p.model;
-    get<HTMLInputElement>('key').value=pending?.keyInput??'';
-    updateKeyControls();
-    updateReasoningOptions(p.reasoningEffort ?? '');
-    get<HTMLDetailsElement>('ai-advanced').open=advancedOpen;
-    showActiveAi();showAiState();
-  }
-  provider.addEventListener('change',()=>{drafts.set(selected,{profile:draft(),keyInput:get<HTMLInputElement>('key').value});selected=provider.value as AiProvider;showProvider();});
-  for(const id of ['key','ai-url','ai-model'])get(id).addEventListener('input',()=>{updateKeyControls();showAiState();});
-  for (const id of ['ai-url', 'ai-model', 'ai-protocol']) {
-    get(id).addEventListener('change', () => { updateKeyControls(); updateReasoningOptions(); showAiState(); });
-  }
-  get('ai-reasoning').addEventListener('change', () => { updateReasoningOptions(); showAiState(); });
-  let aiLoaded = false;
   const savedSettings: Record<string, unknown> = {...DEFAULT_SETTINGS};
   async function load() {
     try {
@@ -194,13 +99,8 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
         else if (control instanceof HTMLInputElement && control.type==='checkbox') control.checked=!!value;
         else control.value=String(value);
       }
-      const next = readAiServices(stored);
-      if (!aiLoaded) {
-        aiLoaded=true;services=next;selected=services.active;showProvider();
-      } else if (JSON.stringify(next) !== JSON.stringify(services)) {
-        services=next;showActiveAi();updateKeyControls();showAiState();
-      }
-    } catch {reportAi('设置读取失败，请重新打开设置重试',true);}
+      ai.load(stored);
+    } catch {ai.report('设置读取失败，请重新打开设置重试');}
   }
   for(const name of Object.keys(DEFAULT_SETTINGS)) {
     const control=get<HTMLInputElement|HTMLSelectElement>(name);
@@ -385,37 +285,13 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     get('vault-label').scrollIntoView({block:'center'});
     get(vaultAction==='authorize'&&!get('vault-authorize').hidden?'vault-authorize':'vault-connect').focus({preventScroll:true});
   });
-  get('save').addEventListener('click',async()=>{
-    const advancedOpen = get<HTMLDetailsElement>('ai-advanced').open;
-    const profile=draft(),error=validateAiProfile(profile);
-    if(error){reportAi(error,true);return;}
-    profile.baseUrl=normalizeAiBaseUrl(profile.baseUrl);
-    const target=selected;get<HTMLFieldSetElement>('ai-fields').disabled=true;
-    try {
-      // Keep the permissions request in the click gesture, before storage awaits.
-      const allowed=await browser.permissions.request({origins:[`${new URL(profile.baseUrl).origin}/*`]});
-      if(!allowed){reportAi('未获得该 API 地址的访问权限，配置未更改。再次保存可重试。',true);return;}
-      const latest=readAiServices(await browser.storage.local.get(['aiServices','deepseekApiKey']));
-      const next:AiServices={active:target,profiles:{...latest.profiles,[target]:profile}};
-      await browser.storage.local.set({aiServices:next});
-      services=readAiServices(await browser.storage.local.get('aiServices'));
-      selected=services.active;drafts.delete(target);showProvider(advancedOpen);
-    } catch {reportAi('保存失败，请重试；新地址需要允许浏览器访问',true);}
-    finally {get<HTMLFieldSetElement>('ai-fields').disabled=false;}
-  });
-  get('clear').addEventListener('click',async()=>{
-    const target=selected;get<HTMLFieldSetElement>('ai-fields').disabled=true;
-    try{const latest=readAiServices(await browser.storage.local.get(['aiServices','deepseekApiKey']));latest.profiles[target]={...latest.profiles[target]??defaultAiProfile(target),apiKey:''};await browser.storage.local.set({aiServices:latest});if(target==='deepseek')await browser.storage.local.remove('deepseekApiKey');services=readAiServices(await browser.storage.local.get('aiServices'));drafts.delete(target);showProvider();}catch{reportAi('清除失败，请重试',true);}finally{get<HTMLFieldSetElement>('ai-fields').disabled=false;}
-  });
   get('version').textContent=`v${browser.runtime.getManifest().version}`;
   onDisplayLanguageChange(()=>{
     display.value=getDisplayLanguage();
     localize(root);
     display.options[0]!.textContent=t('跟随浏览器');
     for (const option of translationLanguage.options) setText(option, languageLabel(option.value));
-    for(const option of provider.options) option.textContent=providerLabel(option.value as AiProvider);
-    showActiveAi();
-    updateKeyControls();
+    ai.localize();
     void refreshVault();
   });
   browser.storage.onChanged.addListener((changes,area)=>{
@@ -429,5 +305,5 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
       else control.value=String(value);
     }
   });
-  void load();return {refresh:async()=>{await load();void videoSettings?.refresh();void syncOnActivity();},showAi};
+  void load();return {refresh:async()=>{await load();void videoSettings?.refresh();void syncOnActivity();},showAi:ai.show};
 }

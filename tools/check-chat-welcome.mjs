@@ -74,6 +74,7 @@ try {
   await panel.waitForFunction(()=>document.documentElement.dataset.pdTheme==='minimal');
   await panel.locator('#chat-input').fill('Unsaved question across a theme switch.');
   await settings.locator('#ai-settings > summary').click();
+  await settings.locator('#ai-view').click();
   await settings.locator('#key').fill('unsaved-test-key');
   await settings.locator('#ai-advanced > summary').click();
   await settings.locator('#ai-url').fill('https://a-very-long-custom-ai-endpoint-for-the-layout.example/v1');

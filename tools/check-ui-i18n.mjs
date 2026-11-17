@@ -33,10 +33,9 @@ try {
   });
   const options=await context.newPage();
   await options.goto(`chrome-extension://${id}/options.html`);
-  await options.waitForFunction(()=>document.querySelector('#ai-url')?.value==='https://api.deepseek.com');
+  await options.waitForFunction(()=>!document.querySelector('#ai-view')?.disabled);
   assert.equal(await options.locator('#ai-current').isVisible(),false);
-  assert.equal(await options.locator('#state').getAttribute('data-i18n'),'未配置');
-  assert.equal(await options.locator('#state').getAttribute('class'),'settings-status');
+  assert.equal(await options.locator('#ai-view').getAttribute('data-saved'),'false');
   const saved=await options.evaluate(()=>chrome.runtime.sendMessage({type:'save',snapshot:{source:'web',lang:'en',expression:'learning',sentence:'Learning makes reading easier.',url:'https://example.com/learn',title:'Reading practice'},result:{kind:'translation',source:'google-gtx',text:'学习'}}));
   assert.equal(saved.ok,true);
   const panel=await context.newPage();
@@ -83,11 +82,12 @@ try {
   await panel.locator('.entry-expand').click();
   await panel.getByRole('button',{name:'添加笔记',exact:true}).click();
   await options.locator('#ai-settings > summary').click();
+  await options.locator('#ai-view').click();
   await panel.locator('.note-box textarea').fill('保留解释 {literal} — my unsaved note');
   await options.locator('#key').fill('local-test-key');
   await options.locator('#ai-advanced summary').click();
   await options.locator('#ai-model').fill('local-test-model');
-  assert.equal(await options.locator('#state').getAttribute('data-i18n'),'尚未保存');
+  assert.equal(await options.locator('#save').isVisible(),true);
   const headings={'zh-Hans':'语言设置','zh-Hant':'語言設定',en:'Languages',de:'Sprachen',fr:'Langues'};
   const aiLanguages={'zh-Hans':'Simplified Chinese','zh-Hant':'Traditional Chinese',en:'English',de:'German',fr:'French'};
   const newChatLabels={'zh-Hans':'新建对话','zh-Hant':'新增對話',en:'New chat',de:'Neuer Chat',fr:'Nouveau chat'};
@@ -121,16 +121,18 @@ try {
   assert.equal(await options.locator('#cacheLimit').inputValue(),'100');
   await options.evaluate(()=>{chrome.storage.local.set=globalThis.originalStorageSet;});
   await options.locator('#ai-settings > summary').click();
+  await options.locator('#ai-view').click();
   await options.locator('#key').fill('local-test-key');
   await options.locator('#save').click();
   await options.waitForFunction(async()=>!!(await chrome.storage.local.get('aiServices')).aiServices?.profiles?.deepseek?.apiKey);
   await options.locator('#ai-current').filter({hasText:'deepseek-flash'}).waitFor();
   assert.equal(await options.locator('#state').isVisible(),false);
-  await options.locator('#ai-advanced summary').click();
-  await options.locator('#ai-model').fill('changed-model');
-  assert.equal(await options.locator('#state').getAttribute('data-i18n'),'尚未保存');
-  await options.locator('#ai-model').fill('deepseek-flash');
-  assert.equal(await options.locator('#state').isVisible(),false);
+  await options.locator('#ai-model-entry').click();
+  await options.locator('#ai-model-quick').fill('changed-model');
+  assert.equal(await options.locator('#ai-save-model').isVisible(),true);
+  await options.locator('#ai-model-quick').fill('deepseek-flash');
+  assert.equal(await options.locator('#ai-save-model').isVisible(),false);
+  await options.locator('#ai-view').click();
   await panel.locator('[data-view="chat"]').click();
   assert.equal(await panel.locator('#chat-actions').isVisible(),false);
   for(const [index,locale] of Object.keys(headings).entries()) {
@@ -202,6 +204,7 @@ try {
     await panel.screenshot({path:path.join(output,'sidebar.png')});
     await panel.locator('#open-settings').click();await panel.setViewportSize({width:390,height:844});
     await panel.locator('#ai-settings > summary').click();
+    await panel.locator('#ai-view').click();
     for(const locale of ['zh-Hans','en','de','fr']){
       await options.locator('#displayLanguage').selectOption(locale);
       await panel.waitForFunction(locale=>document.documentElement.lang===locale,locale);

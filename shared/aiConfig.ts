@@ -1,6 +1,6 @@
 export type AiProtocol = 'openai' | 'anthropic' | 'gemini';
 export type AiReasoningEffort = 'off' | 'low' | 'high' | 'max';
-export interface AiProfile { protocol: AiProtocol; baseUrl: string; model: string; apiKey: string; reasoningEffort?: AiReasoningEffort }
+export interface AiProfile { protocol: AiProtocol; baseUrl: string; model: string; apiKey: string; reasoningEffort?: AiReasoningEffort; serviceTier?: 'fast' | 'default' }
 export const AI_PRESETS = {
   deepseek: { label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' },
   openai: { label: 'OpenAI', protocol: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini' },
@@ -85,6 +85,14 @@ export function normalizeAiBaseUrl(value: string): string {
   url.pathname = url.pathname.replace(/\/(chat\/completions|messages)\/?$/, '');
   return url.href.replace(/\/+$/, '');
 }
+// Models with a documented OpenAI API Fast tier. Compatible gateways have their own contracts.
+const fastModels = new Set(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol']);
+export function supportsAiFast(profile: Pick<AiProfile, 'protocol' | 'baseUrl' | 'model'>): boolean {
+  if (profile.protocol !== 'openai' || !fastModels.has(profile.model)) return false;
+  try { return normalizeAiBaseUrl(profile.baseUrl) === AI_PRESETS.openai.baseUrl; }
+  catch { return false; }
+}
+
 export function validateAiProfile(profile: AiProfile): string | null {
   if (!['openai', 'anthropic', 'gemini'].includes(profile.protocol)) return '请选择接口格式';
   try { normalizeAiBaseUrl(profile.baseUrl); } catch { return '请填写有效的 HTTPS API 地址（Base URL）'; }
@@ -103,6 +111,7 @@ export function readAiServices(stored: Record<string, unknown>): AiServices {
     if (p && ['openai', 'anthropic', 'gemini'].includes(p.protocol) && ['baseUrl','model','apiKey'].every(k => typeof p[k as keyof AiProfile] === 'string')) {
       const profile: AiProfile = { protocol: p.protocol, baseUrl: p.baseUrl, model: p.model, apiKey: p.apiKey };
       if (p.reasoningEffort && Object.hasOwn(aiReasoningOptions(profile), p.reasoningEffort)) profile.reasoningEffort = p.reasoningEffort;
+      if ((p.serviceTier === 'fast' || p.serviceTier === 'default') && supportsAiFast(profile)) profile.serviceTier = p.serviceTier;
       profiles[provider] = profile;
     }
   }
@@ -111,5 +120,6 @@ export function readAiServices(stored: Record<string, unknown>): AiServices {
 export function aiCacheScope(config: AiConfig): string {
   const scope = [config.provider, config.protocol, normalizeAiBaseUrl(config.baseUrl), config.model];
   if (config.reasoningEffort) scope.push(config.reasoningEffort);
+  if (config.serviceTier && supportsAiFast(config)) scope.push('tier=' + config.serviceTier);
   return JSON.stringify(scope);
 }

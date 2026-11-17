@@ -1,4 +1,4 @@
-import { aiReasoningParameters, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiConfig, type AiProtocol } from '@/shared/aiConfig';
+import { aiReasoningParameters, defaultAiProfile, normalizeAiBaseUrl, readAiServices, supportsAiFast, validateAiProfile, type AiConfig, type AiProtocol } from '@/shared/aiConfig';
 import { parseStreamEvent, type ChatCompletionMessage } from '@/shared/chat';
 
 export async function getAiConfig(): Promise<AiConfig> {
@@ -33,7 +33,7 @@ export function buildAiRequest(config: AiConfig, messages: ChatCompletionMessage
   headers.Authorization = `Bearer ${config.apiKey}`;
   // OpenAI uses max_completion_tokens; compatible providers commonly require max_tokens.
   const tokenField = new URL(base).hostname === 'api.openai.com' ? 'max_completion_tokens' : 'max_tokens';
-  return { url: `${base}/chat/completions`, headers, body: { model: config.model, messages, stream, [tokenField]: maxTokens, ...reasoning } };
+  return { url: `${base}/chat/completions`, headers, body: { model: config.model, messages, stream, [tokenField]: maxTokens, ...reasoning, ...(config.serviceTier && supportsAiFast(config) && { service_tier: config.serviceTier }) } };
 }
 
 export async function requestAi(config: AiConfig, messages: ChatCompletionMessage[], stream: boolean, maxTokens: number, signal: AbortSignal): Promise<Response> {
