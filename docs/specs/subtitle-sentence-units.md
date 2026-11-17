@@ -43,40 +43,4 @@
 4. 不按字数或标点机械裁切译文，不将跨句译文重复贴到多项。播放器译文保留既有片段路径。
 5. 平台译文缓存区分学习项与播放器片段。断句或来源映射变化时使对应旧索引、在途结果和缓存失效，复用现有代次处理迟到响应。翻译失败不影响原文、定位和收藏。
 
-## 5. 实现入口
-
-| 位置 | 职责 |
-| --- | --- |
-| `entrypoints/youtube-inject.content.ts`、`shared/protocol.ts` | 保留解析信息，传递学习项与片段映射，并按对应关系复用平台译文 |
-| `shared/cues.ts` | 集中处理原文范围、句界与播放定位 |
-| `shared/messages.ts` | 同步侧栏状态、定位与操作的消息合同 |
-| `entrypoints/youtube.content.ts` | 时间循环、AP、句子操作、翻译及缓存失效接入 |
-| `shared/youtubeWorkspace.ts`、`entrypoints/sidepanel/main.ts` | 逐项定位、操作快照与稳定列表更新 |
-| `shared/vocab.ts`、`entrypoints/background.ts` | 新收藏的范围身份、旧记录匹配与保存入口；现有存储及库格式原样保留 ID |
-
-## 6. 行为用例
-
-句界、来源与播放区间使用 `tools/subtitle-sentence-check.ts`，已包含于 `npm run regress`。按修改范围选择入口。
-
-| 用例 | 通过条件 |
-| --- | --- |
-| 同文不同分包 | 下方样例分别作为单片段、逐句片段、句中切开的片段，均得到所列三句，字符顺序与口头重复不变 |
-| 跨片段与语言边界 | `When the rain` 与 `stopped, we left.` 间隔超过 1500ms 仍为一句；保留现有称谓／小数／缩写及中日文用例，完整句不被误切 |
-| 非英中日句末 | `كيف حالك؟ أنا بخير.` 与 `यह पहला वाक्य है। यह दूसरा वाक्य है।` 各按现有标点拆成两句，原文不改写 |
-| 回退与换人 | `First sentence. Unfinished`、`tail` 输出 `First sentence.`、`Unfinished`、`tail`；无标点保持原片段；显式换人阻止跨人合并，文字无重复或丢失 |
-| 时间映射 | 同一片段内两句分别有／无句内时间：有时间按句推进和暂停；无时间按共用区间处理，逐项导航可达、AP 仅停一次，无零时长 |
-| 译文归属 | 同源完整对应可复用；一条译文跨两句或仅时间重叠时，两句均通过现有渠道取得各自译文；迟到旧结果不覆盖新内容 |
-| 共用区间译文 | 一个无句内锚点片段含八句，翻译服务正常；不点击任何行即可取得八句各自译文，播放器当前片段也能及时取得译文；请求跨批次／跨播放区间时未尝试项仍能完成 |
-| 独立收藏 | 同一无锚点片段 `No. No.` 拆成两行：依次收藏后保留两条记录，刷新后两行均已收藏，取消第二行只删除第二条；同一行重复保存不新增。新旧 ID 经现有学习库格式往返保持原样，唯一匹配的旧收藏仍可取消 |
-
-同文不同分包的固定期望：
-
-```text
-But I I sometimes think our society gets too binary.
-Everything's either black or white.
-Everything gets polarized because of that.
-```
-
-打包扩展入口 `node tools/subtitle-reading-check.mjs --packaged-only` 覆盖侧栏与播放器、收藏、换轨及实际消息和存储。翻译使用受控响应，学习数据使用隔离库。
-
-[实施时的验收安排](https://github.com/Kylan3320/peak-distance/blob/7f53d4803ba915b18c795ba4c1952fe9d065b2aa/docs/specs/subtitle-sentence-units.md)。
+例如，同一无句内时间的片段「No. No.」拆成两条学习句，两条可分别收藏或取消，逐句暂停在共用区间末触发一次。

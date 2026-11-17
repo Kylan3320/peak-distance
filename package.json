@@ -17,9 +17,7 @@
     "check-current-content": "node tools/current-content-ui-check.mjs",
     "verify": "node tools/verify.mjs",
     "render-check": "node tools/render-check.mjs",
-    "e2e-check": "node tools/e2e-check.mjs",
     "selection-check": "node tools/selection-check.mjs",
-    "check-m8": "node tools/check-m8.mjs",
     "check-ai": "tsx tools/ai-services-check.ts",
     "zip": "wxt zip"
   },

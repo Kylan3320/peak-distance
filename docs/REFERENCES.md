@@ -4,7 +4,7 @@
 
 | 来源 | 用途与状态 |
 | --- | --- |
-| [yt-dual-subs](https://github.com/Gythiro/yt-dual-subs) | 已移植字幕获取、tlang URL 构造及 Google 翻译。真实服务与视频观看的验证范围见[历史验证摘要](VERIFICATION.md)。 |
+| [yt-dual-subs](https://github.com/Gythiro/yt-dual-subs) | 移植字幕获取、tlang URL 构造及 Google 翻译 |
 | [Saladict](https://github.com/crimx/ext-saladict) | M6 在线词典调研参考，未复制其源码；本地解析按实际响应实现。参考 [剑桥](https://github.com/crimx/ext-saladict/blob/dev/src/components/dictionaries/cambridge/engine.ts)、[牛津](https://github.com/crimx/ext-saladict/blob/dev/src/components/dictionaries/oaldict/engine.ts)、[有道](https://github.com/crimx/ext-saladict/blob/dev/src/components/dictionaries/youdao/engine.ts) |
 | [Language Reactor](https://www.languagereactor.com/) | 产品交互参考；[开发者说明](https://forum.languagelearningwithnetflix.com/t/user-dictionary-syntax/994)确认外部词典 URL 模板，不据此推断内置词典来源 |
 | [asbplayer](https://github.com/asbplayer/asbplayer) | 字幕学习与播放交互参考 |
@@ -18,7 +18,7 @@
 
 - 用户提供的 ChatGPT 生图包括[山峰原图](../design/brand/peak-mark.png)、[纸纹](../public/brand/paper-tile.png)及[停用的山海插画](https://github.com/Rayyy3320/peak-distance/blob/41398a81381312a142e0a8029dab4621c194921e/public/brand/mountain-coast.png)。
 - [图标生成脚本](../tools/make-brand-assets.py)用山峰原图与纸纹生成[工具栏图标](../public/brand/peak-icon.png)。
-- [五张界面确认稿](specs/ui-refresh.md#确认稿)由 ImageGen 基于用户提供的旧方案生成，经用户确认后保存在 `design/ui-refresh/`。
+- [五张界面确认稿](../design.md#界面确认稿)由 ImageGen 基于用户提供的旧方案生成，经用户确认后保存在 `design/ui-refresh/`。
 
 ## 已移植：yt-dual-subs
 
@@ -50,10 +50,5 @@ commit：[5657c8a18ca30c84b5d4662bca58e3e9214ffdff](https://github.com/Gythiro/y
   > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   > SOFTWARE.
 
-## M6 接入记录
 
-2026-10-02 的词典与翻译服务响应样例见[历史调查](https://github.com/Kylan3320/peak-distance/blob/b1f2ab02fd907e2b8f4e3aa2804194d3a85ef8cc/docs/REFERENCES.md#m6-接入记录)。当前词典优先级见 [PRD](PRD.md#查询与调用)，请求及解析由来源模块维护。
-
-Google 路径参考 / 移植自 [yt-dual-subs commit 5657c8a](https://github.com/Gythiro/yt-dual-subs/commit/5657c8a18ca30c84b5d4662bca58e3e9214ffdff) 的 `background.js` `gtxFetch`；本地落点 `lib/regularTranslation.ts`。MIT，Copyright (c) 2026 Gythiro；许可全文见上节。词典模块 `lib/onlineDictionary.ts` 按本轮实际响应实现，未复制 Saladict 源码。
-
-M6 产品接入：`entrypoints/youtube-inject.content.ts` 复用同一 commit 的 `inject.js` `buildUrl` 参数规则；中文独立轨道按时间交集对齐，平台配对先按时间匹配再随 ASR 合并转换。对齐与取消实现位于 `shared/cues.ts` 及两个 YouTube 入口。M6–M7 的验证范围见[历史验证摘要](VERIFICATION.md)。
+Google 翻译移植自同一提交的 `background.js` 中的 `gtxFetch`，本地落点为 [regularTranslation.ts](../lib/regularTranslation.ts)。yt-dual-subs 的许可同上。

@@ -1,24 +1,17 @@
 # M9：AI 服务配置
 
-已实施的阶段规格，当前状态见 [ROADMAP](../ROADMAP.md)。本文保留服务协议、凭据与配置边界；具体控件名称按 [界面语言规范](ui-i18n.md) 和代码文案目录，不重复维护旧标签。
+本文维护 AI 服务的协议、授权和配置行为。
 
 ## 交付边界
 
 - 服务商预设：DeepSeek、OpenAI、Anthropic、Gemini、GLM、Kimi。预设选择后填写 Key，手动保存后启用；协议、Base URL、模型按需展开修改，自定义服务使用相同表单。
-- 支持 OpenAI Chat Completions、Anthropic Messages、Gemini generateContent / streamGenerateContent。只处理当前产品使用的纯文本消息与回答，不宣称支持所有供应商的专有扩展或仅 Responses 接口的模型。
+- 文本请求支持 OpenAI Chat Completions、Anthropic Messages、Gemini generateContent / streamGenerateContent。
 - 各服务配置分开持久化；旧 `deepseekApiKey` 在未建立新配置时继续读取，首次保存纳入 DeepSeek 配置，清除 DeepSeek Key 同时清除旧字段。
 - 新地址只申请对应 HTTPS 域名权限；失败不替换活动服务，保留输入。地址／协议变更不自动复用原 Key。
 - 解释、字幕和问答共用活动配置；每个已开始请求固定配置快照。缓存区分服务、协议、地址、模型；AI 字幕收到配置变化后取消旧请求、清理译文与失败状态，重取当前窗口。
 - 高级设置按接口、地址和模型提供可用的推理档位，随服务配置保存。默认档位省略推理参数，兼容已有配置。更换模型或接口使原档位不可用时，表单恢复默认并就地提示。缓存同时区分生效的推理档位。
 
 - 快调页对当前配置即时保存推理档位。已确认支持的 OpenAI 官方直连接口可显式切换 Fast 与标准档，按对应 API 档位计费。已有配置沿用项目的默认档位。服务档位随配置保存，也纳入 AI 缓存范围。 [OpenAI Fast 文档](https://developers.openai.com/api/docs/guides/fast-mode)
-
-## 检查
-
-- `npm run typecheck`、`npm run build`、`npm run regress`。
-- 构建后 `npm run check-ai`：协议请求／响应、分块 SSE、空白增量、错误、凭据归属、旧配置、保存读回、拒绝权限、自定义服务与三类 AI 功能。
-- `npm run render-check`：包括服务切换后的字幕刷新；`npm run check-m8`：工作区与问答状态移交。
-- 该次检查模拟了浏览器授权和拒绝，未用个人 Key 逐家验证六个供应商。实际授权由浏览器提示完成。
 
 ## 官方接口依据
 
@@ -28,10 +21,4 @@
 - [DeepSeek](https://api-docs.deepseek.com/)、[GLM 快速开始](https://docs.bigmodel.cn/cn/guide/start/quick-start)、[Kimi Chat Completions](https://platform.kimi.com/docs/api/chat)
 - [Chrome 可选权限](https://developer.chrome.com/docs/extensions/reference/api/permissions)
 
-默认模型为核对时的明确模型 ID，可在高级设置修改；不自动追踪“最新模型”。
-
-## 0.4.0 验证记录
-
-- 类型、构建、逻辑回归、多服务专项与字幕渲染检查通过。真实扩展 UI 保存读回、服务与凭据隔离、三种协议的解释／字幕／问答、授权拒绝与旧 Key 清除均通过受控验证。
-- 独立复查修复 Gemini 流式空白增量丢失、AI 配置切换后的字幕内存缓存未失效；对应回归检查已加入。
-- 工作区整体验证暴露原生侧栏重新激活的时序问题：失活面板仍可接收操作。失活时关闭交互并使过期恢复任务失效，新恢复完成才解锁；固定／浮动切换、草稿、引用、后台生成和设置往返检查通过。
+模型预设由 [aiConfig.ts](../../shared/aiConfig.ts) 定义。
