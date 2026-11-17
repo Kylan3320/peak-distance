@@ -585,7 +585,7 @@ async function handle(
           if (!config.apiKey) return bad('no-key');
           if (validateAiProfile(config)) return bad('invalid-config');
           const scope = aiCacheScope(config);
-          const textKey = (text: string) => JSON.stringify(['ai-subtitle-translation', scope, langScope, text]);
+          const textKey = (text: string) => JSON.stringify(['ai-subtitle-translation', 2, scope, langScope, text]);
           const translations: { id: number; text: string }[] = [];
           const missing: typeof items = [];
           for (const item of items) {
@@ -593,8 +593,8 @@ async function handle(
             if (hit) translations.push({ id: item.id, text: hit }); else missing.push(item);
           }
           if (missing.length) {
-            // Older batches could cache ok:true with no usable input-aligned translations.
-            const key = JSON.stringify(['translation-batch-v2', scope, langScope, missing.map(i => i.text)]);
+            // Earlier cache entries could attach a short array to the wrong input positions.
+            const key = JSON.stringify(['translation-batch-v3', scope, langScope, missing.map(i => i.text)]);
             const r = await cached(key, signal => translateSentences(config, missing.map(i => i.text), signal, { source: sourceLang ?? 'en', target: targetLang ?? 'zh-Hans' }), controller.signal);
             if (!r.ok && !translations.length) return r;
             if (r.ok) for (const t of r.translations) {

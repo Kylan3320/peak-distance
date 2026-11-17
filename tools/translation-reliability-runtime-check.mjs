@@ -61,10 +61,15 @@ try {
   console.log('PASS MV3 six-cue 429 batch makes one request and returns failure; a fresh selection shares cooldown');
   const aiRequest={...request,mode:'ai',requestId:'ai-empty',items:request.items.slice(0,3)};
   const empty=await send(aiRequest);assert.equal(empty.ok,false);assert.equal(empty.error,'bad-response');
+  await worker.evaluate(()=>{globalThis.aiContent='["一", "三"]';});
+  const short=await send({...aiRequest,requestId:'ai-short'});
+  assert.equal(short.ok,false);assert.equal(short.error,'bad-response');
+  assert.ok(!Object.keys(await worker.evaluate(async()=>(await chrome.storage.session.get('online-cache-v1'))['online-cache-v1']??{}))
+    .some(key=>key.startsWith('["ai-subtitle-translation",2,')||key.startsWith('["translation-batch-v3",')));
   await worker.evaluate(()=>{globalThis.aiContent='["一", "", "三"]';});
   const partial=await send({...aiRequest,requestId:'ai-partial'});
   assert.equal(partial.ok,true);assert.deepEqual(partial.translations.map(t=>t.id),[10,12]);
-  assert.equal(await worker.evaluate(()=>globalThis.aiRequests),2);
+  assert.equal(await worker.evaluate(()=>globalThis.aiRequests),3);
   assert.equal(await worker.evaluate(()=>globalThis.googleRequests),1);
   console.log('PASS MV3 AI all-empty result fails without poisoning the next batch; partial IDs survive and no AI fallback is triggered');
 

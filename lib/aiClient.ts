@@ -178,14 +178,11 @@ export async function lookupExpression(
   return { ok: true, definition, note, provider: config.provider, model: config.model };
 }
 
-/** 从模型输出中抢救一个 JSON 数组（容忍被包裹或前后杂文）。 */
+/** Providers may wrap the JSON array in a code fence. */
 function parseJsonArray(content: string): string[] | null {
   const trimmed = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const start = trimmed.indexOf('[');
-  const end = trimmed.lastIndexOf(']');
-  if (start < 0 || end <= start) return null;
   try {
-    const arr = JSON.parse(trimmed.slice(start, end + 1));
+    const arr: unknown = JSON.parse(trimmed);
     if (!Array.isArray(arr)) return null;
     return arr.map((x) => (typeof x === 'string' ? x.trim() : ''));
   } catch {
@@ -207,11 +204,9 @@ export async function translateSentences(
   if (!lines.length) return { ok: true, translations: [] };
   const numbered = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
   const system = langs ? translateSystemPrompt(langs.source, langs.target) : SYSTEM_PROMPT_TRANSLATE;
-  let content: string | null = null;
   const r1 = await chat(config, system, numbered, MAX_TOKENS_TRANSLATE, signal);
   if ('error' in r1) return r1.error as TranslateSentencesResult;
-  content = r1.content;
-  let arr = parseJsonArray(content);
+  let arr = parseJsonArray(r1.content);
   if (!arr || !arr.length) {
     // JSON 被截断（推理 + 长回答超出预算）时加倍预算重试一次
     const r2 = await chat(
@@ -224,9 +219,8 @@ export async function translateSentences(
     if ('error' in r2) return r2.error as TranslateSentencesResult;
     arr = parseJsonArray(r2.content);
   }
-  if (!arr || !arr.length) return { ok: false, error: 'bad-response' };
+  if (arr?.length !== lines.length) return { ok: false, error: 'bad-response' };
   const translations = arr
-    .slice(0, lines.length)
     .map((text, i) => ({ id: i, text }))
     .filter((t) => t.text);
   if (!translations.length) return { ok: false, error: 'bad-response' };
