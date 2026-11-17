@@ -71,7 +71,7 @@ h1 {font-size:var(--pd-text-title);line-height:1.4;margin:0 0 16px} h2 {font-siz
 .ai-section[open] > summary {justify-content:flex-start;gap:4px;width:fit-content;max-width:calc(100% - var(--pd-control-size) - 4px);margin:0 0 5px;padding-inline:0 6px;background:transparent}
 .ai-section[open] > summary::after {rotate:225deg;opacity:0;margin-block-start:4px}
 .ai-section[open] > summary:is(:hover,:focus-visible)::after {opacity:1}
-#ai-view {position:absolute;inset-block-start:1px;inset-inline-end:8px}
+#ai-view {position:absolute;inset-block-start:1px;inset-inline-end:0}
 .ai-section:not([open]) #ai-view {display:none}
 #ai-view[data-saved=true]:hover,#ai-view[data-saved=true] {color:var(--pd-success)}
 .ai-card {padding:8px 11px 9px;min-width:0;overflow:clip;border:1px solid var(--pd-line);border-radius:15px;background:var(--pd-surface)}
