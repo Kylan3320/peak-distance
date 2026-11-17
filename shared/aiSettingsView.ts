@@ -219,7 +219,7 @@ export function mountAiSettings(section: HTMLDetailsElement) {
       drawEffort();
     }
     if (view === 'connection') renderDraft();
-    if (view === 'model' && configured) renderModelOptions(profile);
+    if (view === 'model' && configured) return renderModelOptions(profile);
   }
 
   function draft() {
@@ -273,16 +273,24 @@ export function mountAiSettings(section: HTMLDetailsElement) {
       modelForm.hidden = true;
       customButton.hidden = false;
     }
-    render();
+    const selectedModel = render();
     if (focus) {
-      const current = active();
-      const target = next === 'connection' ? key :
-        next === 'model' && current ? renderModelOptions(current) :
-        previous === 'model' ? modelEntry : control;
+      const target = selectedModel ?? (next === 'connection' ? key : previous === 'model' ? modelEntry : control);
       target.focus({ preventScroll: true });
     }
+    if (next === 'model') {
+      modelOptions.scrollTop = 0;
+      if (selectedModel && modelOptions.contains(selectedModel)) {
+        const list = modelOptions.getBoundingClientRect();
+        const row = selectedModel.getBoundingClientRect();
+        if (row.bottom > list.bottom) modelOptions.scrollTop = row.top - list.top - (list.height - row.height) / 2;
+      }
+      section.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
     if (!before || card.hidden || reducedMotion.matches || !section.open) return;
-    animation = card.animate([{ height: before + 'px' }, { height: card.offsetHeight + 'px' }], { duration: 230, easing: 'cubic-bezier(.2,.72,.28,1)' });
+    if (next !== 'model') {
+      animation = card.animate([{ height: before + 'px' }, { height: card.offsetHeight + 'px' }], { duration: 230, easing: 'cubic-bezier(.2,.72,.28,1)' });
+    }
     panels[next].animate([{ opacity: .4, transform: 'translateX(' + (next === 'quick' ? -9 : 9) + 'px)' }, { opacity: 1, transform: 'translateX(0)' }], { duration: 200, easing: 'ease-out' });
   }
 
