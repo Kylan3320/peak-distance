@@ -128,6 +128,7 @@ try {
   await options.locator('#ai-current').filter({hasText:'deepseek-flash'}).waitFor();
   assert.equal(await options.locator('#state').isVisible(),false);
   await options.locator('#ai-model-entry').click();
+  await options.locator('#ai-custom-model').click();
   await options.locator('#ai-model-quick').fill('changed-model');
   assert.equal(await options.locator('#ai-save-model').isVisible(),true);
   await options.locator('#ai-model-quick').fill('deepseek-flash');

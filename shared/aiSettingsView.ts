@@ -38,10 +38,19 @@ export const aiSettingsMarkup = `<details id="ai-settings" class="settings-secti
         <label class="ai-field"><span data-i18n="API 地址（Base URL）"></span><input id="ai-url" type="url" spellcheck="false"></label>
       </details>
     </fieldset>
-    <form id="ai-model-form" novalidate hidden>
-      <label for="ai-model-quick" data-i18n="模型 ID"></label>
-      <div class="ai-input-row"><input id="ai-model-quick" type="text" spellcheck="false" maxlength="200"><button id="ai-save-model" class="primary" type="submit" data-i18n="保存配置" hidden></button></div>
-    </form>
+    <div id="ai-model-picker" hidden>
+      <div id="ai-model-label" class="hint" data-i18n="选择模型"></div>
+      <div id="ai-model-options" role="group" aria-labelledby="ai-model-label"></div>
+      <button id="ai-custom-model" type="button" class="ai-model-option">
+        <span><span data-i18n="自定义"></span><small id="ai-custom-current" hidden></small></span>
+        ${uiIcon('check')}
+      </button>
+      <form id="ai-model-form" novalidate hidden>
+        <input id="ai-model-quick" type="text" spellcheck="false" autocomplete="off" maxlength="200"
+          data-i18n-aria-label="模型 ID" data-i18n-placeholder="输入模型名称">
+        <button id="ai-save-model" class="ui-icon-button" type="submit" data-i18n-aria-label="保存配置" data-i18n-title="保存配置" hidden>${uiIcon('check')}</button>
+      </form>
+    </div>
     <div id="state" class="settings-status err" role="alert"></div>
   </div><span id="ai-announcement" class="ui-sr-only" role="status"></span>
 </details>`;
@@ -50,7 +59,20 @@ const storageKeys = ['aiServices', 'deepseekApiKey'];
 const effortLabels = { '': '服务商默认', off: '关闭推理', low: '低推理强度', high: '高推理强度', max: '最高推理强度' };
 type View = 'quick' | 'connection' | 'model';
 
-function sameEndpoint(a: AiProfile, b: AiProfile) {
+const openAiModels = [
+  ['gpt-6.1-sol', 'GPT-6.1 Sol'],
+  ['gpt-6-astra', 'GPT-6 Astra'],
+  ['gpt-6.1-terra', 'GPT-6.1 Terra'],
+  ['gpt-6-sol', 'GPT-6 Sol'],
+  ['gpt-6-luna', 'GPT-6 Luna'],
+  ['gpt-5.6-sol', 'GPT-5.6 Sol'],
+  ['gpt-5.6-terra', 'GPT-5.6 Terra'],
+  ['gpt-5.6-luna', 'GPT-5.6 Luna'],
+] as const;
+
+type AiEndpoint = Pick<AiProfile, 'protocol' | 'baseUrl'>;
+
+function sameEndpoint(a: AiEndpoint, b: AiEndpoint) {
   try { return a.protocol === b.protocol && normalizeAiBaseUrl(a.baseUrl) === normalizeAiBaseUrl(b.baseUrl); }
   catch { return false; }
 }
@@ -72,10 +94,14 @@ export function mountAiSettings(section: HTMLDetailsElement) {
   const fields = get<HTMLFieldSetElement>('ai-fields');
   const confirm = get('ai-clear-confirm');
   const save = get<HTMLButtonElement>('save');
+  const modelOptions = get('ai-model-options');
+  const customButton = get<HTMLButtonElement>('ai-custom-model');
+  const customCurrent = get('ai-custom-current');
+  const modelForm = get<HTMLFormElement>('ai-model-form');
   const modelSave = get<HTMLButtonElement>('ai-save-model');
   const modelEntry = get<HTMLButtonElement>('ai-model-entry');
   const clear = get<HTMLButtonElement>('clear');
-  const panels = { quick: get('ai-quick'), connection: fields, model: get('ai-model-form') };
+  const panels = { quick: get('ai-quick'), connection: fields, model: get('ai-model-picker') };
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const drafts = new Map<AiProvider, { profile: AiProfile; keyInput: string }>();
   let services: AiServices | undefined;
@@ -87,6 +113,8 @@ export function mountAiSettings(section: HTMLDetailsElement) {
   let dragging = false;
   let nextEffort: {value: AiReasoningEffort | undefined} | undefined;
   let animation: Animation | undefined;
+  let modelChoices: HTMLButtonElement[] = [];
+  let catalog: string | undefined;
 
   const active = () => services?.profiles[services.active];
   const providerLabel = (value: AiProvider) => ['glm', 'kimi', 'custom'].includes(value) ? t(AI_PRESETS[value].label) : AI_PRESETS[value].label;
@@ -112,6 +140,44 @@ export function mountAiSettings(section: HTMLDetailsElement) {
     for (const [index, tick] of [...get('ai-ticks').children].entries()) {
       tick.toggleAttribute('data-selected', index <= Number(range.value));
     }
+  }
+
+  function renderModelOptions(profile: AiProfile) {
+    // Only suggest models for an exact preset endpoint. Gateways can use their own model IDs.
+    const preset = Object.values(AI_PRESETS).find(candidate => candidate.baseUrl && sameEndpoint(profile, candidate));
+    if (catalog !== (preset?.baseUrl ?? '')) {
+      catalog = preset?.baseUrl ?? '';
+      modelChoices = [];
+      if (preset) {
+        const choices = preset === AI_PRESETS.openai ? openAiModels : [];
+        const defaultButton = makeModelOption(preset.model, '');
+        setText(defaultButton.querySelector('span > span')!, message('默认模型'));
+        const caption = document.createElement('small');
+        caption.textContent = preset.model;
+        defaultButton.firstElementChild!.append(caption);
+        modelChoices = [defaultButton, ...choices.map(([id, label]) => makeModelOption(id, label))];
+      }
+      modelOptions.replaceChildren(...modelChoices);
+    }
+    const selectedModel = modelChoices.find(button => button.value === profile.model);
+    for (const button of [...modelChoices, customButton]) {
+      button.setAttribute('aria-current', String(button === (selectedModel ?? customButton)));
+      button.disabled = busy;
+    }
+    customCurrent.hidden = !!selectedModel;
+    customCurrent.textContent = selectedModel ? '' : profile.model;
+    return selectedModel ?? customButton;
+  }
+
+  function makeModelOption(id: string, label: string) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ai-model-option';
+    button.value = id;
+    button.innerHTML = '<span><span></span></span>' + uiIcon('check');
+    button.querySelector('span > span')!.textContent = label;
+    button.onclick = () => chooseModel(id);
+    return button;
   }
 
   function render() {
@@ -153,6 +219,7 @@ export function mountAiSettings(section: HTMLDetailsElement) {
       drawEffort();
     }
     if (view === 'connection') renderDraft();
+    if (view === 'model' && configured) renderModelOptions(profile);
   }
 
   function draft() {
@@ -194,6 +261,7 @@ export function mountAiSettings(section: HTMLDetailsElement) {
   function switchView(next: View, focus = true) {
     animation?.cancel();
     const before = card.offsetHeight;
+    const previous = view;
     view = next;
     report();
     if (next === 'connection') {
@@ -202,11 +270,17 @@ export function mountAiSettings(section: HTMLDetailsElement) {
       loadDraft();
     }
     if (next === 'model') {
-      quickModel.value = active()?.model ?? '';
-      modelSave.hidden = true;
+      modelForm.hidden = true;
+      customButton.hidden = false;
     }
     render();
-    if (focus) (next === 'connection' ? key : next === 'model' ? quickModel : control).focus({ preventScroll: true });
+    if (focus) {
+      const current = active();
+      const target = next === 'connection' ? key :
+        next === 'model' && current ? renderModelOptions(current) :
+        previous === 'model' ? modelEntry : control;
+      target.focus({ preventScroll: true });
+    }
     if (!before || card.hidden || reducedMotion.matches || !section.open) return;
     animation = card.animate([{ height: before + 'px' }, { height: card.offsetHeight + 'px' }], { duration: 230, easing: 'cubic-bezier(.2,.72,.28,1)' });
     panels[next].animate([{ opacity: .4, transform: 'translateX(' + (next === 'quick' ? -9 : 9) + 'px)' }, { opacity: 1, transform: 'translateX(0)' }], { duration: 200, easing: 'ease-out' });
@@ -241,6 +315,7 @@ export function mountAiSettings(section: HTMLDetailsElement) {
 
   async function perform(action: () => Promise<void>) {
     if (busy) return;
+    const startedIn = view;
     busy = true;
     render();
     try { await action(); }
@@ -248,7 +323,9 @@ export function mountAiSettings(section: HTMLDetailsElement) {
     finally {
       busy = false;
       render();
-      if (view === 'quick' && document.activeElement === document.body) control.focus({ preventScroll: true });
+      if (view === 'quick' && document.activeElement === document.body) {
+        (startedIn === 'model' ? modelEntry : control).focus({ preventScroll: true });
+      }
       if (nextEffort) commitEffort();
     }
   }
@@ -275,6 +352,13 @@ export function mountAiSettings(section: HTMLDetailsElement) {
     if (event.key !== 'Escape' || view === 'quick' || busy || section.querySelector('select:open')) return;
     event.preventDefault();
     event.stopPropagation();
+    if (view === 'model' && !modelForm.hidden) {
+      modelForm.hidden = true;
+      customButton.hidden = false;
+      report();
+      customButton.focus();
+      return;
+    }
     switchView('quick');
   });
   provider.onchange = () => {
@@ -285,24 +369,55 @@ export function mountAiSettings(section: HTMLDetailsElement) {
     renderDraft();
   };
   for (const input of [key, url, model, protocol]) input.oninput = () => { report(); renderDraft(); };
-  quickModel.oninput = () => { report(); modelSave.hidden = quickModel.value.trim() === active()?.model; };
-  get<HTMLFormElement>('ai-model-form').onsubmit = event => {
-    event.preventDefault();
-    const current = active();
-    const value = quickModel.value.trim();
-    if (!current || current.model === value) return;
-    const profile = { ...current, model: value };
-    if (profile.reasoningEffort && !Object.hasOwn(aiReasoningOptions(profile), profile.reasoningEffort)) delete profile.reasoningEffort;
-    if (!supportsAiFast(profile)) delete profile.serviceTier;
-    const error = validateAiProfile(profile);
-    if (error) { report(error); return; }
-    updateActive(latest => {
-      const next = { ...latest, model: value };
-      if (next.reasoningEffort && !Object.hasOwn(aiReasoningOptions(next), next.reasoningEffort)) delete next.reasoningEffort;
-      if (!supportsAiFast(next)) delete next.serviceTier;
-      return next;
-    }, true);
+  customButton.onclick = () => {
+    customButton.hidden = true;
+    modelForm.hidden = false;
+    quickModel.value = active()?.model ?? '';
+    modelSave.hidden = true;
+    report();
+    quickModel.focus();
+    quickModel.select();
   };
+  quickModel.oninput = () => {
+    report();
+    const value = quickModel.value.trim();
+    modelSave.hidden = !value || value === active()?.model;
+  };
+  modelForm.onsubmit = event => {
+    event.preventDefault();
+    chooseModel(quickModel.value.trim());
+  };
+
+  function withModel(profile: AiProfile, value: string): AiProfile {
+    const next = { ...profile, model: value };
+    if (next.reasoningEffort && !Object.hasOwn(aiReasoningOptions(next), next.reasoningEffort)) delete next.reasoningEffort;
+    if (!supportsAiFast(next)) delete next.serviceTier;
+    return next;
+  }
+
+  function chooseModel(value: string) {
+    const current = active();
+    if (!current) return;
+    if (current.model === value) {
+      switchView('quick');
+      return;
+    }
+    const error = validateAiProfile(withModel(current, value));
+    if (error) { report(error); return; }
+    updateActive(latest => withModel(latest, value), true);
+  }
+
+  panels.model.addEventListener('keydown', event => {
+    if (!(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('ai-model-option')) return;
+    const keys = ['ArrowUp', 'ArrowDown', 'Home', 'End'];
+    if (!keys.includes(event.key)) return;
+    const choices = customButton.hidden ? modelChoices : [...modelChoices, customButton];
+    const index = choices.indexOf(event.target);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? choices.length - 1 :
+      (index + (event.key === 'ArrowUp' ? -1 : 1) + choices.length) % choices.length;
+    event.preventDefault();
+    choices[next]?.focus();
+  });
 
   range.onpointerdown = () => { dragging = true; };
   range.onpointerup = range.onpointercancel = () => { dragging = false; };
@@ -383,6 +498,8 @@ export function mountAiSettings(section: HTMLDetailsElement) {
 
   return { load, show, report, localize() {
     for (const option of provider.options) option.textContent = providerLabel(option.value as AiProvider);
+    const defaultLabel = modelChoices[0]?.querySelector('span > span');
+    if (defaultLabel) setText(defaultLabel, message('默认模型'));
     render();
     drawEffort();
   } };

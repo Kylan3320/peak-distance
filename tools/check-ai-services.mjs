@@ -57,8 +57,28 @@ try {
     if (provider==='openai') {
       await page.locator('#ai-model-entry').click();
       check('模型入口与供应商分开',!await page.locator('#ai-provider').isVisible());
-      await page.locator('#ai-model-quick').fill('gpt-6.1-terra');
-      await page.locator('#ai-save-model').click();
+      const choices = page.locator('#ai-model-options');
+      check('默认模型显示选中勾', await choices.locator('[aria-current="true"]').getAttribute('value')==='gpt-4.1-mini');
+      await choices.locator('[value="gpt-6.1-terra"]').click();
+      await page.locator('#ai-current').filter({hasText:'gpt-6.1-terra'}).waitFor();
+      await page.locator('#ai-model-entry').click();
+      await choices.locator('[aria-current="true"][value="gpt-6.1-terra"]').waitFor();
+      await page.locator('#ai-custom-model').click();
+      const custom = page.locator('#ai-model-quick');
+      check('自定义输入原位展开，保持透明且无边框',await custom.evaluate(input=>{
+        const style=getComputedStyle(input);
+        return input===document.activeElement&&style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.borderTopWidth==='0px';
+      }));
+      await custom.fill('gpt invalid');
+      await custom.press('Enter');
+      await page.locator('#state[data-i18n="请填写有效的模型 ID"]').waitFor();
+      check('自定义校验保留草稿',await custom.inputValue()==='gpt invalid');
+      await custom.fill('gpt-4o-mini');
+      await custom.press('Enter');
+      await page.locator('#ai-current').filter({hasText:'gpt-4o-mini'}).waitFor();
+      await page.locator('#ai-model-entry').click();
+      await page.locator('#ai-custom-model[aria-current="true"]').waitFor();
+      await choices.locator('[value="gpt-6.1-terra"]').click();
       await page.locator('#ai-current').filter({hasText:'gpt-6.1-terra'}).waitFor();
       const effort=page.locator('#ai-reasoning');
       check('Terra 提供所需档位',await effort.getAttribute('max')==='4');
