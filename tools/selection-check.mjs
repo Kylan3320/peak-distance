@@ -1,11 +1,12 @@
 // 选区查词与添加到对话（selection-chat-actions spec）受控浏览器验收。
-// 三部分：
+// 检查范围：
 //   A. 真实扩展 + 合成网页（路由拦截，无外部依赖）：分类浮条、有效表达、
 //      候选持久化、三入口附加、附件区 UI、重复/替换/移除、导航失效、失败反馈保留、零 LLM。
 //   B. 注入构建产物到模拟视频页：播放器字幕选区分类、查词有效表达、
 //      添加到对话消息形状、拖选不触发单词点击。
-//   C. 真实 YouTube（可选，--no-video 跳过）：侧栏字幕列表跨项选择 → 附加。
-// 用法：node tools/selection-check.mjs [--no-video]
+//   C. 真实 YouTube（仅 --real-video）：侧栏字幕列表跨项选择 → 附加。
+//   D. 扩展重载后的旧标签页：选区和查词不产生未捕获错误。
+// 用法：npm run selection-check [-- --real-video]
 import { extensionPath as extension } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync } from 'node:fs';
@@ -16,7 +17,7 @@ import { createServer } from 'node:http';
 const profile = mkdtempSync(join(tmpdir(), 'blc-sel-'));
 const output = resolve('.upstream/selection-check');
 mkdirSync(output, { recursive: true });
-const noVideo = process.argv.includes('--no-video');
+const realVideo = process.argv.includes('--real-video');
 const results = [];
 const check = (name, ok, detail = '') => {
   results.push({ name, ok: !!ok, detail });
@@ -655,7 +656,7 @@ check('B 零 LLM', (await llmCount()) === 0);
 
 // ============================== C. 真实 YouTube 侧栏列表（可选） ==============================
 
-if (!noVideo) {
+if (realVideo) {
   try {
     const real = await browser.newPage();
     real.on('dialog', (d) => d.accept());
@@ -718,7 +719,7 @@ if (!noVideo) {
     check('C 真实 YouTube 侧栏列表', false, `SKIP/FAIL ${String(error).slice(0, 160)}`);
   }
 } else {
-  console.log('SKIP C 真实 YouTube（--no-video）');
+  console.log('SKIP C 真实 YouTube（使用 --real-video 启用）');
 }
 
 // ============================== D. 扩展重载后旧标签页不再抛 invalidated ==============

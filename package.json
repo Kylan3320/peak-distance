@@ -15,7 +15,7 @@
     "check-i18n": "tsx tools/check-i18n.ts",
     "check-ui-i18n": "node tools/check-ui-i18n.mjs",
     "check-current-content": "node tools/current-content-ui-check.mjs",
-    "verify": "node tools/verify.mjs",
+    "probe:youtube": "node tools/probe-youtube.mjs",
     "render-check": "node tools/render-check.mjs",
     "selection-check": "node tools/selection-check.mjs",
     "check-ai": "tsx tools/ai-services-check.ts",

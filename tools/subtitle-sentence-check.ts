@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import {
   alignFragmentTranslatedCues, alignLearningTranslations, alignTranslatedCues, buildCueTranslationBatch,
-  buildSubtitleViews, buildTranslateWindow, cueIndexAt, fmtClock, normalizeAsrCues, parseJson3,
+  buildSubtitleViews, cueIndexAt, fmtClock, normalizeAsrCues, parseJson3,
 } from '../shared/cues';
 import type { SourceFragment } from '../shared/protocol';
 import { matchSentenceBookmarks, sentenceId, type SavedSentence, type VideoRef } from '../shared/vocab';
@@ -134,9 +134,6 @@ export function subtitleSentenceChecks(check: (name: string, pass: boolean) => v
   check('开头之前无句', cueIndexAt(cues, -5) === -1);
   check('末句内命中', cueIndexAt(cues, 4800) === 2);
   check('全片结束无句', cueIndexAt(cues, 9900) === -1);
-  check('翻译窗口：前后各 1/4', JSON.stringify(buildTranslateWindow(10, 5, 1, 4)) === '[4,5,6,7,8,9]');
-  check('翻译窗口：边界收敛', JSON.stringify(buildTranslateWindow(10, 0, 1, 4)) === '[0,1,2,3,4]');
-  check('翻译窗口：无当前句为空', buildTranslateWindow(10, -1, 1, 4).length === 0);
   check('时钟格式', fmtClock(65000) === '1:05' && fmtClock(3723000) === '1:02:03');
   const english = [{ start: 0, dur: 2000, text: 'first', lastOff: 0 }, { start: 2000, dur: 2000, text: 'second', lastOff: 2000 }];
   const chinese = [{ start: 2200, dur: 1700, text: '第二句', lastOff: 2200 }];

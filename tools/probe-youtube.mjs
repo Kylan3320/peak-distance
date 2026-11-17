@@ -8,7 +8,7 @@
 //   3. 打开仅平台自动字幕(asr)的视频 → 同样验证；
 //   4. 站内点击相关视频（SPA 导航）→ 验证旧状态被清理、新字幕属于新视频。
 //
-// 用法：node tools/verify.mjs [--manual <url>] [--asr <url>...]
+// 用法：npm run probe:youtube -- [--manual <url>] [--asr <url>...]
 
 import { extensionPath as EXT_DIR } from './extension-path.mjs';
 import { chromium } from 'playwright-core';

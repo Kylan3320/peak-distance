@@ -301,24 +301,6 @@ export function cueIndexAt(cues: Pick<Cue, 'start' | 'dur'>[], tMs: number): num
   return -1;
 }
 
-/**
- * 翻译预取窗口：以当前句为中心的前后若干条（按下标 = 字幕 ID）。
- * 返回去重升序的下标列表；count 为 0 或当前句为 -1 时返回空。
- */
-export function buildTranslateWindow(
-  count: number,
-  current: number,
-  before: number,
-  after: number,
-): number[] {
-  if (current < 0 || count <= 0) return [];
-  const from = Math.max(0, current - before);
-  const to = Math.min(count - 1, current + after);
-  const ids: number[] = [];
-  for (let i = from; i <= to; i++) ids.push(i);
-  return ids;
-}
-
 /** 毫秒 → m:ss / h:mm:ss（字幕栏与侧栏显示用）。 */
 export function fmtClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
