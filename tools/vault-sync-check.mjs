@@ -1126,9 +1126,11 @@ try {
   });
   failDiskWritePath = '生词本.md';
   assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, 'io');
-  assert.ok(readFileSync(join(directory,'生词本.md'),'utf8').includes('en::batch1'));
+  const hasBatchOne = () => chrome.evaluate(async () => (await Vault.files.scanVault(__vaultDirectory)).vocab
+    .some(({record}) => record.id === 'en::batch1'));
+  assert.equal(await hasBatchOne(), true);
   assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
-  assert.ok(!readFileSync(join(directory,'生词本.md'),'utf8').includes('en::batch1'));
+  assert.equal(await hasBatchOne(), false);
   await edge.evaluate(() => Vault.syncFromVault());
   assert.equal(await edge.evaluate(() => Vault.db.getEntry('en::batch1')), null);
   assert.equal((await edge.evaluate(() => Vault.db.getEntry('en::batch2'))).note, 'MIXED UPDATE');
