@@ -162,7 +162,8 @@ async function addTurn(page, id, label, material = null, streaming = false) {
   }, { id, label, material, streaming });
 }
 
-const chatFile = id => join(directory, '对话', readdirSync(join(directory, '对话')).find(name => readFileSync(join(directory, '对话', name), 'utf8').includes('id: '+id+'\n')));
+const chatFile = id => join(directory, '对话', readdirSync(join(directory, '对话'), {withFileTypes:true})
+  .find(item => item.isFile() && readFileSync(join(directory, '对话', item.name), 'utf8').includes('id: '+id+'\n')).name);
 
 async function checkChatConflicts(chrome, edge) {
   for (const readDuringGeneration of [false, true]) {
@@ -252,6 +253,22 @@ try {
   } else if (process.argv.includes('--chat-conflict-only')) {
     assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
     assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
+    const id = 'moved-chat';
+    await addTurn(chrome, id, 'Original question');
+    assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    const original = chatFile(id);
+    const subdirectory = join(directory, '对话', 'Archive');
+    mkdirSync(subdirectory);
+    const moved = join(subdirectory, 'Renamed.md');
+    writeFileSync(moved, readFileSync(original, 'utf8'));
+    rmSync(original);
+    assert.equal((await edge.evaluate(() => Vault.syncFromVault())).broken, 0);
+    await addTurn(edge, id, 'After moving the file');
+    assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    assert.ok(readFileSync(moved, 'utf8').includes('Answer After moving the file'));
+    assert.ok(!existsSync(original));
+    assert.deepEqual(readdirSync(join(directory, '对话')), ['Archive']);
+    assert.equal(JSON.parse(readFileSync(join(directory, '.peak-distance/index.json'), 'utf8'))[id], '对话/Archive/Renamed.md');
     await checkChatConflicts(chrome, edge);
   } else if (process.argv.includes('--preference-only')) {
     assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);

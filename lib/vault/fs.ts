@@ -352,6 +352,37 @@ export async function writeVocabToVault(dir: DirHandle, record: VaultVocabRecord
   await edit.commit();
 }
 
+async function findChatFile(dir: DirHandle, id: string, indexed: string | undefined, defaultPath: string, paths: Set<string>) {
+  const read = async (path: string) => {
+    const result = await readTextFile(dir, path.split('/'));
+    if ('failed' in result) throw new Error(`io: ${path}`);
+    if ('missing' in result) return null;
+    return { path, source: result.text, file: parseChatDocument(result.text) };
+  };
+  const preferred = indexed?.startsWith('对话/') ? indexed : defaultPath;
+  const cached = await read(preferred);
+  if (cached && 'id' in cached.file && cached.file.id === id) return cached;
+
+  let found: NonNullable<typeof cached> | null = null;
+  let occupied = preferred === defaultPath ? cached : null;
+  for (const path of await listFilesRecursive(dir)) {
+    if (path === preferred || !path.startsWith('对话/') || !path.endsWith('.md')) continue;
+    const candidate = await read(path);
+    if (path === defaultPath) occupied = candidate;
+    if (!candidate || !('id' in candidate.file) || candidate.file.id !== id) continue;
+    paths.add(path);
+    if (found) throw new Error('conflict: duplicate chat ID');
+    found = candidate;
+  }
+  if (found) return found;
+  if (occupied) {
+    paths.add(occupied.path);
+    if ('error' in occupied.file) throw new Error(`format: ${occupied.path}`);
+    throw new Error('conflict: chat path occupied');
+  }
+  return { path: defaultPath, source: null, file: null };
+}
+
 /** Validate the shared base and every immutable material before publishing a chat. */
 export async function writeChatToVault(
   dir: DirHandle,
@@ -362,14 +393,9 @@ export async function writeChatToVault(
   try {
     if ((await readDeletedChats(dir)).ids.includes(record.id)) throw new Error('conflict: deleted chat');
     const index = await readIndex(dir);
-    const known = index[record.id];
-    const path = known?.startsWith('对话/') ? known : `对话/${vaultFileName(record.title, record.id)}`;
+    const defaultPath = `对话/${vaultFileName(record.title, record.id)}`;
+    const { path, source, file } = await findChatFile(dir, record.id, index[record.id], defaultPath, paths);
     paths.add(path);
-    const read = await readTextFile(dir, path.split('/'));
-    if ('failed' in read) throw new Error(`io: ${path}`);
-    const source = 'text' in read ? read.text : null;
-    const file = source === null ? null : parseChatDocument(source);
-    if (file && 'error' in file) throw new Error(`format: ${path}`);
     const markdown = serializeChatRecord(record);
     const current = vaultRecordJson(file);
     // Equal to our proposal means the previous write succeeded but its receipt was lost.
