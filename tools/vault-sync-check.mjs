@@ -250,6 +250,35 @@ try {
     assert.equal(next.contexts[0].explanation.text, 'New explanation -->');
     assert.ok(!(await chrome.evaluate(() => Vault.db.listVaultQueue())).some(write => write.recordId === key));
     console.log('PASS an interrupted collection publication exposes only the complete old version; retry exposes the complete new version');
+  } else if (process.argv.includes('--chat-notes-only')) {
+    assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
+    assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
+    const id = 'chat-notes';
+    const material = {
+      version:1, label:'Fixture', createdAt:1, blocks:[{id:'p1',text:'Source text'}],
+      source:{sourceType:'article',sourceKey:'web:notes',url:'https://example.com/notes',title:'Fixture'},
+    };
+    await addTurn(chrome, id, 'First question', material);
+    assert.equal((await chrome.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    const path = chatFile(id);
+    const marker = '\n<!-- peak-distance:chat-notes -->\n';
+    const oldMarkdown = readFileSync(path, 'utf8').split(marker)[0] + '\n## 我的笔记\nThis heading was part of the original answer.\n';
+    const parse = (page, markdown) => page.evaluate(text => Vault.chatFormat.parseChatDocument(text), markdown);
+    const original = await parse(chrome, oldMarkdown);
+    assert.match(original.messages[1].text, /This heading was part of the original answer/);
+    assert.deepEqual(original.messages[0].quote.blockIds, ['p1']);
+    const notes = '## 我的笔记\n\nUser note with an example:\n  indented\n## 消息 99 · assistant\nThis is still a personal note.\n';
+    writeFileSync(path, oldMarkdown + marker + notes);
+    assert.equal((await edge.evaluate(() => Vault.syncFromVault())).broken, 0);
+    assert.deepEqual((await edge.evaluate(id => Vault.db.getChat(id), id)).messages, original.messages);
+    await addTurn(edge, id, 'Follow-up');
+    assert.equal((await edge.evaluate(() => Vault.flushVaultWrites())).error, undefined);
+    const published = await parse(edge, readFileSync(path,'utf8'));
+    assert.equal(published.notes, notes);
+    assert.deepEqual(published.messages.slice(0,2), original.messages);
+    assert.equal(published.messages.length, 4);
+    assert.equal(published.messages[3].text, 'Answer Follow-up');
+    console.log('PASS legacy heading remains part of the reply; external notes and old citations survive readback and continuation');
   } else if (process.argv.includes('--chat-conflict-only')) {
     assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
     assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);

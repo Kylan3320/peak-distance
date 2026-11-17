@@ -383,6 +383,12 @@ async function findChatFile(dir: DirHandle, id: string, indexed: string | undefi
   return { path: defaultPath, source: null, file: null };
 }
 
+function chatHistoryJson(file: ReturnType<typeof parseChatDocument> | null): string {
+  if (!file || 'error' in file) return vaultRecordJson(file);
+  const { notes: _notes, ...history } = file;
+  return vaultRecordJson(history);
+}
+
 /** Validate the shared base and every immutable material before publishing a chat. */
 export async function writeChatToVault(
   dir: DirHandle,
@@ -396,11 +402,12 @@ export async function writeChatToVault(
     const defaultPath = `对话/${vaultFileName(record.title, record.id)}`;
     const { path, source, file } = await findChatFile(dir, record.id, index[record.id], defaultPath, paths);
     paths.add(path);
-    const markdown = serializeChatRecord(record);
-    const current = vaultRecordJson(file);
+    if (file && 'error' in file) throw new Error(`format: ${path}`);
+    const markdown = serializeChatRecord(record, file?.notes);
+    const current = chatHistoryJson(file);
     // Equal to our proposal means the previous write succeeded but its receipt was lost.
     if (current !== vaultRecordJson(base ? parseChatDocument(serializeChatRecord(base)) : null)
-      && current !== vaultRecordJson(parseChatDocument(markdown))) throw new Error('conflict: chat changed');
+      && current !== chatHistoryJson(parseChatDocument(markdown))) throw new Error('conflict: chat changed');
 
     const materials: { path: string; text: string; missing: boolean }[] = [];
     const published: VaultIndex = { [record.id]: path };

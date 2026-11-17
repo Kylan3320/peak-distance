@@ -2,7 +2,7 @@
 // 会话一份（对话/<标题>-<id短码>.md），材料每版本一份（材料/<chatId>-v<N>.md）。
 // 受管内容：消息按“## 消息 N · 角色”分节，元数据行（- 键：值）+ 空行 + 正文；
 // 生成状态原样保留（另一浏览器不把 streaming 改成中断）。
-// 个人笔记由词卡/句子的“我的笔记”承载；会话文件不含 key/草稿/未提交引用。
+// 会话文件不含 Key、草稿和未提交引用。个人笔记位于受管消息之后。
 
 import type { ChatMessageRecord, ChatRecord, MaterialSnapshotRecord, QuoteRef } from '@/shared/chat';
 import type { VaultChatRecord } from '@/shared/vault';
@@ -14,12 +14,14 @@ function fmValue(v: string | number): string {
 
 const MSG_RE = /^## 消息 (\d+) · (user|assistant)(?:\n|$)/;
 const META_RE = /^- ([^：]+)：(.*)$/;
+const NOTES_BOUNDARY = '<!-- peak-distance:chat-notes -->';
+const EMPTY_NOTES = '## 我的笔记\n';
 // 正文防碰撞：正文行若形如消息标题（split 的切分前缀，不限角色），行首加零宽空格；
 // 解析重建正文时剥掉，保证往返无损（零宽空格对 Obsidian 不可见）。
 const ZWSP = '\u200B';
 
 function escapeMessageText(text: string): string {
-  return text.replace(/^(?=## 消息 \d+ · )/gm, ZWSP);
+  return text.replace(/^(?=## 消息 \d+ · |<!-- peak-distance:chat-notes -->$)/gm, ZWSP);
 }
 
 function unescapeMessageText(text: string): string {
@@ -34,7 +36,7 @@ function readSource(raw: string): ChatRecord['source'] {
   return source;
 }
 
-export function serializeChatRecord(record: VaultChatRecord): string {
+export function serializeChatRecord(record: VaultChatRecord, notes = EMPTY_NOTES): string {
   const lines: string[] = [
     '---',
     `id: ${fmValue(record.id)}`,
@@ -73,6 +75,7 @@ export function serializeChatRecord(record: VaultChatRecord): string {
     lines.push(escapeMessageText(m.text));
     lines.push('');
   });
+  lines.push(NOTES_BOUNDARY, notes);
   return lines.join('\n');
 }
 
@@ -86,6 +89,7 @@ export interface ParsedChatDocument {
   activeSnapshotVersion?: number | null;
   updatedAt: number;
   messages: ChatMessageRecord[];
+  notes?: string;
 }
 
 function unquote(v: string): string {
@@ -106,7 +110,10 @@ export function parseChatDocument(text: string): ParsedChatDocument | { error: '
     if (m) fm[m[1]!] = unquote(m[2]!);
   }
   if (!fm.id) return { error: 'format' };
-  const body = text.slice(fmMatch[0].length);
+  const contents = text.slice(fmMatch[0].length);
+  const boundary = contents.indexOf('\n' + NOTES_BOUNDARY + '\n');
+  const body = boundary < 0 ? contents : contents.slice(0, boundary);
+  const notes = boundary < 0 ? undefined : contents.slice(boundary + NOTES_BOUNDARY.length + 2);
   const messages: ChatMessageRecord[] = [];
   const sections = body.split(/\n(?=## 消息 \d+ · )/);
   for (const section of sections) {
@@ -187,6 +194,7 @@ export function parseChatDocument(text: string): ParsedChatDocument | { error: '
       : undefined,
     updatedAt: Number(fm.updatedAt) || 0,
     messages,
+    ...(notes !== undefined && notes !== EMPTY_NOTES ? {notes} : {}),
   };
 }
 
