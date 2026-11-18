@@ -4,7 +4,7 @@
   <a href="https://github.com/Kylan3320/peak-distance/releases/latest"><img src="https://img.shields.io/github/v/release/Kylan3320/peak-distance?style=flat-square&amp;label=Release&amp;color=3b6fa6" alt="Latest release"></a>
   <a href="#快速开始"><img src="https://img.shields.io/badge/Browsers-Chrome%20%7C%20Edge-666?style=flat-square" alt="Browsers: Chrome and Edge"></a>
   <a href="docs/specs/vault-collections-sync.md"><img src="https://img.shields.io/badge/Learning%20vault-Markdown-31796f?style=flat-square" alt="Learning vault: Markdown"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-666?style=flat-square" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-666?style=flat-square" alt="PolyForm Noncommercial 1.0.0"></a>
 </p>
 
 <p align="center"><a href="https://github.com/Kylan3320/peak-distance/releases/latest">下载安装包</a> · <a href="#快速开始">快速开始</a> · <a href="#文档">文档</a> · <a href="README.en.md">English</a></p>
@@ -52,4 +52,8 @@ Peak Distance 是一个用来查词和复习的浏览器扩展。读网页、刷
 | [反馈问题](https://github.com/Kylan3320/peak-distance/issues) | 报告问题或查看已有反馈 |
 | [开发指南](docs/DEVELOPMENT.md) | 从源码构建、验证和发布 |
 
-[MIT](LICENSE)
+## 许可证
+
+Peak Distance 的原创部分采用 [PolyForm Noncommercial 1.0.0](LICENSE)，这项许可也适用于所有已发布的历史版本。此前已授出的 MIT 许可继续有效。第三方组件适用[各自的许可证](public/THIRD_PARTY_NOTICES.txt)。
+
+如需取得 PolyForm 许可范围以外的商业授权，请通过 [GitHub Issues](https://github.com/Kylan3320/peak-distance/issues) 联系 Rayyy3320。

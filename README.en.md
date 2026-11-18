@@ -4,7 +4,7 @@
   <a href="https://github.com/Kylan3320/peak-distance/releases/latest"><img src="https://img.shields.io/github/v/release/Kylan3320/peak-distance?style=flat-square&amp;label=Release&amp;color=3b6fa6" alt="Latest release"></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Browsers-Chrome%20%7C%20Edge-666?style=flat-square" alt="Browsers: Chrome and Edge"></a>
   <a href="docs/specs/vault-collections-sync.md"><img src="https://img.shields.io/badge/Learning%20vault-Markdown-31796f?style=flat-square" alt="Learning vault: Markdown"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-666?style=flat-square" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-666?style=flat-square" alt="PolyForm Noncommercial 1.0.0"></a>
 </p>
 
 <p align="center"><a href="https://github.com/Kylan3320/peak-distance/releases/latest">Download</a> · <a href="#quick-start">Quick start</a> · <a href="#docs">Docs</a> · <a href="README.md">简体中文</a></p>
@@ -50,4 +50,8 @@ Regular lookups and translations work without an API key. To ask questions about
 | [Issue tracker](https://github.com/Kylan3320/peak-distance/issues) | Report a problem or see existing reports |
 | [Development guide (Chinese)](docs/DEVELOPMENT.md) | Build from source, run checks, and prepare a release |
 
-[MIT](LICENSE)
+## License
+
+Original Peak Distance contributions are available under [PolyForm Noncommercial 1.0.0](LICENSE). This license is also offered for all previously published versions. Earlier MIT grants remain valid. Third-party components carry [their own licenses](public/THIRD_PARTY_NOTICES.txt).
+
+For commercial use outside the scope of PolyForm, contact Rayyy3320 through [GitHub Issues](https://github.com/Kylan3320/peak-distance/issues).
