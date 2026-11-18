@@ -56,4 +56,4 @@ Peak Distance 是一个用来查词和复习的浏览器扩展。读网页、刷
 
 Peak Distance 的原创部分采用 [PolyForm Noncommercial 1.0.0](LICENSE)，这项许可也适用于所有已发布的历史版本。此前已授出的 MIT 许可继续有效。第三方组件适用[各自的许可证](public/THIRD_PARTY_NOTICES.txt)。
 
-如需取得 PolyForm 许可范围以外的商业授权，请通过 [GitHub Issues](https://github.com/Kylan3320/peak-distance/issues) 联系 Rayyy3320。
+如需取得 PolyForm 许可范围以外的商业授权，请通过我的[个人网站](https://lowoo.com.de/)与我联系。
