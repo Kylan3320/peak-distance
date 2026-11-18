@@ -857,7 +857,7 @@ export async function saveAnswerKnowledge(chatId: string, messageId: string, tit
   });
 }
 
-export async function saveTranslationKnowledge(snapshot: import('@/shared/panel').SelectionSnapshot, sourceMode: string, targetLang: string, owner: string | null, translation?: string, detectedLang?: string, service: import('@/shared/translationService').TranslationService = 'google-gtx'): Promise<{ record: KnowledgeRecord; existing: boolean }> {
+export async function saveTranslationKnowledge(snapshot: import('@/shared/panel').SelectionSnapshot, sourceMode: string, targetLang: string, owner: string | null, translation?: string, detectedLang?: string, service: import('@/shared/translationService').SelectionTranslationService = 'google-gtx'): Promise<{ record: KnowledgeRecord; existing: boolean }> {
   return writeKnowledge(['knowledge', VAULT, VAULT_QUEUE], async tx => {
     await assertKnowledgeOwner(tx, owner);
     const store = tx.objectStore('knowledge');
@@ -871,7 +871,7 @@ export async function saveTranslationKnowledge(snapshot: import('@/shared/panel'
     return { record, existing: false };
   });
 }
-export async function backfillTranslationKnowledge(id: string, identity: string, owner: string | null, text: string, detectedLang?: string, valid: () => boolean = () => true, service: import('@/shared/translationService').TranslationService = 'google-gtx'): Promise<boolean> {
+export async function backfillTranslationKnowledge(id: string, identity: string, owner: string | null, text: string, detectedLang?: string, valid: () => boolean = () => true, service: import('@/shared/translationService').SelectionTranslationService = 'google-gtx'): Promise<boolean> {
   return writeKnowledge(['knowledge', VAULT, VAULT_QUEUE], async tx => {
     const library = await px(tx.objectStore(VAULT).get('lastIdentity')) as VaultIdentity | undefined;
     if ((library?.vaultId ?? null) !== owner) return false;

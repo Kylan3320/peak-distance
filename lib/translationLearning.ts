@@ -3,12 +3,35 @@ import { saveTranslationKnowledge, backfillTranslationKnowledge, translationKnow
 import { translationIdentity } from '@/shared/knowledge';
 import type { SelectionSnapshot } from '@/shared/panel';
 
+import { getAiConfig } from './aiTransport';
+import { translateSelectionText } from './aiClient';
+import { aiCacheScope, validateAiProfile, type AiProvider } from '@/shared/aiConfig';
+import { cached } from './onlineCache';
+import type { Settings } from '@/shared/settings';
+
+type SelectionMode = Settings['selectionTranslationMode'];
+type AiSelectionResult = Awaited<ReturnType<typeof translateSelectionText>> | {ok:false; error:'no-key' | 'invalid-config'};
+export type SelectionTranslationResult = RegularTranslationResult | (AiSelectionResult & {
+  source: `ai:${AiProvider}`; detectedLang?: string; httpStatus?: number;
+});
+
+async function queryAiSelection(text: string, source: string, target: string, signal: AbortSignal, fresh: boolean): Promise<SelectionTranslationResult> {
+  const config = await getAiConfig();
+  const service = `ai:${config.provider}` as const;
+  if (!config.apiKey) return {ok:false, source:service, error:'no-key'};
+  if (validateAiProfile(config)) return {ok:false, source:service, error:'invalid-config'};
+  const key = JSON.stringify(['ai-selection', aiCacheScope(config), source, target, text]);
+  const result = await cached(key, requestSignal => translateSelectionText(config, text, source, target, requestSignal), signal, fresh);
+  return {...result, source:service};
+}
+
 interface Query {
+  mode: SelectionMode;
   snapshot: SelectionSnapshot; source: string; target: string;
   controller: AbortController; valid: boolean; detached: boolean;
   saving: number; retained: boolean; settled: boolean; boundId?: string;
-  result: Promise<RegularTranslationResult>;
-  value?: RegularTranslationResult;
+  result: Promise<SelectionTranslationResult>;
+  value?: SelectionTranslationResult;
 }
 const queries = new Map<string, Query>();
 const keyOf = (scope: string, requestId: string) => `${scope}|${requestId}`;
@@ -27,22 +50,23 @@ export function cancelSelectionQuery(scope: string, requestId: string, supersede
 export function detachSelectionScope(scope: string) {
   for (const key of queries.keys()) if (key.startsWith(`${scope}|`)) cancelSelectionQuery(scope, key.slice(scope.length + 1));
 }
-export async function startSelectionQuery(scope: string, requestId: string, snapshot: SelectionSnapshot, source: string, target: string, fresh: boolean, replace: string | undefined, changed: () => void) {
+export async function startSelectionQuery(scope: string, requestId: string, snapshot: SelectionSnapshot, source: string, target: string, fresh: boolean, replace: string | undefined, changed: () => void, mode: SelectionMode = 'regular') {
   if (replace) cancelSelectionQuery(scope, replace, true);
   const identity = translationIdentity(snapshot,source,target);
   if (fresh) for (const [key, previous] of queries) {
-    if (translationIdentity(previous.snapshot,previous.source,previous.target) === identity) {
+    if (previous.mode === mode && translationIdentity(previous.snapshot,previous.source,previous.target) === identity) {
       previous.valid = false; previous.controller.abort(); previous.detached = true; cleanup(key,previous);
     }
   }
   const key = keyOf(scope, requestId);
   if (queries.has(key)) throw new Error('duplicate translation request');
   const controller = new AbortController();
-  const result = queryTranslation(snapshot.text, source, target, controller.signal, fresh).catch(error => {
+  const translate = mode === 'ai' ? queryAiSelection : queryTranslation;
+  const result = translate(snapshot.text, source, target, controller.signal, fresh).catch(error => {
     if (controller.signal.aborted) return {ok:false as const,source:'google-gtx' as const,error:'aborted' as const};
     throw error;
   });
-  const query: Query = { snapshot: structuredClone(snapshot), source, target, controller, valid: true, detached: false, saving: 0, retained: false, settled: false, result };
+  const query: Query = { mode, snapshot: structuredClone(snapshot), source, target, controller, valid: true, detached: false, saving: 0, retained: false, settled: false, result };
   queries.set(key, query);
   query.result = query.result.then(value => { query.value = value; return value; });
   // Reopening an unedited original-only favorite can fill it after an explicit query.

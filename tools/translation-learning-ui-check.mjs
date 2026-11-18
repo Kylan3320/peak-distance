@@ -135,6 +135,38 @@ try {
  });assert.equal(txResult,true);
  console.log('PASS owner switch blocks old-card saves/backfill; a pending-write failure rolls back the whole local save transaction');
 
+ // The real card remembers the channel and sends the full selection through the active AI configuration.
+ await select('a');
+ const channel = popup().locator('#channel');
+ assert.equal(await channel.locator('option').count(),2);
+ await channel.selectOption('ai');
+ await popup().locator('#configure-ai').waitFor();
+ assert.equal(await popup().locator('#result').textContent(),'');
+ await worker.evaluate(async()=>{
+   await chrome.storage.local.set({deepseekApiKey:'fixture'});
+   const previous=globalThis.fetch;
+   globalThis.fetch=async(url,init)=>{
+     if(new URL(url).hostname!=='api.deepseek.com')return previous(url,init);
+     globalThis.selectionAiInput=JSON.parse(init.body).messages.at(-1).content;
+     return new Response(JSON.stringify({choices:[{message:{content:'整段 AI 译文'},finish_reason:'stop'}]}));
+   };
+ });
+ await popup().locator('#retry-inline').click();
+ await popup().locator('#result').filter({hasText:'整段 AI 译文'}).waitFor();
+ assert.equal(await worker.evaluate(()=>selectionAiInput),'US policy\nCafé!');
+ assert.equal(await channel.getAttribute('title'),'DeepSeek');
+ await popup().locator('#close').click();
+ await select('b');
+ await popup().locator('#result').filter({hasText:'整段 AI 译文'}).waitFor();
+ assert.equal(await channel.inputValue(),'ai');
+ await popup().locator('#save').click();
+ await popup().locator('#view:not([hidden])').waitFor();
+ assert.ok((await send({type:'listKnowledge'})).records.some(record=>record.origin.service==='ai:deepseek' && record.origin.translation==='整段 AI 译文'));
+ await channel.selectOption('regular');
+ await until(()=>worker.evaluate(async()=>(await chrome.storage.local.get('selectionTranslationMode')).selectionTranslationMode==='regular'));
+ await popup().locator('#close').click();
+ console.log('PASS two selection channels, no-key recovery, full AI input, saved provider and remembered choice');
+
  // Source popup implementation with deliberately reordered settings, to exercise UI identity before network startup.
  const popupBundle=(await build({stdin:{contents:"export { createTranslationPopup } from './shared/translationPopup'; export {setDisplayLanguage} from './shared/i18n';",resolveDir:process.cwd()},bundle:true,write:false,platform:'browser',format:'iife',loader:{'.css':'text'},globalName:'PopupTest'})).outputFiles[0].text;
  const lifecycle=await context.newPage();await lifecycle.goto('https://example.com/lifecycle');await lifecycle.evaluate(()=>{window.browser={runtime:{getURL:()=>'',onMessage:{addListener(){}},sendMessage:async()=>({ok:true,settings:{appearanceTheme:'minimal'}})}};});

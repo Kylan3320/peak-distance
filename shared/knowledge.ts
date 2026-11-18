@@ -54,7 +54,7 @@ export interface TranslationOrigin {
   translation?: string;
   sourceMode: string;
   targetLang: string;
-  service: import('./translationService').TranslationService;
+  service: import('./translationService').SelectionTranslationService;
   position?: SelectionSnapshot['position'];
   bodyEdited?: boolean;
 }

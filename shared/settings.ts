@@ -19,6 +19,7 @@ export interface Settings {
   markingEnabled: boolean;
   primaryDictionary: DictionarySource;
   backupDictionary: DictionarySource;
+  selectionTranslationMode: 'regular' | 'ai';
   translationMode: 'regular' | 'ai';
   bilingualEnabled: boolean;
   chineseVisible: boolean;
@@ -34,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   appearanceTheme: 'classic',
   displayLanguage: 'auto',
   markingEnabled: true, primaryDictionary: 'cambridge', backupDictionary: 'youdao',
+  selectionTranslationMode: 'regular',
   translationMode: 'regular',
   bilingualEnabled: true, chineseVisible: true, cacheLimit: 200, subtitleSize: 'standard',
   defaultComprehensionLang: DEFAULT_COMPREHENSION_LANG,
@@ -57,7 +59,7 @@ export function validSetting(name: string, value: unknown): boolean {
   if (name === 'subtitleSize') return ['small', 'standard', 'large'].includes(String(value));
   if (['markingEnabled', 'bilingualEnabled', 'chineseVisible', 'aiLookupFallback'].includes(name)) return typeof value === 'boolean';
   if (name === 'primaryDictionary' || name === 'backupDictionary') return value === 'youdao' || value === 'cambridge';
-  if (name === 'translationMode') return value === 'regular' || value === 'ai';
+  if (name === 'translationMode' || name === 'selectionTranslationMode') return value === 'regular' || value === 'ai';
   if (name === 'defaultComprehensionLang') return isLanguageTag(value) && isTargetLanguage(String(value));
   if (name === 'comprehensionOverrides') return validOverrides(value);
   return name === 'cacheLimit' && Number.isInteger(value) && Number(value) >= 20 && Number(value) <= 500;

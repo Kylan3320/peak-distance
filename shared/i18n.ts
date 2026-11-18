@@ -70,7 +70,13 @@ export function setText(element: Element, text: string | UiText) {
     element.textContent=t(text.key,text.values);
   }
 }
-export function setLocalizedAttribute(element: Element, attribute: string, text: UiText) {
+export function setLocalizedAttribute(element: Element, attribute: string, text: string | UiText) {
+  if (typeof text === 'string') {
+    element.removeAttribute(`data-i18n-${attribute}`);
+    element.removeAttribute(`data-i18n-${attribute}-values`);
+    element.setAttribute(attribute, text);
+    return;
+  }
   element.setAttribute(`data-i18n-${attribute}`,text.key);
   element.setAttribute(`data-i18n-${attribute}-values`,JSON.stringify(text.values));
   element.setAttribute(attribute,t(text.key,text.values));

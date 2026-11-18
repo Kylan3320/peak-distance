@@ -89,11 +89,12 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     } catch {setText(get('cache-state'), message('清除失败，请重试'));}
     finally {clearCache.disabled = false;}
   };
+  const fields = Object.entries(DEFAULT_SETTINGS).filter(([name]) => name !== 'selectionTranslationMode');
   const savedSettings: Record<string, unknown> = {...DEFAULT_SETTINGS};
   async function load() {
     try {
       const stored=await browser.storage.local.get([...Object.keys(DEFAULT_SETTINGS),'deepseekApiKey','aiServices']);
-      for(const [name,fallback] of Object.entries(DEFAULT_SETTINGS)) {
+      for(const [name,fallback] of fields) {
         const control=get<HTMLInputElement|HTMLSelectElement>(name),value=validSetting(name,stored[name])?stored[name]:fallback;
         savedSettings[name] = value;
         if (control === translationLanguage) setTranslationLanguage(String(value));
@@ -103,7 +104,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
       ai.load(stored);
     } catch {ai.report('设置读取失败，请重新打开设置重试');}
   }
-  for(const name of Object.keys(DEFAULT_SETTINGS)) {
+  for(const [name] of fields) {
     const control=get<HTMLInputElement|HTMLSelectElement>(name);
     const field=control.closest('.settings-field')!;
     const caption=field.querySelector(':scope > span[data-i18n]');
@@ -319,7 +320,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   });
   browser.storage.onChanged.addListener((changes,area)=>{
     if(area!=='local')return;
-    for(const name of Object.keys(DEFAULT_SETTINGS)){
+    for(const [name] of fields){
       if(!changes[name]||!validSetting(name,changes[name].newValue))continue;
       const control=get<HTMLInputElement|HTMLSelectElement>(name),value=changes[name].newValue;
       savedSettings[name]=value;

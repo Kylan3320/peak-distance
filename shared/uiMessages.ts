@@ -159,6 +159,7 @@ export const UI_MESSAGES: Record<string, readonly [string, string, string, strin
   '词典不支持或无结果时，用 AI 解释。': ['词典不支持或无结果时，用 AI 解释。', '詞典不支援或無結果時，用 AI 解釋。', 'Use AI when no dictionary supports the word or finds it.', 'KI erklärt Wörter ohne passenden Wörterbucheintrag.', 'L’IA explique les mots sans dictionnaire ou résultat.'],
   'AI 费用由服务商收取。': ['AI 费用由服务商收取。', 'AI 費用由服務商收取。', 'Your AI provider may charge for use.', 'Dein KI-Anbieter kann Gebühren berechnen.', 'Votre fournisseur IA peut facturer l’utilisation.'],
   '字幕设置': ['字幕设置', '字幕設定', 'Subtitles', 'Untertitel', 'Sous-titres'],
+  '选区翻译方式': ['选区翻译方式', '選取文字翻譯方式', 'Selection translation method', 'Übersetzungsmethode für die Auswahl', 'Mode de traduction de la sélection'],
   '默认翻译方式': ['默认翻译方式', '預設翻譯方式', 'Default translation', 'Standardübersetzung', 'Traduction par défaut'],
   '首次打开视频时使用。': ['首次打开视频时使用。', '首次開啟影片時使用。', 'Default for newly opened videos.', 'Standard für neu geöffnete Videos.', 'Réglage par défaut des nouvelles vidéos.'],
   '常规翻译': ['普通翻译', '一般翻譯', 'Standard translation', 'Standardübersetzung', 'Traduction standard'],

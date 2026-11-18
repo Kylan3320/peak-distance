@@ -246,6 +246,7 @@ async function handle(
   }
   switch (m.type) {
     case 'translateSelection': {
+      if (m.mode !== undefined && !validSetting('selectionTranslationMode', m.mode)) return bad('bad-payload', 'mode');
       const error = selectionError(m.text);
       if (error || typeof m.requestId !== 'string') return bad('bad-payload', error ?? 'requestId');
       const sourceLang = m.sourceLang === 'auto' ? undefined : parseLangField(m.sourceLang);
@@ -253,7 +254,7 @@ async function handle(
       if (sourceLang === null || targetLang === null) return bad('bad-payload', 'lang');
       const snapshot = parseTranslationSnapshot(m.snapshot ?? {text:m.text, url:sender.tab?.url ?? '', title:sender.tab?.title ?? ''});
       if (!snapshot || snapshot.text !== m.text) return bad('bad-payload', 'snapshot');
-      return startSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId, snapshot, sourceLang && sourceLang !== 'und' ? sourceLang : 'auto', targetLang ?? (await getSettings()).defaultComprehensionLang, m.fresh === true, m.replaceRequestId, () => {broadcast({type:'knowledge-changed'});queueVaultWriteAfterSave();});
+      return startSelectionQuery(String(sender.tab?.id ?? sender.url), m.requestId, snapshot, sourceLang && sourceLang !== 'und' ? sourceLang : 'auto', targetLang ?? (await getSettings()).defaultComprehensionLang, m.fresh === true, m.replaceRequestId, () => {broadcast({type:'knowledge-changed'});queueVaultWriteAfterSave();}, m.mode);
     }
     case 'selectionKnowledgeState': {
       const snapshot = parseTranslationSnapshot(m.snapshot);

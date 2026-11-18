@@ -39,6 +39,7 @@ export type LookupIntent = 'active' | 'hover' | 'preview' | 'prefetch';
 export type BgcRequest =
   | {
       type: 'translateSelection';
+      mode?: Settings['selectionTranslationMode'];
       text: string;
       requestId: string;
       sourceLang?: LanguageTag;

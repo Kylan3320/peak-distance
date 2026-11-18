@@ -1,5 +1,6 @@
 import { applyAppearance } from './appearance';
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
+import { AI_ERROR_LABEL } from './aiErrorLabels';
 import { brandTokens, sharedControls } from './brand';
 import type { DictionarySource } from '@/lib/onlineDictionary';
 // 共用查词弹窗（网页与 YouTube 字幕共用，M1 行为原样提取）：
@@ -82,16 +83,6 @@ interface PinnedState {
   degraded?: Extract<OnlineLookupResult, { ok: true }>['degraded'];
 }
 
-const ERROR_LABEL: Record<string, string> = {
-  'invalid-config': 'AI 配置无效，请在设置中检查接口与模型',
-  permission: '请在设置中重新保存 AI 配置并允许访问服务地址',
-  'no-key': '尚未配置 API key，可先保存原文',
-  auth: 'API key 无效或无权限',
-  'rate-limit': '请求过于频繁，稍后再试',
-  network: '网络错误',
-  http: '服务返回异常',
-  'bad-response': '服务响应无法解析',
-};
 const LOOKUP_ERROR_LABEL: Record<string, string> = {
   'not-found': '未查到该表达',
   'extension-context-invalidated': '扩展已更新，请刷新当前网页',
@@ -441,7 +432,7 @@ export function createLookupPopup(opts: {
     target = footer;
     const ai = button(p.aiRequest ? message('正在解释语境…') : message('解释语境'), () => void explainContext()); ai.disabled = !!p.aiRequest;
     if (p.explanation) { text(message('AI 语境解释 · 当前原句'), 'def-label'); text(p.explanation.text); }
-    if (p.aiError) { text(message(ERROR_LABEL[p.aiError] ?? '解释失败，请重试'), 'def-state'); if (p.aiError === 'no-key') button(message('打开设置填写 API key'), () => void send({ type: 'openSettings', ai: true })); }
+    if (p.aiError) { text(message(AI_ERROR_LABEL[p.aiError] ?? '解释失败，请重试'), 'def-state'); if (p.aiError === 'no-key') button(message('打开设置填写 API key'), () => void send({ type: 'openSettings', ai: true })); }
   }
 
   // ---- 与 background 的交互 ---------------------------------------------------
