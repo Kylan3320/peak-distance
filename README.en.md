@@ -52,6 +52,5 @@ Regular lookups and translations work without an API key. To ask questions about
 
 ## License
 
-Original Peak Distance contributions are available under [PolyForm Noncommercial 1.0.0](LICENSE). This license is also offered for all previously published versions. Earlier MIT grants remain valid. Third-party components carry [their own licenses](public/THIRD_PARTY_NOTICES.txt).
-
+Original Peak Distance contributions are available under [PolyForm Noncommercial 1.0.0](LICENSE). This license is also offered for all previously published versions. 
 For commercial licensing beyond the scope of PolyForm, please contact me through my [personal website](https://lowoo.com.de/).
