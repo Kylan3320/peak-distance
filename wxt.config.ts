@@ -6,12 +6,6 @@ export default defineConfig({
   manifest: {
     name: 'Peak Distance',
     default_locale: 'en',
-    commands: {
-      'toggle-page-translation': {
-        suggested_key: { default: 'Alt+S' },
-        description: '__MSG_togglePageTranslation__',
-      },
-    },
     minimum_chrome_version: '142',
     content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
     description: '__MSG_extensionDescription__',

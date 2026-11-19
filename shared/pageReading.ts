@@ -1,3 +1,4 @@
+import { defaultPageShortcut, pageShortcutFromEvent } from './pageShortcut';
 import { readParagraph, paragraphSelector } from './pageParagraphDom';
 import { sendRuntime } from './runtime';
 import type { GetSettingsResult, PageTranslationReply } from './messages';
@@ -225,10 +226,27 @@ export function mountPageReading(notice:Notice) {
     session?.stop();
     session = startReading(next,notice,stop);
   }
+  function toggle() {
+    if (enabled) stop();
+    else { enabled = true; void refresh(); }
+  }
+  let shortcut: string | undefined;
+  void sendRuntime<GetSettingsResult>({type:'getSettings'}).then(result => {
+    if (result?.ok) shortcut ??= result.settings.pageTranslationShortcut ?? defaultPageShortcut;
+  });
+  window.addEventListener('keydown', event => {
+    if (!shortcut || !event.isTrusted || event.repeat || event.defaultPrevented ||
+        pageShortcutFromEvent(event) !== shortcut || document.designMode === 'on') return;
+    if (event.composedPath().some(node => node instanceof HTMLElement &&
+        (node.isContentEditable || node.matches('input,textarea,select,[role="textbox"],[data-blc-skip]')))) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    toggle();
+  }, true);
   browser.runtime.onMessage.addListener((msg,_sender,reply) => {
+    if (msg?.type === 'settings-changed' && msg.pageTranslationShortcut) shortcut = msg.pageTranslationShortcut;
     if (msg?.type === 'page-translation-toggle') {
-      if (enabled) stop();
-      else { enabled = true; void refresh(); }
+      toggle();
       reply({ok:true,enabled});
     } else if (enabled && (msg?.type === 'settings-changed' || msg?.type === 'ai-service-changed')) {
       void refresh(msg.type === 'ai-service-changed');

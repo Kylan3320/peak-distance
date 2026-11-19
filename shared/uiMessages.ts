@@ -1,5 +1,12 @@
 /** Product copy only. Source keys stay stable across wording changes and saved material labels. */
 export const UI_MESSAGES: Record<string, readonly [string, string, string, string, string]> = {
+  '整页翻译': ['整页翻译','整頁翻譯','Full-page translation','Seitenübersetzung','Traduction de page'],
+  '网页快捷键': ['网页快捷键','網頁快速鍵','Page shortcut','Seitenkürzel','Raccourci de page'],
+  '更改快捷键': ['更改快捷键','更改快速鍵','Change shortcut','Tastenkürzel ändern','Modifier le raccourci'],
+  '更改快捷键 {key}': ['更改快捷键 {key}','更改快速鍵 {key}','Change shortcut {key}','Tastenkürzel {key} ändern','Modifier le raccourci {key}'],
+  '按下组合键': ['按下组合键…','按下組合鍵…','Press keys…','Tasten drücken…','Appuyez sur les touches…'],
+  '快捷键录入提示': ['按住 Alt、Ctrl 或 ⌘，再按字母或数字。Esc 取消。','按住 Alt、Ctrl 或 ⌘，再按字母或數字。Esc 取消。','Hold Alt, Ctrl or ⌘ and press a letter or number. Esc cancels.','Alt, Strg oder ⌘ halten und einen Buchstaben oder eine Ziffer drücken. Esc bricht ab.','Maintenez Alt, Ctrl ou ⌘ et tapez une lettre ou un chiffre. Échap annule.'],
+  '快捷键已保存': ['快捷键已保存','快速鍵已儲存','Shortcut saved','Tastenkürzel gespeichert','Raccourci enregistré'],
   '网页翻译样式': ['网页翻译样式', '網頁翻譯樣式', 'Page translation display', 'Darstellung der Webseitenübersetzung', 'Affichage de la traduction de page'],
   '翻译或恢复当前网页': ['翻译或恢复当前网页', '翻譯或還原目前網頁', 'Translate or restore this page', 'Diese Seite übersetzen oder wiederherstellen', 'Traduire ou rétablir cette page'],
   '快捷键：{key}': ['快捷键：{key}', '快速鍵：{key}', 'Shortcut: {key}', 'Tastenkürzel: {key}', 'Raccourci : {key}'],

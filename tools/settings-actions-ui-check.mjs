@@ -93,7 +93,14 @@ try {
   assert.match(await settings.locator('#version').innerText(),/^v\d/);
   await settings.locator('summary[data-i18n="关于"]').click();
   assert.equal(await settings.locator('#translation-language-hint').count(),0);
-  await settings.locator('summary[data-i18n="翻译设置"]').click();
+  const shortcut = settings.locator('#page-translation-command');
+  await shortcut.click();
+  await shortcut.press('Escape');
+  assert.equal(await shortcut.locator('kbd').innerText(), 'Alt + S');
+  await shortcut.click();
+  await shortcut.press('Alt+Shift+J');
+  await settings.waitForFunction(() => document.querySelector('#page-translation-command kbd').textContent === 'Alt + Shift + J');
+  assert.equal((await settings.evaluate(() => chrome.storage.local.get('pageTranslationShortcut'))).pageTranslationShortcut, 'Alt+Shift+J');
   await settings.locator('#appearanceTheme').selectOption('classic');
   await settings.waitForFunction(()=>document.documentElement.dataset.pdTheme==='classic');
   assert.equal(await settings.locator('#appearanceTheme').locator('..').locator('.settings-field-state').isVisible(),false);

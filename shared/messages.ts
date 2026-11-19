@@ -230,7 +230,7 @@ export type BroadcastEvent =
   | { type: 'ai-service-changed' }
   | { type: 'vocab-changed' }
   | { type: 'sentences-changed' }
-  | { type: 'settings-changed' }
+  | { type: 'settings-changed'; pageTranslationShortcut?: string }
   | { type: 'theme-changed'; theme: Settings['appearanceTheme'] }
   /** 学习库状态变化：连接／断开、写入回执、读回变更（UI 刷新写入状态） */
   | { type: 'vault-changed' };

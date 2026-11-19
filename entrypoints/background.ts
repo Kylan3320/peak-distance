@@ -694,13 +694,6 @@ function connectPageTranslation(port: RuntimePort) {
 
 export default defineBackground(() => {
   browser.runtime.onConnect.addListener(connectPageTranslation);
-  browser.commands.onCommand.addListener(async (command, tab) => {
-    if (command !== 'toggle-page-translation') return;
-    const active = tab ?? (await browser.tabs.query({active:true, lastFocusedWindow:true}))[0];
-    if (active?.id === undefined) return;
-    // Browser pages and unsupported sites have no web content script.
-    await browser.tabs.sendMessage(active.id, {type:'page-translation-toggle'}, {frameId:0}).catch(() => {});
-  });
   void updateActionTitle();
   // storage.local 收紧为受信任上下文（扩展页面 / SW），content script 不可读。
   void browser.storage.local
@@ -736,7 +729,12 @@ export default defineBackground(() => {
     if ('cacheLimit' in changes) void trimCache();
     if ('displayLanguage' in changes) void updateActionTitle();
     if (changes.appearanceTheme) broadcast({type:'theme-changed',theme:appearanceTheme(changes.appearanceTheme.newValue)});
-    if (Object.keys(changes).some(k => k !== 'appearanceTheme' && k in DEFAULT_SETTINGS)) broadcast({ type: 'settings-changed' });
+    if (Object.keys(changes).some(k => k !== 'appearanceTheme' && k in DEFAULT_SETTINGS)) {
+      const change = changes.pageTranslationShortcut;
+      const pageTranslationShortcut = change && (validSetting('pageTranslationShortcut', change.newValue)
+        ? String(change.newValue) : DEFAULT_SETTINGS.pageTranslationShortcut);
+      broadcast({type:'settings-changed', pageTranslationShortcut});
+    }
     // 语言偏好双向生效：设置变化即排队写回 偏好.md（幂等键，重复无害）
     if ('defaultComprehensionLang' in changes || 'comprehensionOverrides' in changes) {
       queueVaultWriteAfterSave(() => enqueuePreferenceWrite());

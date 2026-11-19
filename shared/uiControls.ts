@@ -2,6 +2,7 @@ import { message, setLocalizedAttribute, setText, type UiText } from './i18n';
 import { visibleVocabStatus, VOCAB_STATUS_LABEL, type VocabStatus } from './vocab';
 
 const paths = {
+  keyboard:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M5 9h1m3 0h1m3 0h1m3 0h1M5 12h1m3 0h1m3 0h1m3 0h1M8 15h8"/>',
   more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   new:'<path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 3l5 5-9 9-5 1 1-5z"/>',
   history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2"/>',

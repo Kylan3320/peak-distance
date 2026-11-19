@@ -42,7 +42,10 @@ try {
   });
   await page.addScriptTag({content:await readFile(join(extensionPath,'content-scripts/web.js'),'utf8')});
   await page.waitForSelector('html[data-blc-web]');
-  await page.evaluate(()=>window.broadcast('page-translation-toggle'));
+  // Windows virtual keyboards can send a trusted logical key with no physical code.
+  const input = await page.context().newCDPSession(page);
+  await input.send('Input.dispatchKeyEvent', {type:'keyDown',key:'s',modifiers:1});
+  await input.send('Input.dispatchKeyEvent', {type:'keyUp',key:'s',modifiers:1});
   await page.waitForFunction(()=>window.requests.length === 1);
   await page.evaluate(()=>{
     document.querySelector('#story').textContent = 'Updated paragraph.';

@@ -1,3 +1,4 @@
+import { isPageShortcut, pageShortcutFromEvent } from './pageShortcut';
 import { DEFAULT_SETTINGS, validSetting } from './settings';
 import { onAppearanceChange } from './appearance';
 import { aiSettingsMarkup, mountAiSettings } from './aiSettingsView';
@@ -24,6 +25,14 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     <section class="settings-section"><h2 data-i18n="语言"></h2>
     <label class="settings-field"><span data-i18n="界面语言"></span><select id="displayLanguage"></select></label>
     <label class="settings-field"><span data-i18n="翻译与释义语言"></span><select id="defaultComprehensionLang"></select></label></section>
+    <section class="settings-section page-reading-settings"><h2 data-i18n="整页翻译"></h2>
+    <button id="toggle-page-translation" class="page-translate-action" type="button">${uiIcon('translate')}<span data-i18n="翻译或恢复当前网页"></span></button>
+    <div class="settings-field"><span data-i18n="网页快捷键"></span><button id="page-translation-command" class="page-keycap" type="button" aria-describedby="shortcut-status" data-i18n-title="更改快捷键">${uiIcon('keyboard')}<kbd></kbd></button></div>
+    <div id="shortcut-status" class="settings-status" role="status"></div>
+    <div id="page-translation-status" class="settings-status err" role="status"></div>
+    <label class="settings-field"><span data-i18n="网页翻译样式"></span><select id="pageTranslationStyle"><option value="parallel" data-i18n="双语直显"></option><option value="frost" data-i18n="磨砂译文"></option><option value="translated" data-i18n="仅看译文"></option></select></label>
+    <label class="settings-field"><span data-i18n="网页翻译方式"></span><select id="pageTranslationEngine"><option value="native" data-i18n="浏览器内置翻译"></option><option value="ai" data-i18n="AI 翻译"></option></select></label>
+    <button id="prepare-native" class="settings-action" type="button"><span data-i18n="准备内置翻译"></span>${uiIcon('external')}</button></section>
     <section class="settings-section"><h2 data-i18n="查词设置"></h2>
     <label class="settings-field"><span data-i18n="词汇标记"></span><input id="markingEnabled" type="checkbox"></label>
     <label class="settings-field"><span data-i18n="首选词典"></span><select id="primaryDictionary"><option value="youdao" data-i18n="有道"></option><option value="cambridge" data-i18n="剑桥英汉"></option></select></label>
@@ -52,12 +61,6 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     <div id="vault-state" class="settings-status" role="status"></div><button id="vault-access-page" class="settings-action" data-i18n="在独立页面授权" hidden></button>
     </section>
     ${aiSettingsMarkup}
-    <details class="settings-section settings-details settings-group"><summary data-i18n="翻译设置"></summary>
-    <div class="settings-field"><button id="toggle-page-translation" class="settings-action" type="button" data-i18n="翻译或恢复当前网页"></button><span id="page-translation-command" class="hint"></span></div>
-    <div id="page-translation-status" class="settings-status err" role="status"></div>
-    <label class="settings-field"><span data-i18n="网页翻译样式"></span><select id="pageTranslationStyle"><option value="parallel" data-i18n="双语直显"></option><option value="frost" data-i18n="磨砂译文"></option><option value="translated" data-i18n="仅看译文"></option></select></label>
-    <label class="settings-field"><span data-i18n="网页翻译方式"></span><select id="pageTranslationEngine"><option value="native" data-i18n="浏览器内置翻译"></option><option value="ai" data-i18n="AI 翻译"></option></select></label>
-    <button id="prepare-native" class="settings-action" type="button"><span data-i18n="准备内置翻译"></span>${uiIcon('external')}</button></details>
     <details class="settings-section settings-details settings-group settings-about"><summary data-i18n="关于"></summary><div class="settings-field"><span data-i18n="版本"></span><span id="version" class="hint"></span></div></details>`;
   localize(root);
   const get = <T extends HTMLElement>(id:string) => root.querySelector<T>(`#${id}`)!;
@@ -128,17 +131,47 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   }
   const videoSettings = videoContext ? mountVideoSettings(get('video-settings'), videoContext) : null;
   const pageToggle = get<HTMLButtonElement>('toggle-page-translation');
-  const commandLabel = get('page-translation-command');
-  // A standalone settings tab has no underlying article to toggle.
-  pageToggle.disabled = !videoContext;
-  const updateShortcut = async () => {
-    const commands = await browser.commands.getAll();
-    const shortcut = commands.find(command => command.name === 'toggle-page-translation')?.shortcut;
-    setText(commandLabel, shortcut ? message('快捷键：{key}', {key:shortcut}) : message('未绑定快捷键'));
+  pageToggle.hidden = !videoContext;
+  const shortcutButton = get<HTMLButtonElement>('page-translation-command');
+  const keycap = shortcutButton.querySelector('kbd')!;
+  const shortcutStatus = get('shortcut-status');
+  let savedShortcut = DEFAULT_SETTINGS.pageTranslationShortcut;
+  let recording = false;
+  function renderShortcut() {
+    shortcutButton.setAttribute('aria-pressed', String(recording));
+    setText(keycap, recording ? message('按下组合键') : savedShortcut.split('+').join(' + '));
+    setLocalizedAttribute(shortcutButton, 'aria-label', message('更改快捷键 {key}', {key:savedShortcut}));
+  }
+  function finishRecording() {
+    recording = false;
+    renderShortcut();
+    setText(shortcutStatus, '');
+  }
+  shortcutButton.onclick = () => {
+    if (recording) { finishRecording(); return; }
+    recording = true;
+    renderShortcut();
+    setText(shortcutStatus, message('快捷键录入提示'));
   };
-  pageToggle.closest('details')!.addEventListener('toggle', () => {
-    if (pageToggle.closest('details')!.open) void updateShortcut();
-  });
+  shortcutButton.onblur = () => { if (recording) finishRecording(); };
+  shortcutButton.onkeydown = async event => {
+    if (!recording || event.key === 'Tab') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat || event.isComposing) return;
+    if (event.key === 'Escape') { finishRecording(); return; }
+    const next = pageShortcutFromEvent(event);
+    if (!next) { setText(shortcutStatus, message('快捷键录入提示')); return; }
+    recording = false;
+    shortcutButton.disabled = true;
+    try {
+      await browser.storage.local.set({pageTranslationShortcut:next});
+      savedShortcut = next;
+      setText(shortcutStatus, message('快捷键已保存'));
+    } catch { setText(shortcutStatus, message('保存失败，请重试')); }
+    finally { shortcutButton.disabled = false; renderShortcut(); shortcutButton.focus(); }
+  };
+  renderShortcut();
   pageToggle.onclick = async () => {
     const status = get('page-translation-status');
     setText(status, '');
@@ -176,11 +209,13 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     } catch {setText(get('cache-state'), message('清除失败，请重试'));}
     finally {clearCache.disabled = false;}
   };
-  const fields = Object.entries(DEFAULT_SETTINGS).filter(([name]) => name !== 'selectionTranslationMode');
+  const fields = Object.entries(DEFAULT_SETTINGS).filter(([name]) => name !== 'selectionTranslationMode' && name !== 'pageTranslationShortcut');
   const savedSettings: Record<string, unknown> = {...DEFAULT_SETTINGS};
   async function load() {
     try {
       const stored=await browser.storage.local.get([...Object.keys(DEFAULT_SETTINGS),'deepseekApiKey','aiServices']);
+      savedShortcut = isPageShortcut(stored.pageTranslationShortcut) ? stored.pageTranslationShortcut : DEFAULT_SETTINGS.pageTranslationShortcut;
+      renderShortcut();
       for(const [name,fallback] of fields) {
         const control=get<HTMLInputElement|HTMLSelectElement>(name),value=validSetting(name,stored[name])?stored[name]:fallback;
         savedSettings[name] = value;
@@ -408,6 +443,11 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
   });
   browser.storage.onChanged.addListener((changes,area)=>{
     if(area!=='local')return;
+    if (changes.pageTranslationShortcut) {
+      const next = changes.pageTranslationShortcut.newValue;
+      savedShortcut = isPageShortcut(next) ? next : DEFAULT_SETTINGS.pageTranslationShortcut;
+      renderShortcut();
+    }
     if (Object.keys(changes).some(isPillVisibilityKey)) void refreshPillVisibility();
     for(const [name] of fields){
       if(!changes[name]||!validSetting(name,changes[name].newValue))continue;

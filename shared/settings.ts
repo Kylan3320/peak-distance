@@ -1,3 +1,4 @@
+import { defaultPageShortcut, isPageShortcut } from './pageShortcut';
 import type { DictionarySource } from '@/lib/onlineDictionary';
 import { isDisplayLanguage, type DisplayLanguage } from './i18n';
 import {
@@ -20,6 +21,7 @@ export interface Settings {
   primaryDictionary: DictionarySource;
   backupDictionary: DictionarySource;
   selectionTranslationMode: 'regular' | 'ai';
+  pageTranslationShortcut: string;
   pageTranslationStyle: 'frost' | 'parallel' | 'translated';
   pageTranslationEngine: 'native' | 'ai';
   translationMode: 'regular' | 'ai';
@@ -38,6 +40,7 @@ export const DEFAULT_SETTINGS: Settings = {
   displayLanguage: 'auto',
   markingEnabled: true, primaryDictionary: 'cambridge', backupDictionary: 'youdao',
   selectionTranslationMode: 'regular',
+  pageTranslationShortcut: defaultPageShortcut,
   pageTranslationStyle: 'frost',
   pageTranslationEngine: 'native',
   translationMode: 'regular',
@@ -58,6 +61,7 @@ function validOverrides(v: unknown): boolean {
 }
 
 export function validSetting(name: string, value: unknown): boolean {
+  if (name === 'pageTranslationShortcut') return isPageShortcut(value);
   if (name === 'pageTranslationStyle') return value === 'frost' || value === 'parallel' || value === 'translated';
   if (name === 'pageTranslationEngine') return value === 'native' || value === 'ai';
   if (name === 'appearanceTheme') return value === 'minimal' || value === 'classic';
