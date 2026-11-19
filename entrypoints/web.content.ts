@@ -1,4 +1,6 @@
 import { initAppearance } from '@/shared/appearance';
+import { mountPageReading } from '@/shared/pageReading';
+import { readingText } from '@/shared/selection';
 import { t as tr, localize, onDisplayLanguageChange, initDisplayLanguage , message, setText, setLocalizedAttribute, type UiText } from '@/shared/i18n';
 // 通用网页 / X 选词 content script（M1 + M3 标记 + M5 问答入口）。
 // 跳过 YouTube（M2 脚本负责字幕与页面正文）、输入框 / contenteditable /
@@ -37,6 +39,7 @@ export default defineContentScript({
     if (document.contentType === 'application/pdf') return;
     initAppearance();
     await initDisplayLanguage();
+    mountPageReading((key,retry) => pageToast(message(key),retry));
     // 注入标记：供自动化断言 content script 已就绪（与 M0 徽标 data-blc-* 同一做法）
     document.documentElement.setAttribute('data-blc-web', '1');
 
@@ -113,7 +116,7 @@ export default defineContentScript({
         ) {
           continue;
         }
-        const t = (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+        const t = readingText(el).replace(/\s+/g, ' ').trim();
         if (t.length >= 2) out.push(t);
         if (out.length >= 1200) break; // 防御超大页面
       }
@@ -123,12 +126,12 @@ export default defineContentScript({
     function pickArticleRoot(): Element | null {
       // 1) 选区所在文章（最贴近用户关注点）
       const bySel = selectionElement()?.closest('article');
-      if (bySel && (bySel.textContent?.length ?? 0) > 120) return bySel;
+      if (bySel && readingText(bySel).length > 120) return bySel;
       // 2) 文本量最大的 <article>
       let best: Element | null = null;
       let bestLen = 0;
       for (const a of Array.from(document.querySelectorAll('article'))) {
-        const l = a.textContent?.length ?? 0;
+        const l = readingText(a).length;
         if (l > bestLen) {
           best = a;
           bestLen = l;
@@ -137,7 +140,7 @@ export default defineContentScript({
       if (best && bestLen > 500) return best;
       // 3) main / role=main
       const main = document.querySelector('main, [role="main"]');
-      if (main && (main.textContent?.length ?? 0) > 500) return main;
+      if (main && readingText(main).length > 500) return main;
       // 4) 无语义标签的普通页面：返回 body 作候选根（此处不设阈值；
       //   正文块阈值——比语义根更严的 ≥5 段且 >500 字符——在
       //   extractArticleMaterial 应用，避免把菜单当正文）
@@ -189,7 +192,7 @@ export default defineContentScript({
       const t = xTargetPost();
       if (!t) return null;
       const textEl = t.article.querySelector('[data-testid="tweetText"]');
-      const text = (textEl?.textContent ?? t.article.textContent ?? '')
+      const text = readingText(textEl ?? t.article)
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 2000);
@@ -238,17 +241,27 @@ export default defineContentScript({
     }
 
     // 页面内轻提示（如全屏时侧栏打不开）
-    function pageToast(text: string | UiText): void {
+    function pageToast(text: string | UiText, retry?: () => void): void {
       const host = document.createElement('div');
+      host.setAttribute('data-blc-skip','');
+      host.setAttribute('role','status');
       host.style.cssText =
         'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);z-index:2147483647;pointer-events:none;';
       const box = document.createElement('div');
       box.style.cssText =
         'background:rgba(8,8,8,.85);color:#e8eaed;padding:8px 14px;border-radius:8px;font:13px/1.4 system-ui,"Microsoft YaHei",sans-serif;';
       setText(box,text);
+      if (retry) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.style.cssText = 'margin-inline-start:8px;pointer-events:auto';
+        setText(button,message('重试'));
+        button.onclick = () => { host.remove(); retry(); };
+        box.append(button);
+      }
       host.appendChild(box);
       document.documentElement.appendChild(host);
-      setTimeout(() => host.remove(), 3200);
+      setTimeout(() => host.remove(), retry ? 10000 : 3200);
     }
 
     /** 词卡「继续问」：附加当前词卡表达与可靠原句（可带已有释义），不发新查询。 */
@@ -310,8 +323,8 @@ export default defineContentScript({
       );
       for (let i = 0; i < nodes.snapshotLength; i++) {
         const el = nodes.snapshotItem(i) as Element;
-        if (el.closest('script,style,noscript,template')) continue;
-        const t = (el.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (el.closest('script,style,noscript,template,pd-page-translation')) continue;
+        const t = readingText(el).replace(/\s+/g, ' ').trim().toLowerCase();
         if (t.includes(prefix) && t.length < bestLen) {
           best = el;
           bestLen = t.length;

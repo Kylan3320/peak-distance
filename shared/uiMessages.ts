@@ -1,5 +1,16 @@
 /** Product copy only. Source keys stay stable across wording changes and saved material labels. */
 export const UI_MESSAGES: Record<string, readonly [string, string, string, string, string]> = {
+  '网页翻译样式': ['网页翻译样式', '網頁翻譯樣式', 'Page translation display', 'Darstellung der Webseitenübersetzung', 'Affichage de la traduction de page'],
+  '翻译或恢复当前网页': ['翻译或恢复当前网页', '翻譯或還原目前網頁', 'Translate or restore this page', 'Diese Seite übersetzen oder wiederherstellen', 'Traduire ou rétablir cette page'],
+  '快捷键：{key}': ['快捷键：{key}', '快速鍵：{key}', 'Shortcut: {key}', 'Tastenkürzel: {key}', 'Raccourci : {key}'],
+  '未绑定快捷键': ['未绑定快捷键', '尚未設定快速鍵', 'No shortcut assigned', 'Kein Tastenkürzel zugewiesen', 'Aucun raccourci attribué'],
+  '当前页面不支持段落翻译': ['当前页面不支持段落翻译', '目前網頁不支援段落翻譯', 'Paragraph translation is unavailable on this page.', 'Absatzübersetzung ist auf dieser Seite nicht verfügbar.', 'La traduction des paragraphes est indisponible sur cette page.'],
+  '内置翻译不可用，可在翻译设置中准备语言模型': ['内置翻译不可用，可在翻译设置中准备语言模型。', '內建翻譯無法使用，可在翻譯設定中準備語言模型。', 'Browser translation is unavailable. Prepare the language model in Translation settings.', 'Die Browserübersetzung ist nicht verfügbar. Das Sprachmodell lässt sich in den Übersetzungseinstellungen vorbereiten.', 'La traduction du navigateur est indisponible. Préparez le modèle de langue dans les paramètres de traduction.'],
+  '当前页面没有可翻译的正文': ['当前页面没有可翻译的正文。', '目前網頁沒有可翻譯的內文。', 'No article text to translate on this page.', 'Auf dieser Seite wurde kein übersetzbarer Text gefunden.', 'Cette page ne contient pas de texte à traduire.'],
+  '网页翻译方式': ['网页翻译方式', '網頁翻譯方式', 'Page translation engine', 'Übersetzungsdienst für Webseiten', 'Service de traduction de page'],
+  '双语直显': ['双语直显', '雙語並列', 'Bilingual paragraphs', 'Zweisprachige Absätze', 'Paragraphes bilingues'],
+  '磨砂译文': ['磨砂译文', '霧化譯文', 'Blurred translations', 'Verdeckte Übersetzungen', 'Traductions floutées'],
+  '仅看译文': ['仅看译文', '僅看譯文', 'Translation only', 'Nur Übersetzung', 'Traduction seule'],
   '选区浮条': ['选区浮条', '選取浮動工具列', 'Selection toolbar', 'Auswahlleiste', 'Barre de sélection'],
   '浮条显示选项': ['浮条显示选项', '浮動工具列顯示選項', 'Toolbar visibility', 'Sichtbarkeit der Leiste', 'Affichage de la barre'],
   '本页不再显示': ['本页不再显示', '本頁不再顯示', 'Hide on this page', 'Auf dieser Seite ausblenden', 'Masquer sur cette page'],

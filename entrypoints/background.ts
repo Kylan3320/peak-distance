@@ -5,11 +5,11 @@ import { handleSelectionCandidateMessage, initSelectionCandidateStore } from '@/
 import { handleSelectionVisibility } from '@/lib/selectionVisibility';
 import { isPillVisibilityKey } from '@/shared/selectionVisibility';
 import { selectionError } from '@/shared/panel';
-import { startSelectionQuery, saveSelectionQuery, cancelSelectionQuery, detachSelectionScope } from '@/lib/translationLearning';
+import { startSelectionQuery, saveSelectionQuery, cancelSelectionQuery, detachSelectionScope, queryAiText } from '@/lib/translationLearning';
 import { selectionSource, translationIdentity } from '@/shared/knowledge';
 import type { SelectionSnapshot } from '@/shared/panel';
-import { translateRegularCues } from '@/lib/regularTranslation';
-import { ensureLanguageDocument } from '@/lib/nativeTranslation';
+import { translateRegularCues, translationCacheKey } from '@/lib/regularTranslation';
+import { ensureLanguageDocument, requestNativeTranslation } from '@/lib/nativeTranslation';
 import { isTranslationService } from '@/shared/translationService';
 import { cached, cacheGet, cachePut, trimCache, clearQueryCache } from '@/lib/onlineCache';
 import { appearanceTheme, DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
@@ -68,6 +68,8 @@ import type {
   BroadcastEvent,
   GetEntryResult,
   GetSettingsResult,
+  PageTranslationRequest,
+  PageTranslationReply,
   RemoveFormResult,
   SaveResult,
   SettingsView,
@@ -655,7 +657,50 @@ async function handle(
   }
 }
 
+type RuntimePort = Parameters<Parameters<typeof browser.runtime.onConnect.addListener>[0]>[0];
+
+function connectPageTranslation(port: RuntimePort) {
+  if (port.name !== 'page-translation') return;
+  if (port.sender?.id !== browser.runtime.id || !port.sender.tab || port.sender.frameId !== 0) {
+    port.disconnect();
+    return;
+  }
+  const controller = new AbortController();
+  port.onDisconnect.addListener(() => controller.abort());
+  port.onMessage.addListener(async (request: PageTranslationRequest) => {
+    if (!request || typeof request.id !== 'string') return;
+    const {id, text, source, target, engine} = request;
+    const send = (reply: PageTranslationReply) => {
+      if (!controller.signal.aborted) port.postMessage(reply);
+    };
+    if (typeof text !== 'string' || !text.trim() || !(source === 'auto' || isLanguageTag(source)) ||
+        !isLanguageTag(target) || !validSetting('pageTranslationEngine', engine)) {
+      send({id, ok:false, error:'bad-payload'});
+      return;
+    }
+    try {
+      const result = engine === 'ai'
+        ? await queryAiText(text, source, target, controller.signal)
+        : await cached(translationCacheKey(text, source, target, 'browser-native'),
+            signal => requestNativeTranslation(text, {source, target}, signal), controller.signal);
+      send(result.ok ? {id, ok:true, text:result.text} : {id, ok:false, error:result.error});
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      console.warn('[pd] page translation failed', error);
+      send({id, ok:false, error:'internal'});
+    }
+  });
+}
+
 export default defineBackground(() => {
+  browser.runtime.onConnect.addListener(connectPageTranslation);
+  browser.commands.onCommand.addListener(async (command, tab) => {
+    if (command !== 'toggle-page-translation') return;
+    const active = tab ?? (await browser.tabs.query({active:true, lastFocusedWindow:true}))[0];
+    if (active?.id === undefined) return;
+    // Browser pages and unsupported sites have no web content script.
+    await browser.tabs.sendMessage(active.id, {type:'page-translation-toggle'}, {frameId:0}).catch(() => {});
+  });
   void updateActionTitle();
   // storage.local 收紧为受信任上下文（扩展页面 / SW），content script 不可读。
   void browser.storage.local

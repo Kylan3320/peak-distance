@@ -1,4 +1,7 @@
 {
+  "togglePageTranslation": {
+    "message": "開啟或關閉本頁段落翻譯"
+  },
   "extensionDescription": {
     "message": "在網頁、X 和 YouTube 中查詞、翻譯並複習。"
   },

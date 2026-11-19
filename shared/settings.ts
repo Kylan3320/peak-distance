@@ -20,6 +20,8 @@ export interface Settings {
   primaryDictionary: DictionarySource;
   backupDictionary: DictionarySource;
   selectionTranslationMode: 'regular' | 'ai';
+  pageTranslationStyle: 'frost' | 'parallel' | 'translated';
+  pageTranslationEngine: 'native' | 'ai';
   translationMode: 'regular' | 'ai';
   bilingualEnabled: boolean;
   chineseVisible: boolean;
@@ -36,6 +38,8 @@ export const DEFAULT_SETTINGS: Settings = {
   displayLanguage: 'auto',
   markingEnabled: true, primaryDictionary: 'cambridge', backupDictionary: 'youdao',
   selectionTranslationMode: 'regular',
+  pageTranslationStyle: 'frost',
+  pageTranslationEngine: 'native',
   translationMode: 'regular',
   bilingualEnabled: true, chineseVisible: true, cacheLimit: 200, subtitleSize: 'standard',
   defaultComprehensionLang: DEFAULT_COMPREHENSION_LANG,
@@ -54,6 +58,8 @@ function validOverrides(v: unknown): boolean {
 }
 
 export function validSetting(name: string, value: unknown): boolean {
+  if (name === 'pageTranslationStyle') return value === 'frost' || value === 'parallel' || value === 'translated';
+  if (name === 'pageTranslationEngine') return value === 'native' || value === 'ai';
   if (name === 'appearanceTheme') return value === 'minimal' || value === 'classic';
   if (name === 'displayLanguage') return isDisplayLanguage(value);
   if (name === 'subtitleSize') return ['small', 'standard', 'large'].includes(String(value));

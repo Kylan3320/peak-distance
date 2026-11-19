@@ -6,7 +6,7 @@ Peak Distance 使用 WXT、TypeScript 和 DOM/CSS，作为同一个 Manifest V3 
 
 | 位置 | 职责 |
 | --- | --- |
-| [网页内容脚本](../entrypoints/web.content.ts) | 网页／X 的选区、词汇标记、正文和帖子材料 |
+| [网页内容脚本](../entrypoints/web.content.ts)、[段落阅读](../shared/pageReading.ts)、[段落显示与恢复](../shared/pageParagraphDom.ts) | 网页／X 的选区、词汇标记、学习材料，以及网页逐段翻译 |
 | [YouTube 页面桥](../entrypoints/youtube-inject.content.ts)、[内容脚本](../entrypoints/youtube.content.ts) | MAIN world 获取字幕与确认选轨；隔离世界显示字幕、控制播放和绑定当前视频 |
 | [工作区](../entrypoints/sidepanel/)、[视频视图](../shared/youtubeWorkspace.ts)、[设置](../shared/settingsView.ts) | 生词本、当前内容、复习、问答和共用设置；当前视频设置发送到绑定的内容脚本 |
 | [工作区路由](../lib/panelService.ts)、[浮动外壳](../shared/floatingPanel.ts) | 固定／浮动移交、全屏与恢复 |
@@ -35,6 +35,7 @@ Peak Distance 使用 WXT、TypeScript 和 DOM/CSS，作为同一个 Manifest V3 
 - 常规联网由后台发起，词典返回内容解析为纯数据。AI 调用由明确动作或有效模式授权；凭据仅由受信任的扩展上下文读取，自定义域名在保存时申请权限。请求固定服务、模型及来源，切换与取消后丢弃过期结果。
 - 浏览器内置翻译在扩展 offscreen 文档和同源 iframe 运行，主动模型下载通过可见准备页的用户点击完成。常规翻译入口共用按实际能力选择服务的路由。内置仅在对应模型就绪时执行，未就绪或服务失败时转 Google。路由策略与实际来源身份分离，缓存和收藏继续按真实来源隔离。边界及生命周期见[翻译学习规格](specs/translation-learning.md#4-请求语言与响应)。
 - 问答的窗口临时编辑在 session 中，已提交历史在 IndexedDB。首次发送事务同时保存会话、材料、首问和回答占位；后续引用绑定原材料快照。材料与模型指令分离，来源链接取自有效快照。换库、关闭和切会话使过期编辑失效。
+- 网页段落翻译按用户选定的内置或 AI 渠道请求，内置失败时保留原文。段落显示和阅读位置由内容脚本持有；后台连接只承载翻译请求。样式切换、浏览器后台休眠与段落请求具有独立的生命周期。
 
 ## YouTube 字幕
 

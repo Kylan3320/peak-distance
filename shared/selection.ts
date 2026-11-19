@@ -18,17 +18,30 @@ export function shadowSelection(root:ShadowRoot):{text:string;range:Range}|null 
  * Range 在容器元素拼接文本中的偏移（正文块/字幕行 → 原文定位用）。
  * 端点不在容器的文本节点内（元素边界等）返回 null，调用方不猜。
  */
+export function readingText(root:Element|null):string {
+  if (!root) return '';
+  if (!root.querySelector('pd-page-translation')) return root.textContent ?? '';
+  const walker = document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+  const parts:string[] = [];
+  for (let n=walker.nextNode(); n; n=walker.nextNode()) {
+    if (!n.parentElement?.closest('pd-page-translation')) parts.push(n.textContent ?? '');
+  }
+  return parts.join('');
+}
+
 export function rangeOffsetsIn(root:Element,range:Range):{start:number;end:number;text:string}|null {
   const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+  const translation=root.closest('pd-page-translation');
   let acc=0,start=-1,end=-1;
   for(let n=walker.nextNode();n;n=walker.nextNode()){
     const node=n as Text;
+    if (node.parentElement?.closest('pd-page-translation') !== translation) continue;
     if(node===range.startContainer)start=acc+Math.min(range.startOffset,node.length);
     if(node===range.endContainer)end=acc+Math.min(range.endOffset,node.length);
     acc+=node.length;
   }
   if(start<0||end<0)return null;
-  return {start,end,text:root.textContent??''};
+  return {start,end,text:readingText(root)};
 }
 
 /** 把 Range 收窄到元素内部（跨出元素的部分不取：字幕译文/控件文字）。 */

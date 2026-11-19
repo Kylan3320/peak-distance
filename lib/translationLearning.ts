@@ -15,7 +15,7 @@ export type SelectionTranslationResult = RegularTranslationResult | (AiSelection
   source: `ai:${AiProvider}`; detectedLang?: string; httpStatus?: number;
 });
 
-async function queryAiSelection(text: string, source: string, target: string, signal: AbortSignal, fresh: boolean): Promise<SelectionTranslationResult> {
+export async function queryAiText(text: string, source: string, target: string, signal: AbortSignal, fresh = false): Promise<SelectionTranslationResult> {
   const config = await getAiConfig();
   const service = `ai:${config.provider}` as const;
   if (!config.apiKey) return {ok:false, source:service, error:'no-key'};
@@ -61,7 +61,7 @@ export async function startSelectionQuery(scope: string, requestId: string, snap
   const key = keyOf(scope, requestId);
   if (queries.has(key)) throw new Error('duplicate translation request');
   const controller = new AbortController();
-  const translate = mode === 'ai' ? queryAiSelection : queryTranslation;
+  const translate = mode === 'ai' ? queryAiText : queryTranslation;
   const result = translate(snapshot.text, source, target, controller.signal, fresh).catch(error => {
     if (controller.signal.aborted) return {ok:false as const,source:'google-gtx' as const,error:'aborted' as const};
     throw error;

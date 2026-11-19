@@ -101,14 +101,17 @@ export async function cached<T extends { ok: boolean }>(
   const hit = primary ?? (!fresh && fallback ? await cacheGet<T>(fallback.key) : undefined);
   signal?.throwIfAborted();
   if (hit && !fresh) return hit;
-  let task = fresh ? undefined : pending.get(key);
+  // Completed primary results can be shared. In-flight calls with a fallback can
+  // return another provider's result and must not serve a strict-provider caller.
+  const workKey = fallback ? key + '|' + fallback.key : key;
+  let task = fresh ? undefined : pending.get(workKey);
   if (!task) {
-    if (fresh && pending.has(key)) pending.get(key)!.cacheable = false;
+    if (fresh && pending.has(workKey)) pending.get(workKey)!.cacheable = false;
     const controller = new AbortController(), epoch = queryEpoch;
     task = { controller, cacheable:true, users: new Set(), result: Promise.resolve() };
     const current = task;
     task.result = Promise.resolve().then(() => run(controller.signal)).then(result => {
-      if (result.ok && !controller.signal.aborted && pending.get(key) === current && (!ordinary(key) || epoch === queryEpoch)) {
+      if (result.ok && !controller.signal.aborted && pending.get(workKey) === current && (!ordinary(key) || epoch === queryEpoch)) {
         const resultKey = fallback?.used(result) ? fallback.key : key;
         void cachePut(resultKey, result, () => {
           if (!current.cacheable || controller.signal.aborted || ordinary(key) && epoch !== queryEpoch) return false;
@@ -118,8 +121,8 @@ export async function cached<T extends { ok: boolean }>(
         });
       }
       return result;
-    }).finally(() => { if (pending.get(key) === current) pending.delete(key); });
-    pending.set(key, task);
+    }).finally(() => { if (pending.get(workKey) === current) pending.delete(workKey); });
+    pending.set(workKey, task);
   }
   const user = Symbol(), current = task;
   current.users.add(user);
@@ -127,7 +130,7 @@ export async function cached<T extends { ok: boolean }>(
     const release = () => {
       signal?.removeEventListener('abort', abort);
       current.users.delete(user);
-      if (!current.users.size && pending.get(key) === current) { pending.delete(key); current.controller.abort(); }
+      if (!current.users.size && pending.get(workKey) === current) { pending.delete(workKey); current.controller.abort(); }
     };
     const abort = () => {
       release();

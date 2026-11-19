@@ -10,7 +10,7 @@ import { brandTokens, sharedControls, CHAT_ADD_ICON } from './brand';
 import selectionActionStyles from './selectionActions.css?inline';
 import { actionMenu, iconButton } from './uiControls';
 import { detectTextLanguage } from './tokenize';
-import { classifyRangeIn, inlineRunContainer } from './selection';
+import { classifyRangeIn, inlineRunContainer, readingText } from './selection';
 import { materialFromCandidate, type SelectionCandidate, type SourceDescriptor } from './chat';
 import type { LookupPopup } from './lookupPopup';
 import { isLanguageTag, normalizeLangTag } from './languages';
@@ -121,7 +121,7 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     const range = sel.getRangeAt(0);
     const startBlock = blockElementOf(range.startContainer);
     const endBlock = blockElementOf(range.endContainer);
-    const blockText = (startBlock?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const blockText = readingText(startBlock).replace(/\s+/g, ' ').trim();
     const lang = detectTextLanguage(raw) ?? detectTextLanguage(blockText) ?? 'en';
     // 未跨正文块时才有词/短语分类；跨块（或选区落在无块元素文本上）按句段处理。
     // 分类与有效表达的计算见 shared/selection.ts 的 classifyRangeIn

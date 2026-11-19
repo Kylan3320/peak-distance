@@ -37,6 +37,17 @@ export type LookupErrorCode =
 export type LookupIntent = 'active' | 'hover' | 'preview' | 'prefetch';
 
 /** content script / 侧栏 / 设置页 → background 的请求。 */
+export interface PageTranslationRequest {
+  id: string;
+  text: string;
+  source: string;
+  target: string;
+  engine: Settings['pageTranslationEngine'];
+}
+export type PageTranslationReply =
+  | {id: string; ok: true; text: string}
+  | {id: string; ok: false; error: string};
+
 export type BgcRequest =
   | { type: 'prepareSubtitleWorker' }
   | { type: 'selectionVisibilityGet'; url: string }
