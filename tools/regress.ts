@@ -228,7 +228,7 @@ console.log('M1 词汇：planSave 决策（网页来源）');
   check('补释义条件：仅空释义时补', shouldBackfill(ctxs[0]) === true && shouldBackfill({ definition: 'x' }) === false);
 }
 
-subtitleSentenceChecks(check);
+await subtitleSentenceChecks(check);
 {
   const tracker = new SubtitleSourceTracker('V');
   const emptyCandidate = TT('V', 'en', 'signature=empty');

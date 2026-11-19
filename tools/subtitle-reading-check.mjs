@@ -52,13 +52,21 @@ const completed=messages.filter(x=>x.type==='cues').length;
 await scope.fetch(source('another'));await settle();
 check('explicit cancellation does not restart on a later captured source',messages.filter(x=>x.type==='cues').length===completed);
 
-const componentCode=await compile("export {createYoutubeWorkspace} from './shared/youtubeWorkspace'; export {createLookupPopup} from './shared/lookupPopup';");
+const componentCode=await compile("export {appendSubtitleText} from './shared/subtitleText'; export {createYoutubeWorkspace} from './shared/youtubeWorkspace'; export {createLookupPopup} from './shared/lookupPopup';");
 const browser=await chromium.launch({executablePath:process.env.BLC_CHROME||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});
 try {
   const page=await browser.newPage({viewport:{width:800,height:700}});page.setDefaultTimeout(8000);
   await page.setContent('<div id="mount" style="height:500px;width:380px"></div>');
   await page.evaluate(()=>{window.browser={runtime:{getURL:()=>'',onMessage:{addListener(){}},sendMessage:async()=>({ok:true,settings:{appearanceTheme:'minimal'}})}};});
   await page.addScriptTag({content:componentCode});
+  check('a long clause wraps at natural punctuation without altering selection or translation text',
+    await page.evaluate(()=>{
+      const text='While the models were processing several examples from a large training set, each reviewer checked the original transcript for missing words and incomplete phrases, then read the full passage again to decide whether the speaker had finished explaining the idea.';
+      const line=document.createElement('div');
+      ReadingTest.appendSubtitleText(line,text,'en');
+      const range=document.createRange();range.selectNodeContents(line);
+      return line.querySelectorAll('br').length>0 && range.toString()===text && line.textContent===text;
+    }));
   await page.evaluate(()=>{
     const cues=Array.from({length:35},(_,i)=>({start:i*3000,dur:3000,lastOff:i*3000,text:`This is learning sentence number ${i}.`})).map((cue,i)=>({...cue,from:i*50,to:i*50+cue.text.length}));
     window.readingState={generation:'fixture',videoId:'reading01',videoRef:{videoId:'reading01',trackId:'https://www.youtube.com/api/timedtext?v=reading01&lang=en',trackKind:'manual',trackLang:'en',startMs:0},cues,current:1,translations:new Map(cues.map((_,i)=>[i,'完整译文用于检查收藏后的阅读位置，译文占据多行时也应该保持稳定。'.repeat(3)])),statuses:new Map(),sentences:[],sentenceVaultId:null,entries:[],notice:'',chinese:true};
@@ -183,8 +191,7 @@ try {
   const learnedTranslations = ['但我我有时觉得我们的社会太二元了。','什么事都非黑即白。'];
   const denseTranslations = [...learnedTranslations,'一切因此两极化。','这种事到处都有。','人们各选一边。',
     '这会让对话进行不下去。','有时答案在两者之间。','我们应该为此留出空间。'];
-  const densePlayerTranslation = denseTranslations.join('');
-  await worker.evaluate(({sentences,learnedTranslations,pendingText,eight,nextShared,denseLines,denseTranslations,densePlayerTranslation})=>{
+  await worker.evaluate(({sentences,learnedTranslations,pendingText,eight,nextShared,denseLines,denseTranslations})=>{
     globalThis.fallbackBatches=[];
     globalThis.denseBatches=[];
     globalThis.gates={};
@@ -204,7 +211,6 @@ try {
       ...sentences.slice(0,2).map((text,i)=>[text,learnedTranslations[i]]),
       ...eight.map((text,i)=>[text,denseTranslations[i]]),
       ...nextShared.map((text,i)=>[text,'阅读示例 '+(i+1)+' 已就绪。']),
-      [denseLines[0],densePlayerTranslation],[denseLines[1],'阅读示例已就绪。'],
       ['No. No.','不。不。'],['No.','不。'],[pendingText,'OLD EPOCH'],
       ["binary. Everything's",'二元的。一切都是'],['because of that.','因为这个。'],
     ]);
@@ -223,14 +229,14 @@ try {
       if(!translated)throw new Error('Unexpected fallback text: '+text);
       return new Response(JSON.stringify([[[translated,text]],null,'en']));
     };
-  },{sentences,learnedTranslations,pendingText,eight,nextShared,denseLines,denseTranslations,densePlayerTranslation});
+  },{sentences,learnedTranslations,pendingText,eight,nextShared,denseLines,denseTranslations});
   const gate = (key,stage)=>worker.evaluate(({key,stage})=>Promise.race([
     globalThis.gates[key][stage],new Promise((_,reject)=>setTimeout(()=>reject(new Error(key+' did not reach '+stage)),8000)),
   ]),{key,stage});
   const release = key=>worker.evaluate(key=>globalThis.gates[key].release(),key);
   const page=await context.newPage();await page.goto('https://www.youtube.com/watch?v=reading01');
   const playerEn=page.locator('#blc-subs .en'), playerZh=page.locator('#blc-subs .zh');
-  await playerEn.waitFor();
+  await playerEn.first().waitFor();
   const tabId=await control.evaluate(async()=> (await chrome.tabs.query({active:true,lastFocusedWindow:true}))[0].id);
   const action=m=>control.evaluate(({tabId,m})=>chrome.tabs.sendMessage(tabId,m),{tabId,m});
   const getState=()=>action({type:'blc-sub-get'});
@@ -243,8 +249,9 @@ try {
     [sentences[0],0,2000],[sentences[1],0,2000],[sentences[2],2000,4000],
   ]);
   check('packaged acquisition recovers into split and cross-fragment sentences',true);
-  check('player keeps the original short unit and its platform translation',
-    await playerEn.textContent()===playerLine&&await playerZh.textContent()===combinedTranslation);
+  assert.deepEqual(await playerEn.allTextContents(),sentences.slice(0,2));
+  check('a shared interval presents both learning sentences while their translation is pending',
+    !(await playerZh.allTextContents()).includes(combinedTranslation));
   const playerWord = playerEn.locator('.w').filter({hasText:/^society$/});
   const playerCard = page.locator('#blc-lookup-popup');
   await playerWord.evaluate(el=>el.click());
@@ -313,8 +320,6 @@ try {
   check('video collection counts distinct words, scopes per-context unsave and jumps to stored times',true);
   check('sidebar shows the fixed sample as three distinct rows',
     JSON.stringify(await workspace.locator('.en').allTextContents().then(a=>a.slice(0,3)))===JSON.stringify(sentences));
-  check('cross-fragment complete sentence uses the two exact platform translations',
-    await row(2).locator('.zh').textContent()==='一切变得两极化 就是因为这个。');
 
   await body.hover();await page.mouse.wheel(0,24);
   await workspace.locator('.controls button').last().waitFor();
@@ -349,6 +354,9 @@ try {
   check('split rows receive separate full-text fallback translations and retain reading state',
     await row(0).locator('.zh').textContent()===learnedTranslations[0]&&await readingPreserved()&&
     await worker.evaluate(sentences=>globalThis.fallbackBatches.some(items=>sentences.slice(0,2).every((text,id)=>items.some(i=>i.id===id&&i.text===text))),sentences));
+  assert.deepEqual(await playerZh.allTextContents(),learnedTranslations);
+  assert.equal(await row(2).locator('.zh').textContent(),denseTranslations[2]);
+  check('player and list use the same full-sentence translations across source packets',true);
   const save=row(1).getByRole('button',{name:'收藏句子',exact:true});
   await frame.evaluate(()=>{
     const send=chrome.runtime.sendMessage, tabSend=chrome.tabs.sendMessage;
@@ -444,8 +452,8 @@ try {
   await control.evaluate(id=>chrome.tabs.sendMessage(id,{type:'pd-panel-show',view:'subs'},{frameId:0}),tabId);
   await button('下一句').click();await expectIndex(1);
   await button('重播').click();await waitPause(2);
-  check('AP pauses once at the shared interval end and holds its explicitly selected row and player fragment',
-    await videoTime()<2.4&&await playerEn.textContent()===playerLine&&(await getState()).currentIndex===1);
+  check('AP pauses once at the shared interval end and holds its explicitly selected row and playable interval',
+    await videoTime()<2.4&&JSON.stringify(await playerEn.allTextContents())===JSON.stringify(sentences.slice(0,2))&&(await getState()).currentIndex===1);
   await play();await page.waitForFunction(()=>!document.querySelector('video').paused&&document.querySelector('video').currentTime>2.3);
   const beforeTheme=await getState();
   await control.evaluate(()=>chrome.storage.local.set({appearanceTheme:'minimal'}));
@@ -453,9 +461,9 @@ try {
   check('changing appearance leaves playback active and retains the subtitle generation',
     !await page.evaluate(()=>document.querySelector('video').paused)&&(await getState()).generation===beforeTheme.generation);
   await waitPause(4);
-  check('AP continues into the cross-fragment sentence and holds its final short fragment',
-    await videoTime()<4.4&&await playerEn.textContent()==='because of that.'&&
-    await playerZh.textContent()==='正是因为这个。'&&(await getState()).currentIndex===2);
+  check('AP continues into the cross-fragment sentence and holds the entire visible sentence',
+    await videoTime()<4.4&&await playerEn.textContent()===sentences[2]&&
+    await playerZh.textContent()===denseTranslations[2]&&(await getState()).currentIndex===2);
   await page.screenshot({path:resolve(output,'packaged-ap-held.png')});
   await playerEn.evaluate(el=>{
     const range=document.createRange();range.selectNodeContents(el);
@@ -465,16 +473,16 @@ try {
   await page.locator('#pd-phrase-actions').waitFor();
   await control.waitForFunction(async tabId=>{
     const cue=(await chrome.runtime.sendMessage({type:'selectionCandidateGet',tabId}))?.candidate?.cue;
-    return cue?.text==='because of that.'&&cue.startMs===3000&&cue.endMs===4000;
+    return cue?.text==='Everything gets polarized because of that.'&&cue.startMs===2000&&cue.endMs===4000;
   },tabId);
   await page.locator('#pd-phrase-actions #translate').click();
   await page.locator('#pd-translation #copy:not([disabled])').waitFor();
-  assert.equal(await page.locator('#pd-translation #result').textContent(),'因为这个。');
+  assert.equal(await page.locator('#pd-translation #result').textContent(),denseTranslations[2]);
   assert.equal(await page.locator('#pd-translation #from').inputValue(),'en');
   await page.locator('#pd-translation #close').click();
   await page.evaluate(()=>getSelection().removeAllRanges());
   await page.locator('#pd-phrase-actions').waitFor({state:'detached'});
-  check('player and floating panel translate selections with the track language; player uses the fragment time range',true);
+  check('player and floating panel translate selections with the track language; player uses the full sentence time range',true);
 
   await action({type:'blc-sub-control',videoId:state.videoId,action:'seek',timeMs:trailing[8].tStartMs});
   await gate('old','ready');
@@ -485,7 +493,10 @@ try {
   await trackSelect.selectOption(anchoredValue);
   await frame.locator('#views [data-view="subs"]').click();
   await gate('old','aborted');
-  await control.waitForFunction(async({tabId,generation})=>(await chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'})).generation!==generation,{tabId,generation:state.generation});
+  await control.waitForFunction(async({tabId,generation})=>{
+    const current=await chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'});
+    return current.generation!==generation && current.cues.length>0;
+  },{tabId,generation:state.generation});
   const anchored=await getState();
   await release('old');
   await savedTab.click();
@@ -514,8 +525,8 @@ try {
   check('anchored track has the same text with two separately playable intervals',
     anchored.trackId!==state.trackId&&anchored.cues[0].endMs===850&&anchored.cues[1].startMs===850&&anchored.cues[1].endMs===2000);
   await action({...rowRef(anchored,0),action:'seek',play:true});await waitPause(.85);
-  check('AP honors the next word anchor while holding the original short fragment',
-    await videoTime()<1.1&&(await getState()).currentIndex===0&&await playerEn.textContent()===playerLine);
+  check('AP honors the next word anchor while holding the active sentence',
+    await videoTime()<1.1&&(await getState()).currentIndex===0&&await playerEn.textContent()===sentences[0]);
   await play();await waitPause(2);
   check('AP advances to the next anchored sentence and rejects the old translation result',
     await videoTime()<2.4&&(await getState()).currentIndex===1&&
@@ -524,7 +535,7 @@ try {
   const dense=await context.newPage();
   await dense.goto('https://www.youtube.com/watch?v=dense01');
   const densePlayer=dense.locator('#blc-subs .en');
-  await densePlayer.waitFor();
+  await densePlayer.first().waitFor();
   const denseTab=await control.evaluate(async()=> (await chrome.tabs.query({active:true,lastFocusedWindow:true}))[0].id);
   const denseState=()=>control.evaluate(tabId=>chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'}),denseTab);
   const waitDense=async (condition,arg)=>{
@@ -537,12 +548,20 @@ try {
     assert.fail('Timed out waiting for dense subtitle state');
   };
   await gate('denseLast','ready');
-  await dense.locator('#blc-subs .zh').filter({hasText:densePlayerTranslation}).waitFor();
-  check('current player fragment is first in the initial batch and displays before the final row translation',
-    await worker.evaluate(text=>globalThis.denseBatches[0]?.[0].text===text&&globalThis.denseBatches[0].length===8,denseLines[0])&&
-    (await denseState()).cues[7].zh===null);
+  assert.deepEqual(await densePlayer.allTextContents(),eight);
+  check('the active sentence is requested first and no combined fragment is sent',
+    await worker.evaluate(({first,fragment})=>globalThis.denseBatches[0]?.[0].text===first&&
+      globalThis.denseBatches.every(items=>items.every(item=>item.text!==fragment)),{first:eight[0],fragment:denseLines[0]}));
   await release('denseLast');
   const denseInitial=await waitDense(state=>state.cues.slice(0,12).every(cue=>cue.zh));
+  await control.evaluate(({tabId,ref})=>chrome.tabs.sendMessage(tabId,{type:'pd-video-action',...ref,action:'seek'}),
+    {tabId:denseTab,ref:rowRef(denseInitial,7)});
+  await dense.waitForFunction(()=>{
+    const bar=document.querySelector('#blc-subs').shadowRoot.querySelector('.bar');
+    const line=bar.querySelector('[data-cue="7"]');
+    const bounds=bar.getBoundingClientRect(), target=line.getBoundingClientRect();
+    return bar.scrollHeight>bar.clientHeight && target.top>=bounds.top-1 && target.bottom<=bounds.bottom+1;
+  });
   check('eight learning rows receive their own translations without a row action or playhead change',
     denseInitial.currentIndex===0&&denseInitial.cues.slice(0,8).every((cue,i)=>
       cue.text===eight[i]&&cue.zh===denseTranslations[i]&&cue.startMs===0&&cue.endMs===30000));
@@ -592,7 +611,7 @@ try {
   assert.ok((await saveDirect(afterCrossing.cues[lastPair+1],true)).ok);
   check('repeated saving of the same range is idempotent',(await denseRecords()).length===4);
   await dense.reload();
-  await densePlayer.waitFor();
+  await densePlayer.first().waitFor();
   denseList=await openDensePanel();
   await bookmark(lastPair,true).waitFor();
   await bookmark(lastPair+1,true).click();

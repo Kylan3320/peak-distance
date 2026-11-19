@@ -1,3 +1,4 @@
+import { SUBTITLE_READER_PORT, type SubtitleReaderDemand } from '@/shared/messages';
 import { applyAppearance } from '@/shared/appearance';
 import { t as tr, localize, onDisplayLanguageChange, initDisplayLanguage, getDisplayLocale , message, setText, setLocalizedAttribute, languageLabel, type UiText } from '@/shared/i18n';
 import '@/shared/theme.css';
@@ -9,7 +10,7 @@ import { createLookupPopup } from '@/shared/lookupPopup';
 import { shadowSelection, classifyRangeIn } from '@/shared/selection';
 import { buildMarkBuckets } from '@/shared/marker';
 import { effectiveEntryLanguage, isRtlLanguage, langDisplayName } from '@/shared/languages';
-import { segmentWords } from '@/shared/tokenize';
+import { appendSubtitleText } from '@/shared/subtitleText';
 import { materialFromCandidate, type SelectionCandidate } from '@/shared/chat';
 import { CHAT_ADD_ICON } from '@/shared/brand';
 // 侧栏三个视图：生词本（词条 / 上下文 / 词形关联管理）、字幕（当前标签页
@@ -176,6 +177,7 @@ function switchView(view: string): void {
   savedScroll[prev]=currentMain()?.scrollTop??0;
   if(view==='settings' && prev!=='settings')previousView=prev||'list';
   currentView = view;
+  if(view !== 'subs') releaseReader();
   history.replaceState(null,'',`#${view}`);
   for (const btn of document.querySelectorAll<HTMLButtonElement>('#views button')) {
     const selected = btn.dataset.view === (view==='review'&&reviewSession.returnTo!=='list'?'subs':['list','sentences','knowledge','review'].includes(view)?'list':view);
@@ -278,7 +280,7 @@ document.getElementById('panel-mode')!.addEventListener('click',async()=>{
   const r=await send<{ok:boolean;error?:string}>({type:'panelSwitch',mode:floating?'fixed':'floating',nativeOpened:await nativeOpen});
   if(!r?.ok)feedback(message(r?.error??'切换失败，请重试'));
 });
-document.getElementById('panel-close')!.addEventListener('click',async()=>{lookupPopup.close();closePanelSelectionActions();await persistPanel();setChatActive(false);activePanel=false;ready=false;const r=await send<{ok:boolean}>({type:'panelClose'});if(!r?.ok){activePanel=true;ready=true;setChatActive(true);feedback(message('关闭失败，请重试'));}});
+document.getElementById('panel-close')!.addEventListener('click',async()=>{lookupPopup.close();closePanelSelectionActions();await persistPanel();setChatActive(false);activePanel=false;ready=false;releaseReader();const r=await send<{ok:boolean}>({type:'panelClose'});if(!r?.ok){activePanel=true;ready=true;setChatActive(true);feedback(message('关闭失败，请重试'));}});
 document.addEventListener('pointerdown',()=>void send({type:'panelOutsideClick',at:performance.timeOrigin+performance.now()}),true);
 document.addEventListener('click',()=>setTimeout(()=>void persistPanel(),0));
 // 滚动以帧率触发，尾沿节流到 ≥400ms 一次持久化；点击路径保持立即
@@ -725,7 +727,43 @@ function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['c
       ? videoCollection.entries.length+videoCollection.sentences.length+videoCollection.knowledge.length : 0,
     notice:state.notice,chinese:state.chineseVisible!==false};
 }
+let reader: {tabId:number; port:ReturnType<typeof browser.tabs.connect>; signature:string} | null = null;
+let workspaceVisible = false;
+function releaseReader() {
+  if (!reader) return;
+  const {port} = reader;
+  reader = null;
+  port.disconnect();
+}
+function syncReader() {
+  const viewport = videoWorkspace.readingViewport();
+  if (!activePanel || !ready || document.hidden || !workspaceVisible || currentView !== 'subs' ||
+      !subsState?.videoId || subsTabId === null || (viewport.tab !== 'subs' && viewport.tab !== 'words') ||
+      document.getElementById('video-workspace')!.hidden) {
+    releaseReader();
+    return;
+  }
+  if (reader?.tabId !== subsTabId) {
+    releaseReader();
+    const port = browser.tabs.connect(subsTabId,{frameId:0,name:SUBTITLE_READER_PORT});
+    reader = {tabId:subsTabId,port,signature:''};
+    port.onDisconnect.addListener(() => {
+      void browser.runtime.lastError;
+      if (reader?.port === port) reader = null;
+    });
+  }
+  const demand: SubtitleReaderDemand = {videoId:subsState.videoId,generation:subsState.generation,
+    view:viewport.tab, visible:viewport.generation === subsState.generation ? viewport.visible : []};
+  const signature = JSON.stringify(demand);
+  if (reader.signature !== signature) {
+    reader.port.postMessage(demand);
+    reader.signature = signature;
+  }
+}
+
 const videoWorkspace=createYoutubeWorkspace({
+  onViewportChange:syncReader,
+  retrySubtitles:()=>void control('retrySubtitles'),
   bindWords:host=>{
     const events=host.shadowRoot!;
     let selectedAt=0;
@@ -853,12 +891,17 @@ const videoWorkspace=createYoutubeWorkspace({
     events.addEventListener('keydown',e=>{const key=e as KeyboardEvent,w=wordOf(e);if(w&&(key.key==='Enter'||key.key===' ')){key.preventDefault();hoveredWord=w;openWord(w,false);}});
     return ()=>{closeSelection();selectionObserver.disconnect();document.removeEventListener('selectionchange',checkSelection);document.removeEventListener('pointerdown',outsideSelection,true);document.removeEventListener('keydown',escapeSelection);document.removeEventListener('pd-popup-outside',clearSelection);document.removeEventListener('mouseup',showSelection);host.removeEventListener('pd-subtitle-selection-clear',clearSelection);};
   },
-  words:(parent,text)=>{const lang=((cachedVideo?.trackLang||subsState?.trackLang)||'en').split('-')[0]!;let last=0;for(const s of segmentWords(text,lang)){if(s.start>last)parent.append(document.createTextNode(text.slice(last,s.start)));const w=el('span','w',s.text);w.tabIndex=0;w.setAttribute('role','button');w.style.userSelect='text';parent.append(w);last=s.end;}if(last<text.length)parent.append(document.createTextNode(text.slice(last)));},
+  words:(parent,text)=>appendSubtitleText(parent,text,cachedVideo?.trackLang || subsState?.trackLang || 'en'),
   seek:(ref,play)=>void videoAction(ref,{action:'seek',play}),lookup:(word,ref,anchor)=>void openPanelWord(word,ref,anchor,false),
   save:(ref,vaultId,removeId)=>videoAction(ref,{action:'save',vaultId,removeId}),ask:ref=>void askFromRow(ref),
 },document.getElementById('video-workspace')!);
 const videoSaved = el('div','video-saved');
 videoWorkspace.host.append(videoSaved);
+new IntersectionObserver(([entry]) => {
+  workspaceVisible = !!entry?.isIntersecting;
+  syncReader();
+}).observe(videoWorkspace.host);
+window.addEventListener('pagehide', releaseReader);
 let renderedCollection: VideoCollection | null = null;
 let renderedCategory: VideoCollectionCategory | null = null;
 
@@ -1002,7 +1045,7 @@ async function pollSubs():Promise<void> {
   if(currentView!=='subs'||!activePanel)return;
   const generation=++subsPollGeneration;
   const pinned=articleLearning.snapshot();
-  if(pinned.pinned){closePanelSelectionActions();document.getElementById('video-workspace')!.hidden=true;document.getElementById('web-selection')!.hidden=false;await articleLearning.update(pinned.source,null);return;}
+  if(pinned.pinned){releaseReader();closePanelSelectionActions();document.getElementById('video-workspace')!.hidden=true;document.getElementById('web-selection')!.hidden=false;await articleLearning.update(pinned.source,null);return;}
   const videoReturn=returnedVideo;
   if(videoReturn){
     const live=await tabSend<SubViewState>(videoReturn.tabId,{type:'blc-sub-get'});
@@ -1013,11 +1056,12 @@ async function pollSubs():Promise<void> {
     document.getElementById('video-workspace')!.hidden=false;document.getElementById('web-selection')!.hidden=true;
     if(cachedVideo?.videoId!==subsState.videoId||subsLibraryDirty||Date.now()-subsLibraryAt>=SUBS_LIBRARY_INTERVAL_MS)void refreshSubsLibrary(subsState);
     renderSubtitleState(subsState);
+    syncReader();
     if(restoreReturnedVideo){videoWorkspace.restore(videoReturn.workspace);restoreReturnedVideo=false;}
     else videoReturn.workspace=videoWorkspace.snapshot();return;
   }
   const tab=(await browser.tabs.query({active:true,currentWindow:true}))[0];
-  if(typeof tab?.id!=='number')return;
+  if(typeof tab?.id!=='number'){releaseReader();return;}
   const id=tab.id;
   const st=await tabSend<SubViewState>(id,{type:'blc-sub-get'});
   if(currentView!=='subs'||generation!==subsPollGeneration)return;
@@ -1030,6 +1074,7 @@ async function pollSubs():Promise<void> {
   document.getElementById('video-workspace')!.hidden=!subsState?.videoId;
   const web=document.getElementById('web-selection')!;web.hidden=!!subsState?.videoId;
   if(!subsState?.videoId){
+    releaseReader();
     const r=await send<{ok:boolean;snapshot:SelectionSnapshot|null}>({type:'getSelectionSnapshot'});
     if(currentView!=='subs'||generation!==subsPollGeneration)return;
     const info=await tabSend<ChatSourceInfo>(id,{type:'blc-chat-source'});
@@ -1041,10 +1086,11 @@ async function pollSubs():Promise<void> {
   renderVideoTitle(state.title);
   if(subsLibraryDirty||Date.now()-subsLibraryAt>=SUBS_LIBRARY_INTERVAL_MS)void refreshSubsLibrary(state);
   renderSubtitleState(state);
+  syncReader();
 }
 setInterval(()=>void pollSubs(),1000);
 browser.tabs.onActivated.addListener(()=>void pollSubs());
-async function control(action:'seek'|'togglePlay'|'replay'|'next'|'prev',timeMs?:number):Promise<void>{if(subsTabId!==null&&subsState?.videoId){await tabSend(subsTabId,{type:'blc-sub-control',videoId:subsState.videoId,action,timeMs});await pollSubs();}}
+async function control(action:'seek'|'togglePlay'|'replay'|'next'|'prev'|'retrySubtitles',timeMs?:number):Promise<void>{if(subsTabId!==null&&subsState?.videoId){await tabSend(subsTabId,{type:'blc-sub-control',videoId:subsState.videoId,action,timeMs});await pollSubs();}}
 
 // 快捷键：输入框 / 编辑区 / 弹窗内不截获
 document.addEventListener('keydown', (e) => {
@@ -1365,10 +1411,10 @@ async function boot(){
  await restoreChat(stored?.chat);
  if(stored?.video){await pollSubs();videoWorkspace.restore(stored.video);}
  // 启动时不由可见性事件打断恢复；就绪后按实际可见性同步聊天状态。
- ready=activePanel;setChatActive(activePanel&&document.visibilityState!=='hidden');document.body.inert=!activePanel;
+ ready=activePanel;syncReader();setChatActive(activePanel&&document.visibilityState!=='hidden');document.body.inert=!activePanel;
  workspaceInitialized=true;
  void syncLibraryOnActivity();
- browser.runtime.onMessage.addListener((m:unknown)=>{const v=m as {type?:string;windowId?:number;tabId?:number;mode?:string;view?:unknown;origin?:string;at?:number};if(v.type==='pd-popup-outside'&&v.windowId===panelWindow&&v.origin==='page'){document.dispatchEvent(new CustomEvent('pd-popup-outside',{detail:{at:v.at}}));return;}if(v.type==='pd-panel-closed'&&v.windowId===panelWindow){closePanelSelectionActions();void restoreChat();return;}if(v.type==='pd-panel-view'&&v.windowId===panelWindow){activePanel=v.mode===(floating?'floating':'fixed')&&(!floating||v.tabId===panelTabId);closePanelSelectionActions();setChatActive(false);restoreVersion++;ready=false;document.body.inert=true;if(activePanel)void restorePanel(v.view).catch(error=>workspaceFailed('restore',error));}});
+ browser.runtime.onMessage.addListener((m:unknown)=>{const v=m as {type?:string;windowId?:number;tabId?:number;mode?:string;view?:unknown;origin?:string;at?:number};if(v.type==='pd-popup-outside'&&v.windowId===panelWindow&&v.origin==='page'){document.dispatchEvent(new CustomEvent('pd-popup-outside',{detail:{at:v.at}}));return;}if(v.type==='pd-panel-closed'&&v.windowId===panelWindow){closePanelSelectionActions();void restoreChat();return;}if(v.type==='pd-panel-view'&&v.windowId===panelWindow){activePanel=v.mode===(floating?'floating':'fixed')&&(!floating||v.tabId===panelTabId);closePanelSelectionActions();setChatActive(false);restoreVersion++;ready=false;releaseReader();document.body.inert=true;if(activePanel)void restorePanel(v.view).catch(error=>workspaceFailed('restore',error));}});
  if(floating)void send({type:'panelReady'});
  browser.runtime.onMessage.addListener((m:unknown)=>{const v=m as {type?:string;tabId?:number;fullscreen?:boolean};if(v.type==='pd-panel-fullscreen'&&v.tabId===panelTabId)inVideoFullscreen=!!v.fullscreen;});
 }
@@ -1398,9 +1444,9 @@ async function restorePanel(view?:unknown) {
   }
   if(version!==restoreVersion)return;
   if(!s && isPanelView(view))switchView(view);
-  workspaceFailureStage='';setChatActive(activePanel&&document.visibilityState!=='hidden');ready=true;document.body.inert=false;
+  workspaceFailureStage='';setChatActive(activePanel&&document.visibilityState!=='hidden');ready=true;syncReader();document.body.inert=false;
   void syncLibraryOnActivity();
 }
-document.addEventListener('visibilitychange',()=>{if(!ready)return;if(document.visibilityState==='hidden'){closePanelSelectionActions();void saveDraft(true);void persistPanel();setChatActive(false);}else {setChatActive(activePanel);void syncLibraryOnActivity();}});
+document.addEventListener('visibilitychange',()=>{syncReader();if(!ready)return;if(document.visibilityState==='hidden'){closePanelSelectionActions();void saveDraft(true);void persistPanel();setChatActive(false);}else {setChatActive(activePanel);void syncLibraryOnActivity();}});
 browser.windows.onFocusChanged.addListener(windowId => {if(windowId===panelWindow)void syncLibraryOnActivity();});
 void boot().catch(error=>workspaceFailed('boot',error));

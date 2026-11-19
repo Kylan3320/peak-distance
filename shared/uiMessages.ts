@@ -416,6 +416,7 @@ export const UI_MESSAGES: Record<string, readonly [string, string, string, strin
   '整句': ['句子', '句子', 'Sentence', 'Satz', 'Phrase'],
   '整句〔分类〕': ['整句', '整句', 'Sentences', 'Sätze', 'Phrases'],
   '本视频暂无此类收藏': ['本视频暂无此类收藏', '本影片暫無此類收藏', 'Nothing saved in this category.', 'In dieser Kategorie ist nichts gespeichert.', 'Aucun élément enregistré dans cette catégorie.'],
+  '部分英文字幕未能断句，可重新读取字幕': ['部分英文字幕未能断句，可重新读取字幕', '部分英文字幕未能斷句，可重新讀取字幕', 'Some English captions could not be segmented. Reload subtitles to try again.', 'Einige englische Untertitel konnten nicht in Sätze geteilt werden. Lade sie erneut.', 'Certains sous-titres anglais n’ont pas pu être découpés en phrases. Rechargez-les.'],
   '重试字幕': ['重读字幕', '重讀字幕', 'Reload subtitles', 'Untertitel neu laden', 'Recharger les sous-titres'],
   '刷新页面': ['刷新页面', '重新整理', 'Reload page', 'Seite neu laden', 'Recharger la page'],
   '用 AI 翻译': ['AI翻译', 'AI翻譯', 'Use AI translation', 'Mit KI übersetzen', 'Traduire avec l’IA'],

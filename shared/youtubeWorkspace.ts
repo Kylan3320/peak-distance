@@ -4,7 +4,7 @@ import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocal
 import { brandTokens, brandControls } from './brand';
 import type { Cue } from './protocol';
 import type { Settings } from './settings';
-import type { SubtitleRowRef } from './messages';
+import { SUBTITLE_FALLBACK_NOTICE, type SubtitleRowRef } from './messages';
 import { cueWords, fmtClock } from './cues';
 import { matchSentenceBookmarks, type SavedSentence, type SentenceRange, type VideoRef } from './vocab';
 import { normalizeExpressionInLanguage } from './languages';
@@ -70,6 +70,8 @@ const css = `
 `;
 
 export function createYoutubeWorkspace(actions: {
+  onViewportChange?: () => void;
+  retrySubtitles?: () => void;
   bindWords: (host: HTMLElement) => () => void;
   words: (parent: HTMLDivElement, text: string) => void;
   seek: (row: SubtitleRowRef, play?: boolean) => void;
@@ -103,6 +105,16 @@ export function createYoutubeWorkspace(actions: {
   let lastCurrent = -1;
   let lastIdentity = '';
   const rowRefs = new WeakMap<Element, SubtitleRowRef>();
+  const visibleRows = new Set<number>();
+  const viewportObserver = actions.onViewportChange ? new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (entry.target.parentElement !== body) continue;
+      const index = Number((entry.target as HTMLElement).dataset.cue);
+      if (entry.isIntersecting) visibleRows.add(index);
+      else visibleRows.delete(index);
+    }
+    actions.onViewportChange?.();
+  }, {root:body}) : null;
   const saveButtons = new Map<number, HTMLButtonElement>();
   const pendingSaves = new Set<string>();
   // A real mutation reply can precede a competing library poll. Retain its
@@ -175,6 +187,13 @@ export function createYoutubeWorkspace(actions: {
     selectionHeld=false; follow=true; userScrollUntil=0; highlight(true);
   });
   back.hidden = true;
+  const recovery = document.createElement('div');
+  recovery.hidden = true;
+  const explanation = document.createElement('span');
+  setText(explanation,message(SUBTITLE_FALLBACK_NOTICE));
+  recovery.append(explanation,' ');
+  button(recovery,message('重试字幕'),()=>actions.retrySubtitles?.());
+  body.before(recovery);
   body.addEventListener('scroll', () => {
     if(expectedScrollTop!==null&&Math.abs(body.scrollTop-expectedScrollTop)<1){expectedScrollTop=null;return;}
     expectedScrollTop=null;if(tab==='subs'&&(scrollbarDragging||performance.now()<userScrollUntil)){follow=false;back.hidden=false;}
@@ -220,6 +239,7 @@ export function createYoutubeWorkspace(actions: {
     let restoreTop: number | undefined;
     if (rebuild) {
       restoreTop = renderedTab === tab ? body.scrollTop : scrollPositions.get(tab) ?? 0;
+      viewportObserver?.disconnect(); visibleRows.clear();
       body.replaceChildren();
       saveButtons.clear();
       if(contentChanged){selectionHeld=false;host.dispatchEvent(new CustomEvent('pd-subtitle-selection-clear'));}
@@ -232,6 +252,7 @@ export function createYoutubeWorkspace(actions: {
           const save=icon(tools,'bookmark',message('收藏整句'),()=>void toggleSave(ref,save,error));saveButtons.set(i,save);
           save.addEventListener('pointerdown',e=>{if(shadowSelection(root))e.preventDefault();});
           icon(tools, 'ask', message('问 AI'), () => actions.ask(ref));tools.append(error); body.append(row);
+          viewportObserver?.observe(row);
         });
       } else if (tab === 'words') {
         if (!state.cues.length) empty(message(state.notice || '字幕尚未就绪'));
@@ -269,6 +290,7 @@ export function createYoutubeWorkspace(actions: {
       });
       lastStatuses = state.statuses;
     }
+    recovery.hidden = tab === 'saved' || state.notice !== SUBTITLE_FALLBACK_NOTICE;
     const readingTop=restoreTop??body.scrollTop;
     if(!state.cues.length&&(tab==='subs'||tab==='words')){
       const notice=body.querySelector<HTMLElement>(':scope > .muted');
@@ -288,6 +310,7 @@ export function createYoutubeWorkspace(actions: {
     highlight(rebuild);
     // Restore after translations and bold current-row styling establish final geometry.
     if (rebuild && (tab !== 'subs' || !follow || selectionHeld)) setScroll(restoreTop!);
+    if (rebuild) actions.onViewportChange?.();
   }
   function highlight(force = false) {
     if (back.hidden !== follow) back.hidden = follow;
@@ -299,6 +322,7 @@ export function createYoutubeWorkspace(actions: {
   }
   return {
     host,
+    readingViewport: () => ({tab, generation:state?.generation, visible: [...visibleRows].sort((a,b)=>a-b)}),
     rowRef: (element: Element) => rowRefs.get(element),
     snapshot: () => ({ tab, follow, top:body.scrollTop }),
     restore(value: {tab?:string;follow?:boolean;top?:number}) { if(value.tab && ['subs','words','saved'].includes(value.tab))tab=value.tab;follow=value.follow!==false;render();setScroll(value.top??0); },
@@ -312,7 +336,7 @@ export function createYoutubeWorkspace(actions: {
       render();
     },
     clearSavedFeedback() {confirmedSaves.clear();lastSavedSentences=undefined;},
-    destroy() {document.removeEventListener('selectionchange',selectionChanged);document.removeEventListener('pointerup',endScrollbar);document.removeEventListener('pointercancel',endScrollbar);unbindWords();unlocalize();host.remove();},
+    destroy() {viewportObserver?.disconnect();document.removeEventListener('selectionchange',selectionChanged);document.removeEventListener('pointerup',endScrollbar);document.removeEventListener('pointercancel',endScrollbar);unbindWords();unlocalize();host.remove();},
   };
 }
 

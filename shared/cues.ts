@@ -28,7 +28,7 @@ export function cueWords(cues: Cue[], lang?: string): { word: string; count: num
 }
 
 /** 平台译文缓存随表示规则更新；轨道身份与历史收藏不变。 */
-export const DISPLAY_CUE_VERSION = 4;
+export const DISPLAY_CUE_VERSION = 5;
 
 /** JSON3 的词段偏移和换人标记转换到规范化后的字符坐标。 */
 export function parseJson3(json: any): SourceFragment[] {
@@ -86,6 +86,60 @@ export function parseJson3(json: any): SourceFragment[] {
 export function buildSubtitleViews(rawCues: SourceFragment[], kind: 'manual' | 'asr', lang: string): SubtitleViews {
   const fragments = kind === 'asr' ? normalizeAsrCues(rawCues) :
     rawCues.map((cue, i) => ({ ...cue, firstEvent: i, lastEvent: i }));
+  return readingViews(fragments, kind, lang);
+}
+
+export async function buildSegmentedSubtitleViews(raw: SourceFragment[], kind: 'manual' | 'asr', lang: string,
+  predict: (passages: string[]) => Promise<string[]>): Promise<SubtitleViews & {segmentationFallback?: boolean}> {
+  const fragments = kind === 'asr' ? normalizeAsrCues(raw) :
+    raw.map((cue, index) => ({ ...cue, firstEvent: index, lastEvent: index }));
+  const passages = new Set<string>();
+  const baseline = readingViews(fragments, kind, lang, text => { passages.add(text); return undefined; });
+  if (!passages.size) return baseline;
+  const inputs = [...passages];
+  const outputs = await predict(inputs);
+  if (outputs.length !== inputs.length) return {...baseline, segmentationFallback: true};
+  const predictions = new Map(inputs.map((input, i) => [input, outputs[i]]));
+  let incomplete = false;
+  const views = readingViews(fragments, kind, lang, text => predictions.get(text), () => { incomplete = true; });
+  return incomplete ? {...views, segmentationFallback: true} : views;
+}
+
+/** Restore only source offsets. Predicted casing and punctuation never replace the transcript. */
+function predictedEnds(source: string, prediction: string): number[] | null {
+  const words = [...source.matchAll(/\S+/gu)];
+  const out = prediction.trim().split(/\s+/u);
+  if (words.length !== out.length) return null;
+  const ends: number[] = [];
+  const normalize = (word: string) => word.toLowerCase().replace(/[.,!?;:]+$/u, '');
+  for (let i = 0; i < words.length; i++) {
+    const {0: word, index} = words[i]!;
+    if (normalize(word) !== normalize(out[i]!)) return null;
+    if (/[.!?]$/u.test(out[i]!) && !/^(?:mr|mrs|ms|dr|prof|sr|jr)\.?$/i.test(word)) ends.push(index + word.length);
+  }
+  if (ends.at(-1) !== source.length) ends.push(source.length);
+  return ends;
+}
+
+/** Some English tracks retain sentence punctuation but lose capitalization.
+ * Give ICU an equal-length casing hint after an ordinary terminal word. The
+ * original text supplies every offset and every displayed character. */
+function englishSentenceProbe(run: string): string {
+  let followsTerminal = false;
+  return run.replace(/\S+/gu, token => {
+    const probe = followsTerminal && /^[a-z]/.test(token) ? token[0]!.toUpperCase() + token.slice(1) : token;
+    // Initials, dotted acronyms, decimals, ellipses and other ambiguous
+    // tokens keep the segmenter's conservative lowercase rule.
+    const terminal = /^[\p{Ps}\p{Pi}"']*([a-z]{2,}(?:['’-][a-z]+)*)\.[\p{Pe}\p{Pf}"']*$/iu.exec(token);
+    followsTerminal = !!terminal &&
+      !/^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|fig|dept|approx|inc|ltd|corp)$/i.test(terminal[1]!);
+    return probe;
+  });
+}
+
+function readingViews(fragments: SubtitleFragment[], kind: 'manual' | 'asr', lang: string, prediction?: (text: string) => string | undefined,
+  markUnaligned?: () => void): SubtitleViews {
+  const english = /^en(?:-|$)/i.test(lang);
   const separator = /^(zh|ja)(-|$)/i.test(lang) ? '' : ' ';
   const spans: { from: number; to: number }[] = [];
   const speakerBreaks: number[] = [];
@@ -95,6 +149,7 @@ export function buildSubtitleViews(rawCues: SourceFragment[], kind: 'manual' | '
     const to = from + fragment.text.length;
     spans.push({ from, to });
     for (const boundary of fragment.speakerBreaks ?? []) speakerBreaks.push(from + boundary);
+    if (/^\[[^\[\]]{1,64}\]$/u.test(fragment.text)) speakerBreaks.push(from, to);
     offset = to + separator.length;
   }
   const text = fragments.map(fragment => fragment.text).join(separator);
@@ -114,13 +169,38 @@ export function buildSubtitleViews(rawCues: SourceFragment[], kind: 'manual' | '
       interval: -1, start: 0, dur: 0, lastOff: 0,
     });
   }
+  let provisionalTail = false;
+  function emit(from: number, to: number, uncertain: boolean): boolean {
+    const source = text.slice(from, to);
+    // A verified sentence keeps its complete translation context even when
+    // it needs several display lines. Length alone is not a missing boundary.
+    // ASR sometimes attaches just one final mark to a whole lower-case passage.
+    const sparseAsr = english && kind === 'asr' && /^[a-z]/.test(source) &&
+      !/[,;:—!?]/u.test(source.slice(0, -1)) && source.split(/\s+/u).length > 38;
+    const predict = english && (uncertain || sparseAsr) && /\s/u.test(source) && !/^\[[^\]]+\]$/u.test(source);
+    const result = predict ? prediction?.(source) : undefined;
+    const ends = typeof result === 'string' && result ? predictedEnds(source, result) : null;
+    if (predict && !ends) markUnaligned?.();
+    if (!ends && uncertain) {
+      provisionalTail = Boolean(predict && prediction);
+      return false;
+    }
+    let begin = from;
+    for (const end of ends ?? [to-from]) {
+      const [left, right] = trimRange(begin, from + end);
+      if (left < right) add(left, right);
+      begin = from + end;
+    }
+    return true;
+  }
   let runStart = 0;
   for (const runEnd of [...speakerBreaks, text.length]) {
     if (runStart >= runEnd) continue;
     const run = text.slice(runStart, runEnd);
     let pending = runStart;
-    for (const part of segmenter.segment(run)) {
-      const suffix = part.segment.trimEnd();
+    const probe = english ? englishSentenceProbe(run) : run;
+    for (const part of segmenter.segment(probe)) {
+      const suffix = run.slice(part.index, part.index + part.segment.length).trimEnd();
       const end = part.index + suffix.length;
       const next = part.index + part.segment.length;
       if (!/\p{Sentence_Terminal}[\p{Pe}\p{Pf}"']*$/u.test(suffix)) continue;
@@ -128,15 +208,16 @@ export function buildSubtitleViews(rawCues: SourceFragment[], kind: 'manual' | '
       if (/\d\.$/.test(suffix) && /\d/.test(run[next] ?? '')) continue;
       if (/\b[A-Za-z]\.$/.test(suffix) && /^[A-Za-z]\./.test(run.slice(next, next + 2))) continue;
       const [from, to] = trimRange(pending, runStart + end);
-      add(from, to);
+      emit(from, to, false);
       pending = runStart + end;
     }
     const [from, to] = trimRange(pending, runEnd);
-    let tail = from;
+    let tail = from < to && emit(from, to, true) ? to : from;
     while (tail < to) {
       while (spans[firstFragment]!.to <= tail) firstFragment++;
       const end = Math.min(to, spans[firstFragment]!.to);
       add(tail, end);
+      if (provisionalTail) cues[cues.length-1]!.segmentationFallback = true;
       tail = Math.max(end, spans[firstFragment + 1]?.from ?? end);
     }
     runStart = runEnd;
@@ -150,8 +231,9 @@ function buildPlaybackIntervals(cues: LearningCue[], fragments: SourceFragment[]
     const fragment = fragments[cue.firstFragment]!;
     const last = fragments[cue.lastFragment]!;
     const previous = intervals.at(-1);
-    const anchor = cue.firstOffset === 0 ? fragment.start :
-      fragment.anchors?.find(a => a.offset === cue.firstOffset && a.time >= fragment.start && a.time < fragment.start + fragment.dur)?.time;
+    const wordStart = fragment.anchors?.find(a => a.offset === cue.firstOffset && a.time >= fragment.start && a.time < fragment.start + fragment.dur)?.time;
+    const newFragment = previous && cues[previous.firstCue]!.firstFragment !== cue.firstFragment;
+    const anchor = cue.firstOffset === 0 ? fragment.start : wordStart ?? (newFragment ? fragment.start : undefined);
     if (!previous || (anchor !== undefined && anchor > previous.start)) {
       const start = anchor ?? fragment.start;
       if (previous) previous.dur = Math.min(previous.dur, start - previous.start);
@@ -171,7 +253,7 @@ function buildPlaybackIntervals(cues: LearningCue[], fragments: SourceFragment[]
   return intervals;
 }
 
-/** 仅复用同源、唯一且完整的事件译文。独立译文轨道只用于播放器。 */
+/** 仅复用与学习项一一对应的完整同源事件译文。 */
 export function alignLearningTranslations({ cues, fragments }: SubtitleViews, translated: Cue[], raw: Cue[] = fragments): Cue[] {
   const key = (cue: Cue) => `${cue.start}:${cue.dur}`;
   const byTime = new Map<string, string | undefined>();
@@ -185,49 +267,30 @@ export function alignLearningTranslations({ cues, fragments }: SubtitleViews, tr
     sourceCounts.set(time, (sourceCounts.get(time) ?? 0) + 1);
   }
   return cues.map(cue => {
-    if (cue.firstOffset !== 0 || cue.lastOffset !== fragments[cue.lastFragment]!.text.length) return cue;
-    const parts = fragments.slice(cue.firstFragment, cue.lastFragment + 1).map(fragment =>
-      fragment.firstEvent !== fragment.lastEvent || sourceCounts.get(key(fragment)) !== 1 ? undefined : byTime.get(key(fragment)));
-    return parts.every(Boolean) ? { ...cue, zh: parts.join(' ') } : cue;
+    const fragment = fragments[cue.firstFragment]!;
+    if (cue.firstFragment !== cue.lastFragment || cue.firstOffset !== 0 ||
+      cue.lastOffset !== fragment.text.length || fragment.firstEvent !== fragment.lastEvent) return cue;
+    const time = key(fragment);
+    const zh = sourceCounts.get(time) === 1 ? byTime.get(time) : undefined;
+    return zh ? { ...cue, zh } : cue;
   });
 }
 
-/** 跨多个短片段的整句译文不能重复贴到每个播放器片段；歧义项交给常规回退。 */
-export function alignFragmentTranslatedCues(fragments: Cue[], translated: Cue[]): Cue[] {
-  const unambiguous = translated.filter(target => {
-    let owners = 0;
-    for (const fragment of fragments) {
-      const overlap = Math.min(fragment.start + fragment.dur, target.start + target.dur) - Math.max(fragment.start, target.start);
-      if (overlap > 0 && overlap >= Math.min(fragment.dur, target.dur) * 0.25 && ++owners > 1) return false;
-    }
-    return owners === 1;
-  });
-  return alignTranslatedCues(fragments, unambiguous);
-}
-
-/** 后台字幕翻译仍用数字 ID；两个视图占不相交的域，相同全文只发一次。 */
-export function buildCueTranslationBatch(
-  groups: Cue[], fragments: Cue[], groupIndices: number[], fragmentIndices: number[],
-  priority?: { group: number; fragment: number },
-): {
-  items: { id: number; text: string }[];
-  targets: { view: 'groups' | 'fragments'; index: number; id: number }[];
-} {
+/** 同批中的相同学习句只提交一次，响应回填到每个所属行。 */
+export function buildCueTranslationBatch(cues: Cue[], orderedIndices: Iterable<number>, limit: number) {
   const items: { id: number; text: string }[] = [];
-  const targets: { view: 'groups' | 'fragments'; index: number; id: number }[] = [];
+  const targets: { index: number; id: number }[] = [];
   const byText = new Map<string, number>();
-  const add = (cue: Cue, index: number, view: 'groups' | 'fragments', proposedId: number) => {
-    const id = byText.get(cue.text) ?? proposedId;
-    if (!byText.has(cue.text)) { byText.set(cue.text, id); items.push({ id, text: cue.text }); }
-    targets.push({ view, index, id });
-  };
-  if (priority && fragmentIndices.includes(priority.fragment)) {
-    add(fragments[priority.fragment]!, priority.fragment, 'fragments', groups.length + priority.fragment);
-  }
-  if (priority && groupIndices.includes(priority.group)) add(groups[priority.group]!, priority.group, 'groups', priority.group);
-  for (const index of groupIndices) if (index !== priority?.group) add(groups[index]!, index, 'groups', index);
-  for (const index of fragmentIndices) {
-    if (index !== priority?.fragment) add(fragments[index]!, index, 'fragments', groups.length + index);
+  for (const index of orderedIndices) {
+    const text = cues[index]!.text;
+    let id = byText.get(text);
+    if (id === undefined) {
+      if (items.length >= limit) continue;
+      id = index;
+      byText.set(text, id);
+      items.push({ id, text });
+    }
+    targets.push({ index, id });
   }
   return { items, targets };
 }
@@ -256,23 +319,6 @@ export function normalizeAsrCues(cues: SourceFragment[]): SubtitleFragment[] {
     } else out.push({ ...cue, firstEvent: index, lastEvent: index });
   }
   return out;
-}
-
-/** 独立轨道按时间交集对齐；滚动译文保留最长文本，不按数组下标配对。 */
-export function alignTranslatedCues(english: Cue[], chinese: Cue[]): Cue[] {
-  return english.map(cue => {
-    const matches = chinese.filter(c => {
-      const overlap = Math.min(cue.start + cue.dur, c.start + c.dur) - Math.max(cue.start, c.start);
-      return overlap > 0 && overlap >= Math.min(cue.dur, c.dur) * 0.25;
-    });
-    const parts: string[] = [];
-    for (const c of matches) {
-      const previous = parts.at(-1);
-      if (previous && c.text.startsWith(previous)) parts[parts.length - 1] = c.text;
-      else if (!parts.includes(c.text)) parts.push(c.text);
-    }
-    return { ...cue, zh: parts.join(' ') || undefined };
-  });
 }
 
 /**

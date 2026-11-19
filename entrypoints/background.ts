@@ -9,6 +9,7 @@ import { startSelectionQuery, saveSelectionQuery, cancelSelectionQuery, detachSe
 import { selectionSource, translationIdentity } from '@/shared/knowledge';
 import type { SelectionSnapshot } from '@/shared/panel';
 import { translateRegularCues } from '@/lib/regularTranslation';
+import { ensureLanguageDocument } from '@/lib/nativeTranslation';
 import { isTranslationService } from '@/shared/translationService';
 import { cached, cacheGet, cachePut, trimCache, clearQueryCache } from '@/lib/onlineCache';
 import { appearanceTheme, DEFAULT_SETTINGS, validSetting } from '@/shared/settings';
@@ -247,6 +248,10 @@ async function handle(
     if (r !== undefined) return r;
   }
   switch (m.type) {
+    case 'prepareSubtitleWorker':
+      if (sender.frameId !== 0 || !sender.url?.startsWith('https://www.youtube.com/')) return bad('forbidden-sender');
+      await ensureLanguageDocument();
+      return {ok:true};
     case 'selectionVisibilityGet':
     case 'selectionVisibilitySet':
     case 'selectionVisibilityRestore':

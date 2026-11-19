@@ -2,12 +2,12 @@ import type { RegularTranslationResult, TranslationLangs } from './regularTransl
 import { TRANSLATION_TIMEOUT_MS, untilTranslationAbort } from './translationDeadline';
 
 let creating: Promise<void> | undefined;
-async function ensureDocument() {
+export async function ensureLanguageDocument() {
   creating ??= (async () => {
     const url = browser.runtime.getURL('/native-translation.html');
     const contexts = await browser.runtime.getContexts({contextTypes:['OFFSCREEN_DOCUMENT'], documentUrls:[url]});
-    if (!contexts.length) await browser.offscreen.createDocument({url, reasons:['IFRAME_SCRIPTING'],
-      justification:'Run the bundled translation iframe independently of the reading panel.'});
+    if (!contexts.length) await browser.offscreen.createDocument({url, reasons:['IFRAME_SCRIPTING', 'WORKERS'],
+      justification:'Run native translation and the bundled subtitle boundary worker independently of the reading panel.'});
   })().finally(() => { creating = undefined; });
   await creating;
 }
@@ -17,7 +17,7 @@ export async function requestNativeTranslation(text: string, langs: TranslationL
   let detectedLang: string | undefined;
   try {
     deadline.throwIfAborted();
-    await untilTranslationAbort(ensureDocument(), deadline);
+    await untilTranslationAbort(ensureLanguageDocument(), deadline);
     deadline.throwIfAborted();
     const port = browser.runtime.connect({name:'native-translation'});
     try {

@@ -27,6 +27,8 @@ export interface SubtitleFragment extends SourceFragment {
 }
 
 export interface LearningCue extends Cue {
+  /** Provisional packet returned when the local boundary predictor was unavailable. */
+  segmentationFallback?: true;
   from: number;
   to: number;
   firstFragment: number;
@@ -82,6 +84,7 @@ export interface SelectTrackMessage {
 export type ContentMessage = ConfigMessage | NudgeMessage | ByeMessage | SelectTrackMessage | SourceCancelMessage;
 
 export interface CuesMessage extends SubtitleViews {
+  segmentationFallback?: boolean;
   source: typeof INJECT_SOURCE;
   type: 'cues';
   videoId: string;
@@ -125,7 +128,6 @@ export interface TranslationCuesMessage {
   trackId: string;
   requestId: string;
   cues: Cue[];
-  fragments: Cue[];
 }
 
 export interface TrackSelectedMessage {
@@ -136,7 +138,16 @@ export interface TrackSelectedMessage {
   track: SubtitleTrack;
 }
 
-export type InjectMessage = CuesMessage | NoCuesMessage | TracklistMessage | TranslationCuesMessage | TrackSelectedMessage;
+export interface BoundaryRequest {
+  source: typeof INJECT_SOURCE;
+  type: 'subtitle-boundaries';
+  videoId: string;
+  nonce: number;
+  revision: string;
+  passages: string[];
+}
+
+export type InjectMessage = CuesMessage | NoCuesMessage | TracklistMessage | TranslationCuesMessage | TrackSelectedMessage | BoundaryRequest;
 
 export function formatCue(c: Cue): string {
   const s = (ms: number) => `${(ms / 1000).toFixed(2)}s`;

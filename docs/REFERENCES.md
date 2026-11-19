@@ -2,6 +2,8 @@
 
 ## 实现参考
 
+英文字幕断句使用离线的 [Edge-Punct-Casing 模型](https://huggingface.co/frankyoujian/Edge-Punct-Casing/tree/bde453bde24b544f38ffdd56398bfadcd22ce935)。原作者归档中的模型和词表经 [sherpa-onnx 标点模型包](https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-online-punct-en-2024-08-06.tar.bz2) 发布，本地使用其中的 `model.int8.onnx` 和 `bpe.vocab`。Web 运行时使用 [sherpa_onnx_web 2.0.2](https://pub.dev/packages/sherpa_onnx_web/versions/2.0.2) 的同名 `assets/sherpa-onnx-wasm-web.{js,wasm}` 和 `assets/sherpa-onnx-punctuation.js`，对应 [sherpa-onnx 提交 5d2bd37](https://github.com/k2-fsa/sherpa-onnx/tree/5d2bd37de78b223a2e8e00e25483d12c5b164299)。原文件位于 `public/subtitle-segmentation/`，许可随扩展分发。
+
 | 来源 | 用途与状态 |
 | --- | --- |
 | [yt-dual-subs](https://github.com/Gythiro/yt-dual-subs) | 移植字幕获取、tlang URL 构造及 Google 翻译 |

@@ -1,5 +1,5 @@
 import type { SourceFragment, SubtitleViews } from '@/shared/protocol';
-import { alignLearningTranslations, alignFragmentTranslatedCues, buildSubtitleViews, parseJson3 } from '@/shared/cues';
+import { alignLearningTranslations, buildSegmentedSubtitleViews, parseJson3 } from '@/shared/cues';
 // MAIN world、document_start 的字幕嗅探脚本。
 //
 // 移植自 yt-dual-subs 的 inject.js（MIT，Gythiro，commit 5657c8a，2026-09-12，
@@ -136,15 +136,22 @@ export default defineContentScript({
 
     let subtitleSource: {
       src: string; videoId: string; trackId: string; rawCues: SourceFragment[];
-      input: string; revision: string; views: SubtitleViews;
+      input: string; revision: string; views: SubtitleViews; fallbackNonce?: number;
     } | null = null;
     let translationController: AbortController | null = null;
     let sourceController: AbortController | null = null;
 
-    async function produceCues(): Promise<void> {
+    function publishSource(nonce: number, source: NonNullable<typeof subtitleSource>): void {
+      post('cues', nonce, {
+        ...source.views, revision: source.revision, trackId: source.trackId,
+        trackKind: trackKindOf(source.src, location.href), trackLang: trackLangOf(source.src, location.href),
+      });
+    }
+
+    async function produceCues(cached?: NonNullable<typeof subtitleSource>): Promise<void> {
       // 开始即固定来源与轨道身份：此后所有读取只用固定值（时序 B）。
       if (!cfg) return;
-      const pinned = tracker.claimProduce(location.href);
+      const pinned = cached ? {trackKey: cached.trackId, src: cached.src} : tracker.claimProduce(location.href);
       if (!pinned) return;
       const src = pinned.src;
       // 捕获的源 URL 必须属于当前视频。
@@ -156,34 +163,50 @@ export default defineContentScript({
       const vid = tracker.currentVideoId;
       // nonce 在产出开始时定格：并发产出的回复必须对准各自的请求。
       const myNonce = reqNonce;
-      const stale = () => controller.signal.aborted || myNonce !== reqNonce || vid !== videoIdFromLocation() || tracker.staleAfterFetch(pinned.trackKey);
+      const stale = () => controller.signal.aborted || myNonce !== reqNonce || vid !== videoIdFromLocation() ||
+        (cached ? subtitleSource !== cached : tracker.staleAfterFetch(pinned.trackKey));
       const kind = trackKindOf(src, location.href);
       const lang = trackLangOf(src, location.href);
       try {
-        const json = await fetchJson3(buildJson3Url(src, location.href), controller.signal);
+        const rawCues = cached?.rawCues ?? parseJson3(await fetchJson3(buildJson3Url(src, location.href), controller.signal));
         // 拉取期间轨道或视频已变 —— 旧结果整体丢弃，不带新元数据发出。
         if (stale()) return;
-        const rawCues = parseJson3(json);
         if (!rawCues.length) {
           post('nocues', myNonce, { reason: 'empty-track' });
           return;
         }
         const input = JSON.stringify([kind, lang, rawCues]);
-        if (subtitleSource?.trackId !== pinned.trackKey || subtitleSource.input !== input) {
+        const retry = subtitleSource?.fallbackNonce !== undefined && subtitleSource.fallbackNonce !== myNonce;
+        if (subtitleSource?.trackId !== pinned.trackKey || subtitleSource.input !== input || retry) {
           const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
           if (stale()) return;
           const revision = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
           translationController?.abort();
-          subtitleSource = { src, videoId: vid, trackId: pinned.trackKey, rawCues, input, revision,
-            views: buildSubtitleViews(rawCues, kind, lang) };
+          const views = await buildSegmentedSubtitleViews(rawCues, kind, lang, passages => {
+            const channel = new MessageChannel();
+            return new Promise<string[]>(resolve => {
+              const deadline = AbortSignal.any([controller.signal, AbortSignal.timeout(21_000)]);
+              const done = (results: string[]) => {
+                deadline.removeEventListener('abort', cancel);
+                channel.port1.close();
+                resolve(results);
+              };
+              const cancel = () => {
+                channel.port1.postMessage('cancel');
+                done([]);
+              };
+              deadline.addEventListener('abort', cancel, {once:true});
+              channel.port1.onmessage = event => done(Array.isArray(event.data) ? event.data : []);
+              window.postMessage({source:INJECT_SOURCE, type:'subtitle-boundaries', videoId:vid, nonce:myNonce,
+                revision, passages}, location.origin, [channel.port2]);
+            });
+          });
+          if (stale()) return;
+          subtitleSource = { src, videoId: vid, trackId: pinned.trackKey, rawCues, input, views,
+            revision: views.segmentationFallback ? revision + '-fallback' : revision,
+            fallbackNonce: views.segmentationFallback ? myNonce : undefined };
         } else subtitleSource.src = src;
-        post('cues', myNonce, {
-          ...subtitleSource.views,
-          revision: subtitleSource.revision,
-          trackKind: kind,
-          trackLang: lang,
-          trackId: pinned.trackKey,
-        });
+        publishSource(myNonce, subtitleSource);
       } catch (err) {
         if (stale()) return;
         const error = err as Error;
@@ -208,33 +231,17 @@ export default defineContentScript({
       if (!source || source.videoId !== videoIdFromLocation() || source.trackId !== trackId) return;
       const currentSourceUrl = captionUrlFor({ id: trackOfUrl(source.trackId)!.id,
         url: tracker.sourceKey === source.trackId ? tracker.sourceUrl : source.src }, tracker.tokenSourceUrl, location.href)!;
-      const targetPrimary = tlangCode(targetTag).split('-')[0]!.toLowerCase();
       let normalized: Cue[] = source.views.cues;
-      let fragments: Cue[] = source.views.fragments;
-      const applyFragments = (translated: Cue[]) => {
-        const short = alignFragmentTranslatedCues(source.views.fragments, translated);
-        fragments = fragments.map((cue, i) => ({ ...cue, zh: cue.zh ?? short[i]?.zh }));
-      };
       try {
-        const tracks = captionTracksOf(activePlayer());
-        const target = tracks.filter(t => t.lang.split('-')[0] === targetPrimary).sort((a, b) => Number(a.kind === 'asr') - Number(b.kind === 'asr'))[0];
-        if (target) {
-          // 上游捕获 URL 的有效 pot 保留；独立轨道自身签名优先。
-          const url = captionUrlFor(target, tracker.tokenSourceUrl, location.href);
-          if (url) try { applyFragments(parseJson3(await fetchJson3(url, controller.signal))); } catch { /* 缺失部分继续平台翻译 */ }
-        }
-        if ((normalized.some(c => !c.zh) || fragments.some(c => !c.zh)) && !controller.signal.aborted) {
-          // yt-dual-subs inject.js buildUrl：保留签名及 pot，仅设置 fmt/tlang。
-          const url = new URL(currentSourceUrl); url.searchParams.set('tlang', tlangCode(targetTag));
-          try {
-            const translated = parseJson3(await fetchJson3(url.toString(), controller.signal));
-            normalized = alignLearningTranslations(source.views, translated, source.rawCues);
-            applyFragments(translated);
-          } catch { /* 通用翻译在隔离世界接手缺失项 */ }
-        }
+        const url = new URL(currentSourceUrl);
+        url.searchParams.set('tlang', tlangCode(targetTag));
+        const translated = parseJson3(await fetchJson3(url.toString(), controller.signal));
+        normalized = alignLearningTranslations(source.views, translated, source.rawCues);
+      } catch {
+        // 无可靠的平台整句译文时，隔离世界按当前模式翻译学习项全文。
       } finally {
         if (!controller.signal.aborted && source === subtitleSource && source.videoId === videoIdFromLocation()) {
-          post('translation', nonce, { videoId: source.videoId, trackId, requestId, cues: normalized, fragments });
+          post('translation', nonce, { videoId: source.videoId, trackId, requestId, cues: normalized });
         }
       }
     }
@@ -244,11 +251,14 @@ export default defineContentScript({
     function acquireCurrentTrack(): void {
       if (!cfg) return;
       if (tracker.hasCurrentSource()) void produceCues();
+      else if (subtitleSource?.fallbackNonce !== undefined && subtitleSource.fallbackNonce !== reqNonce) void produceCues(subtitleSource);
+      else if (subtitleSource) publishSource(reqNonce, subtitleSource);
       else armNocuesTimer();
     }
 
     function resetVideo(): void {
       if (!tracker.resetForVideo(videoIdFromLocation())) return;
+      subtitleSource = null;
       cancelAcquisition();
       initialSelectionPending = true;
     }
@@ -256,7 +266,6 @@ export default defineContentScript({
     function stopRequests(): void {
       sourceController?.abort();
       translationController?.abort();
-      subtitleSource = null;
     }
 
     function cancelAcquisition(): void {
@@ -285,6 +294,7 @@ export default defineContentScript({
       const tokenSource = tracker.tokenSourceUrl;
       if (tracker.selectTrack(track)) {
         stopRequests();
+        subtitleSource = null;
         if (cfg) post('track-selected', reqNonce, { track: tracker.selectedTrack });
       }
       const target = track.url ? track : captionTracksOf(activePlayer()).find(t => t.id === track.id) ?? track;
@@ -498,11 +508,15 @@ export default defineContentScript({
           //（时序 A），不靠 nudge 重抓。
           if (typeof d.nonce !== 'number' || d.nonce < reqNonce) return;
           beginAcquisition(d.nonce, true);
+          const previousSelection = tracker.selectedTrack;
           observePlayerTrack();
           const selected = tracker.selectedTrack;
+          // Native selection can change while both readers are closed. Restore
+          // the selection snapshot even when observing it now emits no change.
+          if (selected && selected.id === previousSelection?.id) post('track-selected', reqNonce, {track:selected});
           const target = selected ? captionTracksOf(activePlayer()).find(t => t.id === selected.id) : null;
           if (target) useTrack(target);
-          acquireCurrentTrack();
+          else acquireCurrentTrack();
         }
       } catch {
         /* never throw */

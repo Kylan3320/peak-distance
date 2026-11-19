@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import {
-  alignFragmentTranslatedCues, alignLearningTranslations, alignTranslatedCues, buildCueTranslationBatch,
-  buildSubtitleViews, cueIndexAt, fmtClock, normalizeAsrCues, parseJson3,
+  alignLearningTranslations, buildCueTranslationBatch,
+  buildSegmentedSubtitleViews, buildSubtitleViews, cueIndexAt, fmtClock, normalizeAsrCues, parseJson3,
 } from '../shared/cues';
 import type { SourceFragment } from '../shared/protocol';
 import { matchSentenceBookmarks, sentenceId, type SavedSentence, type VideoRef } from '../shared/vocab';
 import { parseSentenceDocument, serializeSentenceRecord } from '../lib/vault/format';
 import { sentenceToVaultRecord } from '../lib/vault/records';
 
-export function subtitleSentenceChecks(check: (name: string, pass: boolean) => void): void {
+export async function subtitleSentenceChecks(check: (name: string, pass: boolean) => void): Promise<void> {
   const make = (texts: string[], starts = texts.map((_, i) => i * 1000)): SourceFragment[] =>
     texts.map((text, i) => ({ start: starts[i]!, dur: 1000, text, lastOff: starts[i]! }));
   const sentences = [
@@ -18,8 +18,49 @@ export function subtitleSentenceChecks(check: (name: string, pass: boolean) => v
     'Everything gets polarized because of that.',
   ];
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const restored = await buildSegmentedSubtitleViews(make([
+    'did you lock the', 'door we missed', 'the train should', 'we walk', '[Applause]', 'yes',
+  ]), 'asr', 'en', async inputs => {
+    check('模型按连续原文推断，声音提示独立，单词回答直接保留',
+      same(inputs, ['did you lock the door we missed the train should we walk']));
+    return ['Did you lock the door? We missed the train. Should we walk?'];
+  });
+  check('预测切点保留原大小写与文字，不将不同首片段归入同一回放区间',
+    same(restored.cues.map(c => [c.text, c.start]), [
+      ['did you lock the door', 0], ['we missed the train', 1000], ['should we walk', 2000],
+      ['[Applause]',4000], ['yes',5000],
+    ]));
+  for (const response of [[], ['Unrelated prediction.']]) {
+    const degraded = await buildSegmentedSubtitleViews(make(['Already good.', 'this is','part of the idea']), 'asr', 'en',
+      async () => response);
+    check('失败或改写原词的预测标明暂用源片段，仍可使用可靠的原句',
+      degraded.segmentationFallback === true &&
+      same(degraded.cues.map(c => [c.text, Boolean(c.segmentationFallback)]),
+        [['Already good.', false], ['this is', true], ['part of the idea', true]]));
+  }
+  const mixed = await buildSegmentedSubtitleViews(make([
+    'the U.S. team saw Dr. smith', 'at 3.14 today. this is', 'another thought',
+  ]), 'asr', 'en', async () => []);
+  check('小写起句可在源片中间恢复真实句界，保留缩写称谓与小数',
+    same(mixed.cues.map(c => [c.text, Boolean(c.segmentationFallback)]), [
+      ['the U.S. team saw Dr. smith at 3.14 today.',false], ['this is',true], ['another thought',true],
+    ]));
   const texts = (fragments: SourceFragment[], lang = 'en') =>
     buildSubtitleViews(fragments, 'manual', lang).cues.map(c => c.text);
+  const complete = ('The accuracy of the estimated probability for the true next word, ' +
+    'which the network calculates from the preceding context, can improve as the network learns, ' +
+    'and the calculation can become more efficient if the work is divided across several processors.');
+  const reliableLong = await buildSegmentedSubtitleViews(make([complete]), 'manual', 'en',
+    async () => { throw Error('A complete sentence should bypass inference'); });
+  check('带可靠句界的长句保留整句译文上下文', same(reliableLong.cues.map(c => c.text), [complete]));
+  const unmarkedIdeas = [
+    'we arrived at the station in time to see the last train leave',
+    'the ticket office had closed and the next bus was still an hour away',
+    'we decided to walk home together and found a much shorter route along the river.',
+  ];
+  const sparse = await buildSegmentedSubtitleViews(make(unmarkedIdeas), 'asr', 'en',
+    async () => [unmarkedIdeas.map((line,i)=>line + (i<2 ? '.' : '')).join(' ')]);
+  check('自动字幕末尾偶有句号时仍可找回长段内的句界',same(sparse.cues.map(c=>c.text),unmarkedIdeas));
   const packets = [
     [sentences.join(' ')],
     sentences,
@@ -90,21 +131,17 @@ export function subtitleSentenceChecks(check: (name: string, pass: boolean) => v
   exact[0]!.dur = 2000;
   exact[1]!.dur = 2000;
   const translated = alignLearningTranslations(views, exact);
-  check('跨句译文不复用，整项完整成员的对应译文可以拼接',
-    same(translated.map(c => c.zh), [undefined, undefined, '三句开头 在这里。', '四。']));
+  check('仅完整一对一的平台字幕可复用，跨片段句子交给整句翻译',
+    same(translated.map(c => c.zh), [undefined, undefined, undefined, '四。']));
   check('仅有时间重叠、缺少或重复源事件译文时整项回退',
     !alignLearningTranslations(views, [{ ...exact[3]!, start: 4310 }])[3]?.zh &&
     !alignLearningTranslations(views, [exact[1]!])[2]?.zh &&
     !alignLearningTranslations(views, [...exact, exact[2]!])[2]?.zh);
-  const fragmentZh = alignFragmentTranslatedCues(views.fragments, exact);
-  check('播放器保留短片段译文，不复用跨片段歧义译文',
-    fragmentZh[0]?.zh === '一。二！' &&
-    alignFragmentTranslatedCues(views.fragments, [{ ...exact[1]!, dur: 1800 }]).every(c => !c.zh));
-  const batch = buildCueTranslationBatch(views.cues, views.fragments, [0, 1, 2, 3], [0, 1, 2, 3]);
-  check('回退各句按全文请求，同全文共用请求，播放器域保持独立',
-    same(batch.items.slice(0, 2).map(i => i.text), ['One.', 'Two!']) &&
-    batch.targets.find(t => t.view === 'fragments' && t.index === 0)?.id === views.cues.length &&
-    batch.targets.find(t => t.view === 'fragments' && t.index === 3)?.id === 3);
+  const repeatedCues = [...views.cues, views.cues[2]!];
+  const batch = buildCueTranslationBatch(repeatedCues, [2, 0, 1, 3, 4], 2);
+  check('同一份学习句候选按当前句优先，同文复用整句结果',
+    same(batch.items.map(i => i.text), [views.cues[2]!.text, 'One.']) &&
+    same(batch.targets, [{index:2,id:2}, {index:0,id:0}, {index:4,id:2}]));
   const video: VideoRef = { videoId: 'test', trackId: 'https://www.youtube.com/api/timedtext?v=test&lang=en',
     trackKind: 'manual', trackLang: 'en', startMs: 0 };
   const duplicate = buildSubtitleViews(make(['No. No.']), 'manual', 'en').cues;
@@ -135,14 +172,10 @@ export function subtitleSentenceChecks(check: (name: string, pass: boolean) => v
   check('末句内命中', cueIndexAt(cues, 4800) === 2);
   check('全片结束无句', cueIndexAt(cues, 9900) === -1);
   check('时钟格式', fmtClock(65000) === '1:05' && fmtClock(3723000) === '1:02:03');
-  const english = [{ start: 0, dur: 2000, text: 'first', lastOff: 0 }, { start: 2000, dur: 2000, text: 'second', lastOff: 2000 }];
-  const chinese = [{ start: 2200, dur: 1700, text: '第二句', lastOff: 2200 }];
-  const aligned = alignTranslatedCues(english, chinese);
-  check('独立轨道缺首句不导致后句错配', !aligned[0]?.zh && aligned[1]?.zh === '第二句');
   const paired = normalizeAsrCues([{ start: 0, dur: 1200, text: 'the', zh: '这', lastOff: 700 }, { start: 800, dur: 1600, text: 'the plane', zh: '这架飞机', lastOff: 1800 }]);
   check('ASR 英文合并同时转换平台配对译文', paired.length === 1 && paired[0]?.zh === '这架飞机');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  subtitleSentenceChecks((name, pass) => { assert.ok(pass, name); console.log('PASS', name); });
+  await subtitleSentenceChecks((name, pass) => { assert.ok(pass, name); console.log('PASS', name); });
 }

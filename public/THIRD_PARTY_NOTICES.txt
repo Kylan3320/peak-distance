@@ -1,5 +1,15 @@
 Peak Distance — Third-party notices
 
+Local English subtitle boundaries (subtitle-segmentation/)
+Edge-Punct-Casing model and vocabulary, Apache License 2.0:
+https://huggingface.co/frankyoujian/Edge-Punct-Casing/tree/bde453bde24b544f38ffdd56398bfadcd22ce935
+sherpa-onnx 2.0.2, Copyright Xiaomi Corporation and contributors,
+Apache License 2.0. See subtitle-segmentation/LICENSE-sherpa.txt.
+Included speech-library notices are in subtitle-segmentation/ThirdPartyNotices-sherpa.txt.
+The packaged WASM contains ONNX Runtime 1.28.2. Its license and notices
+are in subtitle-segmentation/LICENSE-ONNXRuntime.txt and
+subtitle-segmentation/ThirdPartyNotices-ONNXRuntime.txt.
+
 Adapted code: yt-dual-subs
 https://github.com/Gythiro/yt-dual-subs
 Commit: 5657c8a18ca30c84b5d4662bca58e3e9214ffdff

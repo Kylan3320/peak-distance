@@ -1,3 +1,5 @@
+import { createSubtitleBoundaryHost } from '@/shared/subtitleBoundaries';
+import { SUBTITLE_FALLBACK_NOTICE, SUBTITLE_READER_PORT, type SubtitleReaderDemand } from '@/shared/messages';
 import { t as tr, localize, onDisplayLanguageChange, setDisplayLanguage , message, setText, setLocalizedAttribute, type UiText } from '@/shared/i18n';
 import { initFloatingPanel } from '@/shared/floatingPanel';
 import { createTranslationPopup } from '@/shared/translationPopup';
@@ -50,7 +52,7 @@ import {
   type VideoSnapshot,
 } from '@/shared/vocab';
 import { buildMarkBuckets, type MarkBucket } from '@/shared/marker';
-import { segmentWords } from '@/shared/tokenize';
+import { appendSubtitleText } from '@/shared/subtitleText';
 import { normalizeExpressionInLanguage, langDisplayName } from '@/shared/languages';
 import {
   materialFromCandidate,
@@ -82,9 +84,8 @@ export default defineContentScript({
     let currentVideoId = videoIdFromLocation();
     let nonce = 0;
     let navSeq = 0;
-    // 侧栏逐项操作，播放器显示短片段，AP 按可定位的播放区间暂停。
+    // 播放器与侧栏以相同学习项为单位；AP 按可定位的播放区间暂停。
     let cues: LearningCue[] = [];
-    let fragments: Cue[] = [];
     let intervals: PlaybackInterval[] = [];
     let revision = '';
     let generation = crypto.randomUUID();
@@ -107,12 +108,60 @@ export default defineContentScript({
     let badgeVisible = false;
 
     // 双语 / 中文显隐（会话内状态）
-    let bilingualOn = true;
+    let bilingualOn = false;
+    const readers = new Map<ReturnType<typeof browser.tabs.connect>, SubtitleReaderDemand>();
+    let readerWantsSource = false;
+    let readerWantsTranslation = false;
+    let readerGeneration = '';
+    let readerRows: number[] = [];
+    let acquiringForView = false;
+    const boundaryHost = createSubtitleBoundaryHost();
+    let translatingForView = false;
+
+    function refreshReaderDemand() {
+      const live = [...readers.values()].filter(r => r.videoId === currentVideoId);
+      readerWantsSource = live.length > 0;
+      readerWantsTranslation = live.some(r => r.view === 'subs');
+      readerGeneration = generation;
+      readerRows = [...new Set(live.flatMap(r => r.view === 'subs' && r.generation === generation ? r.visible : []))];
+      syncSubtitleDemand();
+    }
+    function visibleSubtitleIndices() { return readerGeneration === generation ? readerRows : []; }
+    function translationDemand() { return zhVisible && (bilingualOn || readerWantsTranslation); }
+
+    function syncSubtitleDemand() {
+      if (!settingsReady || !currentVideoId) return;
+      const source = bilingualOn || readerWantsSource;
+      if (source !== acquiringForView) {
+        acquiringForView = source;
+        if (source) {
+          notice = ''; nocuesRetries = 0; nocuesReason = '';
+          sendConfig(pendingTrack ?? undefined);
+        } else {
+          cancelSourceAcquisition();
+        }
+        if (source && (bilingualOn || !cues.length || pendingTrack)) ensureCaptionsOn(20);
+        if (!source) restoreNativeCaptions();
+      }
+      const translate = translationDemand();
+      if (!translate && translatingForView) stopTranslation();
+      translatingForView = translate;
+      if (translate) scheduleTranslate();
+    }
+
+    browser.runtime.onConnect.addListener(port => {
+      if (port.name !== SUBTITLE_READER_PORT || port.sender?.id !== browser.runtime.id) return;
+      port.onMessage.addListener((d: SubtitleReaderDemand) => {
+        if (d.videoId !== currentVideoId || currentVideoId !== videoIdFromLocation()) return;
+        readers.set(port, d);
+        refreshReaderDemand();
+      });
+      port.onDisconnect.addListener(() => { if (readers.delete(port)) refreshReaderDemand(); });
+    });
     let zhVisible = true;
 
     // 翻译会话（videoId|trackId 域内复用）
     const translations = new Map<number, string>();
-    const fragmentTranslations = new Map<number, string>();
     let translating = false;
     let settings: Settings = { ...DEFAULT_SETTINGS };
     let settingsReady = false;
@@ -124,26 +173,21 @@ export default defineContentScript({
     let apIndex = -1;
     let apHeld = false;
     let apDisplayIndex = -1;
-    let apDisplayFragmentIndex = -1;
     let apLastStopped = -1;
     const translationSources = new Map<number, string>();
     let translationEpoch = 0;
     let fallbackEpoch = 0;
     let fallbackRetryAt = 0;
     let requestId: string | null = null;
-    let platformRequest: { id: string; cacheKey: string; fragmentCacheKey: string; targetLang: string } | null = null;
+    let platformRequest: { id: string; cacheKey: string; targetLang: string } | null = null;
     let platformState: 'idle' | 'waiting' | 'done' = 'idle';
     let platformTimer: ReturnType<typeof setTimeout> | null = null;
     const failedCues = new Set<number>();
-    const failedFragmentCues = new Set<number>();
     const pendingCues = new Set<number>();
-    const pendingFragments = new Set<number>();
     let queuedInterval = -1;
-    let queuedFragment = -1;
 
     // 当前句
     let currentIdx = -1;
-    let currentFragmentIdx = -1;
     let renderQueued = false;
 
     // 词状态（字幕内低强调标记）
@@ -332,6 +376,7 @@ export default defineContentScript({
 
     function sendConfig(target?: TrackInfo): void {
       if (!currentVideoId) return; // 非视频页不请求
+      boundaryHost.cancel();
       nonce++;
       armAcquisitionTimer();
       postToInject(target ? { type: 'select-track', nonce, videoId: currentVideoId, trackId: target.id } : { type: 'config', nonce });
@@ -354,12 +399,14 @@ export default defineContentScript({
     }
 
     function cancelSourceAcquisition(): void {
+      boundaryHost.cancel();
       clearAcquisitionTimer();
       postToInject({ type: 'source-cancel', nonce });
       nonce++;
     }
 
     function failAcquisition(reason: string): void {
+      boundaryHost.cancel();
       clearAcquisitionTimer();
       postToInject({ type: 'source-cancel', nonce });
       nonce++; // 已排入消息队列的旧代次回复也不能恢复本轮。
@@ -370,6 +417,7 @@ export default defineContentScript({
         : reason === 'parse-failed' ? '字幕解析失败，请重试'
         : pendingTrack ? '字幕切换失败，请重新选择原文语言' : '字幕获取失败';
       pendingTrack = null;
+      if (!bilingualOn) restoreNativeCaptions();
       log('subtitle-error', { reason });
       renderBar();
     }
@@ -389,7 +437,7 @@ export default defineContentScript({
     }
 
     function ensureCaptionsOn(retries: number, videoId = currentVideoId): void {
-      if (videoId !== currentVideoId || !bilingualOn || isShortsPage()) return;
+      if (videoId !== currentVideoId || !acquiringForView || (!bilingualOn && cues.length && !pendingTrack) || isShortsPage()) return;
       const player = document.getElementById('movie_player');
       const cc = player?.querySelector('.ytp-subtitles-button');
       if (!cc || cc.getAttribute('aria-pressed') === null) {
@@ -402,6 +450,8 @@ export default defineContentScript({
       }
       if (nativeCaptionsWereOn === null) nativeCaptionsWereOn = cc.getAttribute('aria-pressed') === 'true';
       if (cc.getAttribute('aria-pressed') !== 'true') {
+        // A sidebar-only capture may briefly need CC to obtain the timed-text URL.
+        if (!bilingualOn) hideNativeCaptions();
         (cc as HTMLElement).click();
         ccClicks++;
         log('cc-on', { videoId: currentVideoId, by: 'extension', clicks: ccClicks });
@@ -429,7 +479,7 @@ export default defineContentScript({
     }
 
     function hideNativeCaptions(): void {
-      if (!cues.length) {
+      if (!cues.length && (bilingualOn || nativeCaptionsWereOn !== false)) {
         document.getElementById(NATIVE_CAPTIONS_HIDE_STYLE_ID)?.remove();
         return;
       }
@@ -455,7 +505,7 @@ export default defineContentScript({
       const current = trackOfUrl(lastTrackId) ?? captionTrackOf({ languageCode: lastTrackLang, kind: lastTrack === 'asr' ? 'asr' : '' });
       if (current && !tracks.some(t => t.id === current.id)) tracks.push(current);
       return { videoId: currentVideoId, generation, title: document.title, tracks,
-        trackId: pendingTrack?.id ?? current?.id ?? '', switchingTrack: !!pendingTrack,
+        trackId: pendingTrack?.id ?? current?.id ?? '', switchingTrack: acquiringForView && !!pendingTrack,
         mode: translationMode, autoPause, ready: modeReady && !modeBusy,
         hasCues: !!cues.length, notice };
     }
@@ -505,6 +555,7 @@ export default defineContentScript({
         root.innerHTML = `<style>
           ${brandTokens}:host { display:block; color:#fff; font:var(--blc-font,28px)/1.45 system-ui,"Microsoft YaHei",sans-serif; }
           .wrap { text-align:center; padding:12px 18px; background:#151719; border-radius:0 0 8px 8px; }
+          .bar:has([data-row] ~ [data-row]) { max-height:min(40vh,12em); overflow-y:auto; overscroll-behavior:contain; }
           .en { font-weight:600; overflow-wrap:anywhere; } .zh { font-size:.8em; color:#e1cc91; margin-top:6px; }
           .notice { color:#b7bdc7; font-size:14px; } .w { cursor:pointer; border-radius:3px; } .w:hover { background:#454d58; }
           .w:focus-visible { outline:2px solid #8ab4f8; } .saved,.known { border-bottom:2px solid color-mix(in srgb,var(--pd-blue),white 62%); }
@@ -533,20 +584,20 @@ export default defineContentScript({
     function bindWordEvents(host: HTMLElement): void {
       let lastPhraseAt = 0;
       const wordOf = (e: Event) => (e.composedPath()[0] as Element)?.closest?.('.w') as HTMLElement | null;
-      const indexOf = (word: HTMLElement) => Number(word.closest('[data-fragment]')?.getAttribute('data-fragment') ?? currentFragmentIdx);
+      const indexOf = (word: HTMLElement) => Number(word.closest<HTMLElement>('.en')!.dataset.cue);
       host.addEventListener('pointerover', e => {
         const word = wordOf(e);
         if (!word || word === suppressWord || (popup.isOpen() && !popup.isCompact())) return;
         clearTimeout(leaveTimer); clearTimeout(hoverTimer);
         if (word === activeWord && popup.isOpen()) return;
-        hoverTimer = setTimeout(() => { if (!window.getSelection()?.toString()) openPlayerLookup(word.textContent!, indexOf(word), word, true); }, 180);
+        hoverTimer = setTimeout(() => { if (word.isConnected && !window.getSelection()?.toString()) openLookup(word.textContent!, indexOf(word), word, true); }, 180);
       });
       host.addEventListener('pointerout', e => {
         const word = wordOf(e); if (!word || word.contains(e.relatedTarget as Node)) return;
         if (suppressWord === word) suppressWord = null;
         clearTimeout(hoverTimer); scheduleCardClose();
       });
-      host.addEventListener('focusin', e => { const word = wordOf(e); if (word) openPlayerLookup(word.textContent!, indexOf(word), word, true); });
+      host.addEventListener('focusin', e => { const word = wordOf(e); if (word) openLookup(word.textContent!, indexOf(word), word, true); });
       host.addEventListener('mouseup', e => {
         const real = e.composedPath()[0] as Element;
         if (!real?.closest('.en')) return;
@@ -563,7 +614,7 @@ export default defineContentScript({
         e.preventDefault(); e.stopPropagation(); clearTimeout(hoverTimer); clearTimeout(leaveTimer);
         if (activeWord === word && popup.isOpen()) {
           if (popup.isCompact()) popup.expand(); else { suppressWord = word; popup.close(); }
-        } else openPlayerLookup(word.textContent!, indexOf(word), word);
+        } else openLookup(word.textContent!, indexOf(word), word);
       };
       host.addEventListener('click', clickWord);
       host.addEventListener('keydown', e => { if (e.key === 'Enter') clickWord(e); });
@@ -571,10 +622,11 @@ export default defineContentScript({
 
     interface SubtitleSelectionInfo {
       raw: string;
-      kind: 'word' | 'phrase' | 'sentence';
+      kind: 'word' | 'phrase' | 'sentence' | 'cross-cue';
       hasWord: boolean;
       expression: string | null;
-      fragmentIndex: number;
+      cueIndex: number;
+      lastIndex: number;
       rect: DOMRect | null;
       range: Range;
     }
@@ -584,27 +636,31 @@ export default defineContentScript({
       const root = document.getElementById(SUBS_ID)?.shadowRoot;
       if (!root) return null;
       const selected = shadowSelection(root);
-      const en = root.querySelector<HTMLElement>('.en');
-      if (!selected || !en) return null;
-      const clamped = clampRangeToElement(selected.range, en);
-      const raw = clamped.toString().trim();
-      if (!raw) return null;
-      const fragmentIndex = Number(en.dataset.fragment ?? currentFragmentIdx);
-      const cue = fragments[fragmentIndex];
-      if (!cue || !currentVideoId || !lastTrackId) return null;
-      const lang = baseLang(lastTrackLang) || 'en';
-      // 分类与有效表达的统一计算（shared/selection.ts 的 classifyRangeIn）
-      const cls = classifyRangeIn(en, clamped, lang);
-      if (!cls) return null;
-      let rect: DOMRect | null = null;
-      try { rect = selected.range.getBoundingClientRect(); } catch { /* ignore */ }
-      return { raw, kind: cls.kind, hasWord: cls.hasWord, expression: cls.expression, fragmentIndex, rect, range: clamped.cloneRange() };
+      if (!selected || !currentVideoId || !lastTrackId) return null;
+      const parts = [...root.querySelectorAll<HTMLElement>('.en')].filter(en => selected.range.intersectsNode(en)).map(en => {
+        const range = clampRangeToElement(selected.range, en);
+        return { en, range, index: Number(en.dataset.cue), text: range.toString().trim() };
+      }).filter(part => part.text);
+      const first = parts[0], last = parts.at(-1);
+      if (!first || !last) return null;
+      const bounds = {cueIndex:first.index, lastIndex:last.index, rect:selected.range.getBoundingClientRect(), range:selected.range.cloneRange()};
+      if (parts.length > 1) {
+        const raw = parts.map((part,i) => (i && cues[part.index]!.from > cues[part.index - 1]!.to ? ' ' : '') + part.text).join('');
+        return { ...bounds, raw, kind:'cross-cue', expression:null, hasWord:false };
+      }
+      const cls = classifyRangeIn(first.en, first.range, baseLang(lastTrackLang) || 'en');
+      return cls && { ...bounds, raw:first.text, kind:cls.kind, hasWord:cls.hasWord, expression:cls.expression };
     }
 
     function subtitleCandidate(info: SubtitleSelectionInfo): SelectionCandidate | null {
       const source = buildVideoSource();
-      const cue = fragments[info.fragmentIndex];
+      const cue = cues[info.cueIndex];
       if (!source?.video || !cue) return null;
+      if (info.kind === 'cross-cue') {
+        const last = cues[info.lastIndex]!;
+        return {at:Date.now(), pageUrl:location.href, text:info.raw, kind:info.kind, expression:null, source,
+          crossFromMs:cue.start, crossToMs:last.start+last.dur, crossCount:info.lastIndex-info.cueIndex+1};
+      }
       return {
         at: Date.now(),
         pageUrl: location.href,
@@ -613,7 +669,7 @@ export default defineContentScript({
         expression: info.kind === 'sentence' ? null : info.expression,
         lang: lastTrackLang || undefined,
         source,
-        cue: { index: info.fragmentIndex, text: cue.text, startMs: cue.start, endMs: cue.start + cue.dur },
+        cue: { index: info.cueIndex, text: cue.text, startMs: cue.start, endMs: cue.start + cue.dur },
       };
     }
 
@@ -633,7 +689,7 @@ export default defineContentScript({
     let closeSelectionActions: (() => void) | null = null;
     let dismissedSelection: SubtitleSelectionInfo | null = null;
     const sameSubtitleSelection = (a: SubtitleSelectionInfo | null, b: SubtitleSelectionInfo | null): boolean =>
-      !!a && !!b && a.raw === b.raw && a.fragmentIndex === b.fragmentIndex &&
+      !!a && !!b && a.raw === b.raw && a.cueIndex === b.cueIndex &&
       a.range.startContainer === b.range.startContainer && a.range.startOffset === b.range.startOffset &&
       a.range.endContainer === b.range.endContainer && a.range.endOffset === b.range.endOffset;
 
@@ -655,8 +711,8 @@ export default defineContentScript({
       host.style.left=Math.max(8,Math.min(info.rect?.left??24,innerWidth-box.width-8))+'px';
       host.style.top=Math.max(8,below+box.height<=innerHeight-8?below:(info.rect?.top??innerHeight)-box.height-6)+'px';
       const rect = info.rect ?? undefined;
-      root.querySelector('#lookup')!.addEventListener('click',()=>{closeSelectionActions?.();openPlayerLookup(info.expression ?? info.raw, info.fragmentIndex);});
-      const selectedCue = fragments[info.fragmentIndex];
+      root.querySelector('#lookup')!.addEventListener('click',()=>{closeSelectionActions?.();openLookup(info.expression ?? info.raw, info.cueIndex);});
+      const selectedCue = cues[info.cueIndex];
       const translationSnapshot = {text:info.raw,url:videoContextUrl(currentVideoId,selectedCue?.start??0),title:document.title,source:buildVideoSource()??undefined,sourceLang:lastTrackLang||undefined,languageEvidence:'track' as const,
         position:{videoId:currentVideoId,trackId:lastTrackId,trackKind:lastTrack==='asr'?'asr' as const:'manual' as const,trackLang:lastTrackLang||'und',startMs:selectedCue?.start??0,endMs:(selectedCue?.start??0)+(selectedCue?.dur??0)}};
       root.querySelector('#translate')!.addEventListener('click',()=>{closeSelectionActions?.();popup.close();translationPopup.open(translationSnapshot,rect);});
@@ -706,6 +762,18 @@ export default defineContentScript({
       });
     }
 
+    function retrySubtitleSource() {
+      if (!acquiringForView || !notice) return;
+      nocuesReason = ''; nocuesRetries = 0;
+      sendConfig();
+      if (!cues.length) {
+        notice = '';
+        ensureCaptionsOn(20);
+        sendNudge();
+      }
+      renderBar();
+    }
+
     function renderBar(): void {
       renderBadge();
       observePlayerLayout();
@@ -717,12 +785,17 @@ export default defineContentScript({
       const got = ensureSubsHost();
       if (!got) return;
       const { body } = got;
-      const oldEn = body.querySelector<HTMLDivElement>('.en');
-      const cue = currentFragmentIdx >= 0 ? fragments[currentFragmentIdx] : null;
-      const keepEn = !!cue && oldEn?.dataset.fragment === String(currentFragmentIdx) && oldEn.textContent === cue.text;
+      const intervalIndex = cues[currentIdx]?.interval ?? -1;
+      const interval = intervals[intervalIndex];
+      const key = generation + '/' + intervalIndex;
       const bar = body.querySelector<HTMLDivElement>('.bar') ?? document.createElement('div');
       bar.className = 'bar';
-      for (const child of [...bar.childNodes]) if (!keepEn || child !== oldEn) child.remove();
+      if (bar.dataset.interval !== key) {
+        bar.replaceChildren();
+        bar.scrollTop = 0;
+        bar.dataset.interval = key;
+      }
+      for (const child of bar.querySelectorAll(':scope > .notice, :scope > button')) child.remove();
       if (bar.parentElement !== body) body.appendChild(bar);
 
       if (!cues.length) {
@@ -733,13 +806,7 @@ export default defineContentScript({
         if (notice) {
           const retry = document.createElement('button');
           setText(retry, message('重试字幕'));
-          retry.addEventListener('click', () => {
-            notice = ''; nocuesReason = ''; nocuesRetries = 0;
-            sendConfig();
-            ensureCaptionsOn(20);
-            sendNudge();
-            renderBar();
-          });
+          retry.addEventListener('click', retrySubtitleSource);
           bar.appendChild(retry);
         }
         return;
@@ -749,62 +816,72 @@ export default defineContentScript({
         const n = document.createElement('div');
         n.className = 'notice';
         setText(n,message(notice));
+        if (notice === SUBTITLE_FALLBACK_NOTICE) {
+          const retry = document.createElement('button');
+          setText(retry, message('重试字幕'));
+          retry.onclick = retrySubtitleSource;
+          n.append(retry);
+        }
         bar.prepend(n);
       }
 
-      if (cue) {
-        const en = keepEn ? oldEn! : document.createElement('div');
-        en.className = 'en'; en.dataset.fragment = String(currentFragmentIdx);
-        if (!en.textContent) appendWords(en, cue.text);
+      if (!interval) return;
+      const end = intervals[intervalIndex + 1]?.firstCue ?? cues.length;
+      for (let index = interval.firstCue; index < end; index++) {
+        const cue = cues[index]!;
+        let row = bar.querySelector<HTMLDivElement>(`[data-row="${index}"]`);
+        if (!row) {
+          row = document.createElement('div'); row.dataset.row = String(index);
+          const en = document.createElement('div');
+          en.className = 'en'; en.dataset.cue = String(index);
+          appendSubtitleText(en, cue.text, baseLang(lastTrackLang) || 'en');
+          row.append(en); bar.append(row);
+        }
+        const en = row.firstElementChild!;
+        while (row.lastElementChild !== en) row.lastElementChild!.remove();
         en.querySelectorAll<HTMLElement>('.w').forEach(w => {
           w.classList.remove('saved', 'learning', 'known');
           const status = wordStatus(w.textContent!); if (status) w.classList.add(status);
         });
-        if (en.parentElement !== bar) bar.appendChild(en);
-        if (zhVisible) {
-          const zh = fragmentTranslations.get(currentFragmentIdx);
+        if (zhVisible && !cue.segmentationFallback) {
+          const zh = translations.get(index);
           if (zh) {
             const z = document.createElement('div');
             z.className = 'zh';
             z.textContent = zh;
-            bar.appendChild(z);
+            row.appendChild(z);
           } else if (settingsFailed) {
-            const error = document.createElement('div'); error.className = 'notice'; setText(error, message('无法连接扩展，请刷新页面')); bar.appendChild(error);
-            const reload = document.createElement('button'); setText(reload, message('刷新页面')); reload.addEventListener('click', () => location.reload()); bar.appendChild(reload);
-          } else if (failedFragmentCues.has(currentFragmentIdx) || fallbackRetryAt > Date.now() && pendingFragments.has(currentFragmentIdx)) {
-            const error = document.createElement('div'); error.className = 'notice'; setText(error, message('翻译暂不可用')); bar.appendChild(error);
-            const ai = document.createElement('button'); setText(ai, message('用 AI 翻译')); ai.addEventListener('click', () => void setTranslationMode('ai')); bar.appendChild(ai);
+            const error = document.createElement('div'); error.className = 'notice'; setText(error, message('无法连接扩展，请刷新页面')); row.appendChild(error);
+            const reload = document.createElement('button'); setText(reload, message('刷新页面')); reload.addEventListener('click', () => location.reload()); row.appendChild(reload);
+          } else if (failedCues.has(index) || fallbackRetryAt > Date.now() && pendingCues.has(index)) {
+            const error = document.createElement('div'); error.className = 'notice'; setText(error, message('翻译暂不可用')); row.appendChild(error);
+            const ai = document.createElement('button'); setText(ai, message('用 AI 翻译')); ai.addEventListener('click', () => void setTranslationMode('ai')); row.appendChild(ai);
             const retry = document.createElement('button'); setText(retry, message('重试')); retry.addEventListener('click', () => {
               fallbackRetryAt = 0;
               const window = intervalTranslationWindow(cues[currentIdx]?.interval ?? -1);
               if (window) for (let i = window.from; i < window.to; i++) failedCues.delete(i);
-              for (let i = Math.max(0, currentFragmentIdx - 1); i <= Math.min(fragments.length - 1, currentFragmentIdx + 4); i++) failedFragmentCues.delete(i);
-              queuedInterval = queuedFragment = -1;
+              queuedInterval = -1;
               scheduleTranslate(); renderBar();
-            }); bar.appendChild(retry);
+            }); row.appendChild(retry);
           } else {
             const pending = document.createElement('div'); pending.className = 'notice'; pending.setAttribute('role', 'status');
             setText(pending, !settingsReady ? message('正在读取翻译设置…') : platformState === 'waiting' ? message('正在获取{language}译文…',{language:langDisplayName(targetLangOf())}) : message('正在翻译…'));
-            bar.appendChild(pending);
+            row.appendChild(pending);
           }
         }
       }
     }
 
-    /** 原文行按轨道语言分词为可点击 span（M11：Segmenter 统一边界），已存词条按状态低强调标出。 */
-    function appendWords(en: HTMLDivElement, text: string): void {
-      let last = 0;
-      for (const s of segmentWords(text, baseLang(lastTrackLang) || 'en')) {
-        if (s.start > last) en.appendChild(document.createTextNode(text.slice(last, s.start)));
-        const w = document.createElement('span');
-        w.className = 'w'; w.tabIndex = 0; w.setAttribute('role', 'button');
-        w.textContent = s.text;
-        const st = wordStatus(s.text);
-        if (st) w.classList.add(st);
-        en.appendChild(w);
-        last = s.end;
+    function applyPlayerVisibility(on: boolean) {
+      if (bilingualOn === on) return;
+      bilingualOn = on;
+      if (on) {
+        hideNativeCaptions();
+        if (acquiringForView) ensureCaptionsOn(20);
+      } else {
+        restoreNativeCaptions();
+        removeSubsHost();
       }
-      if (last < text.length) en.appendChild(document.createTextNode(text.slice(last)));
     }
 
     async function setBilingual(on: boolean): Promise<void> {
@@ -813,17 +890,8 @@ export default defineContentScript({
       const result = await send<{ok:boolean}>({ type:'setSetting', name:'bilingualEnabled', value:on });
       bilingualBusy = false;
       if (!result?.ok) { bilingualError = true; ensureSwitchHost(); return; }
-      bilingualOn = on;
-      if (!on) {
-        cancelSourceAcquisition();
-        stopTranslation();
-        restoreNativeCaptions();
-        removeSubsHost();
-      } else {
-        sendConfig();
-        hideNativeCaptions();
-        ensureCaptionsOn(20);
-      }
+      applyPlayerVisibility(on);
+      syncSubtitleDemand();
       log('bilingual', { on });
       renderBadge();
       renderBar();
@@ -878,6 +946,16 @@ export default defineContentScript({
       }
       if (play) void v.play();
       tick();
+      // 多句共用时间时，侧栏逐项定位仍能把所选的播放器行带入可读范围。
+      requestAnimationFrame(() => {
+        if (pinnedIndex !== index) return;
+        const bar = document.getElementById(SUBS_ID)?.shadowRoot?.querySelector<HTMLElement>('.bar');
+        const row = bar?.querySelector<HTMLElement>(`[data-row="${index}"]`);
+        if (!bar || !row || bar.scrollHeight <= bar.clientHeight) return;
+        const view = bar.getBoundingClientRect(), item = row.getBoundingClientRect();
+        if (item.top < view.top || item.height >= view.height) bar.scrollTop += item.top - view.top;
+        else if (item.bottom > view.bottom) bar.scrollTop += item.bottom - view.bottom;
+      });
     }
 
     // ---- M5 问答：视频来源与材料 ---------------------------------------------------
@@ -1041,13 +1119,9 @@ export default defineContentScript({
       return parts.join(' / ').slice(0, 300);
     }
 
-    function openPlayerLookup(expression: string, fragmentIndex: number, anchor?: HTMLElement, compact = false): void {
-      openLookup(expression, fragmentIndex, anchor, compact, fragments);
-    }
-
-    function openLookup(expression: string, index: number, anchor?: HTMLElement, compact = false, items: Cue[] = cues): void {
+    function openLookup(expression: string, index: number, anchor?: HTMLElement, compact = false): void {
       externalLookupToken='';
-      const cue = items[index], source = buildVideoSource();
+      const cue = cues[index], source = buildVideoSource();
       if (!cue || !source?.video || pendingTrack) return;
       const lookupGeneration = generation;
       const video = getVideo();
@@ -1061,7 +1135,7 @@ export default defineContentScript({
         source: 'video',
         expression,
         sentence: cue.text,
-        neighbors: neighborsText(items, index) || undefined,
+        neighbors: neighborsText(cues, index) || undefined,
         title: document.title,
         lang: lastTrackLang || undefined,
         video: {
@@ -1109,24 +1183,21 @@ export default defineContentScript({
         const intervalIndex = cueIndexAt(intervals, t);
         if (cues[pinnedIndex]?.interval !== intervalIndex && !apHeld) pinnedIndex = -1;
         let idx = pinnedIndex >= 0 ? pinnedIndex : intervals[intervalIndex]?.firstCue ?? -1;
-        let fragmentIdx = cueIndexAt(fragments, t);
         if (autoPause && !pendingTrack && !v.paused && !v.seeking) {
           const ap = intervals[apIndex];
           if (ap && t >= ap.start + ap.dur) {
             apDisplayIndex = cues[currentIdx]?.interval === apIndex ? currentIdx : ap.firstCue;
-            apDisplayFragmentIndex = ap.lastFragment;
             apLastStopped = apIndex; apIndex = -1;
             apHeld = true; pausedByUsVideo = null; v.pause();
           } else if (apIndex < 0 && intervalIndex >= 0 && intervalIndex !== apLastStopped) apIndex = intervalIndex;
         }
-        if (apHeld) { idx = apDisplayIndex; fragmentIdx = apDisplayFragmentIndex; }
-        if (idx !== currentIdx || fragmentIdx !== currentFragmentIdx) {
+        if (apHeld) idx = apDisplayIndex;
+        if (idx !== currentIdx) {
           currentIdx = idx;
-          currentFragmentIdx = fragmentIdx;
           queueRender();
           renderBadge();
         }
-        if (idx >= 0 || pendingCues.size || pendingFragments.size) scheduleTranslate();
+        if (idx >= 0 || pendingCues.size) scheduleTranslate();
       } catch {
         /* ignore */
       }
@@ -1142,8 +1213,8 @@ export default defineContentScript({
     function stopTranslation(): void {
       translationEpoch++;
       stopFallbackTranslation();
-      pendingCues.clear(); pendingFragments.clear();
-      queuedInterval = queuedFragment = -1;
+      pendingCues.clear();
+      queuedInterval = -1;
       postToInject({ type: 'translation-cancel' });
       platformRequest = null;
       if (platformState === 'waiting') platformState = 'idle';
@@ -1152,8 +1223,18 @@ export default defineContentScript({
     }
 
     function clearTranslationResults(): void {
-      translations.clear(); translationSources.clear(); fragmentTranslations.clear();
-      failedCues.clear(); failedFragmentCues.clear();
+      translations.clear(); translationSources.clear();
+      failedCues.clear();
+    }
+
+    function replaceSubtitleView(nextCues: LearningCue[], nextIntervals: PlaybackInterval[], nextRevision: string) {
+      generation = crypto.randomUUID();
+      cues = nextCues; intervals = nextIntervals; revision = nextRevision;
+      currentIdx = pinnedIndex = -1; rowSeekTime = null;
+      closeSelectionActions?.();
+      pausedByUsVideo = null; popup.close(true);
+      apIndex = apLastStopped = -1; apHeld = false;
+      stopTranslation(); platformState = 'idle'; clearTranslationResults();
     }
 
     async function updateVideoSession(patch: { mode?: 'regular' | 'ai'; autoPause?: boolean } = {}): Promise<void> {
@@ -1189,13 +1270,10 @@ export default defineContentScript({
         stopTranslation(); clearTranslationResults(); platformState = 'idle';
       }
       setDisplayLanguage(settings.displayLanguage,browser.i18n.getUILanguage());
-      const wasBilingual = bilingualOn;
-      bilingualOn = settings.bilingualEnabled;
+      applyPlayerVisibility(settings.bilingualEnabled);
       zhVisible = settings.chineseVisible;
+      syncSubtitleDemand();
       if (!modeReady) await updateVideoSession();
-      if (!bilingualOn || !zhVisible) stopTranslation();
-      if (bilingualOn) { if (!wasBilingual) sendConfig(); hideNativeCaptions(); ensureCaptionsOn(20); }
-      else { if (wasBilingual) cancelSourceAcquisition(); restoreNativeCaptions(); }
       renderBar();
       if (targetChanged) { queueRender(); scheduleTranslate(); }
     }
@@ -1204,28 +1282,19 @@ export default defineContentScript({
       return settings.defaultComprehensionLang;
     }
 
-    function captionCacheKey(targetLang: string, view: 'groups' | 'fragments'): string {
-      return JSON.stringify([DISPLAY_CUE_VERSION, view, currentVideoId, lastTrackId, targetLang, revision]);
-    }
-
     function requestPlatform(): void {
       platformState = 'waiting';
       queueRender();
       const epoch = translationEpoch;
       const targetLang = targetLangOf();
-      const key = captionCacheKey(targetLang, 'groups');
-      const fragmentKey = captionCacheKey(targetLang, 'fragments');
-      void Promise.all([
-        send<{ ok: boolean; cues?: Cue[] }>({ type: 'captionCache', key }),
-        send<{ ok: boolean; cues?: Cue[] }>({ type: 'captionCache', key: fragmentKey }),
-      ]).then(([grouped, short]) => {
+      const key = JSON.stringify([DISPLAY_CUE_VERSION, currentVideoId, lastTrackId, targetLang, revision]);
+      void send<{ok: boolean; cues?: Cue[]}>({ type: 'captionCache', key }).then(cached => {
         if (epoch !== translationEpoch) return;
-        if (grouped?.cues?.length) applyPlatformCues(grouped.cues, targetLang, 'groups');
-        if (short?.cues?.length) applyPlatformCues(short.cues, targetLang, 'fragments');
-        if (grouped?.cues?.length && short?.cues?.length) {
+        if (cached?.cues?.length) {
+          applyPlatformCues(cached.cues, targetLang);
           platformState = 'done'; scheduleTranslate(); return;
         }
-        platformRequest = { id: crypto.randomUUID(), cacheKey: key, fragmentCacheKey: fragmentKey, targetLang };
+        platformRequest = { id: crypto.randomUUID(), cacheKey: key, targetLang };
         postToInject({ type: 'translation-request', requestId: platformRequest.id, videoId: currentVideoId, trackId: lastTrackId, targetLang });
         platformTimer = setTimeout(() => {
           if (epoch !== translationEpoch) return;
@@ -1234,17 +1303,14 @@ export default defineContentScript({
       });
     }
 
-    function applyPlatformCues(translated: Cue[], targetLang: string, view: 'groups' | 'fragments'): void {
+    function applyPlatformCues(translated: Cue[], targetLang: string): void {
       const sourceLabel = `YouTube · ${langDisplayName(targetLang)} · ${tr('平台翻译')}`;
-      const source = view === 'groups' ? cues : fragments;
-      const target = view === 'groups' ? translations : fragmentTranslations;
-      const pending = view === 'groups' ? pendingCues : pendingFragments;
-      source.forEach((cue, id) => {
+      cues.forEach((cue, id) => {
         const result = translated[id];
         const zh = result?.text === cue.text && result.start === cue.start && result.dur === cue.dur ? result.zh : undefined;
-        if (zh) {
-          target.set(id, zh); pending.delete(id);
-          if (view === 'groups') translationSources.set(id, sourceLabel);
+        if (zh && !cue.segmentationFallback) {
+          translations.set(id, zh); pendingCues.delete(id);
+          translationSources.set(id, sourceLabel);
         }
       });
       queueRender();
@@ -1260,34 +1326,26 @@ export default defineContentScript({
     }
 
     function scheduleTranslate(): void {
-      if (pendingTrack || !settingsReady || !modeReady || modeBusy || !bilingualOn || !zhVisible || !lastTrackId) return;
+      if (pendingTrack || !settingsReady || !modeReady || modeBusy || !translationDemand() || !lastTrackId) return;
+      for (const i of visibleSubtitleIndices()) {
+        if (cues[i] && !cues[i].segmentationFallback && !translations.has(i) && !failedCues.has(i)) pendingCues.add(i);
+      }
       const intervalIndex = cues[currentIdx]?.interval ?? -1;
       if (queuedInterval !== intervalIndex) {
         queuedInterval = intervalIndex;
         const window = intervalTranslationWindow(intervalIndex);
         if (window) for (let i = window.from; i < window.to; i++) {
-          if (!translations.has(i) && !failedCues.has(i)) pendingCues.add(i);
+          if (!cues[i]!.segmentationFallback && !translations.has(i) && !failedCues.has(i)) pendingCues.add(i);
         }
       }
-      if (queuedFragment !== currentFragmentIdx) {
-        queuedFragment = currentFragmentIdx;
-        if (currentFragmentIdx >= 0) {
-          for (let i = Math.max(0, currentFragmentIdx - 1); i <= Math.min(fragments.length - 1, currentFragmentIdx + 4); i++) {
-            if (!fragmentTranslations.has(i) && !failedFragmentCues.has(i)) pendingFragments.add(i);
-          }
-        }
-      }
-      if (translating || fallbackRetryAt > Date.now() || (!pendingCues.size && !pendingFragments.size)) return;
+      if (translating || fallbackRetryAt > Date.now() || !pendingCues.size) return;
       if (translationMode === 'regular' && platformState !== 'done') {
         if (platformState === 'idle') requestPlatform();
         return;
       }
-      const batch = buildCueTranslationBatch(cues, fragments, [...pendingCues], [...pendingFragments],
-        { group: currentIdx, fragment: currentFragmentIdx });
-      const items = batch.items.slice(0, 8);
-      if (!items.length) return;
+      const ordered = new Set([currentIdx, ...visibleSubtitleIndices(), ...pendingCues].filter(i => pendingCues.has(i)));
+      const { items, targets } = buildCueTranslationBatch(cues, ordered, 8);
       const ids = new Set(items.map(item => item.id));
-      const targets = batch.targets.filter(target => ids.has(target.id));
       translating = true;
       queueRender();
       const epoch = fallbackEpoch;
@@ -1308,16 +1366,13 @@ export default defineContentScript({
         const results = new Map(r?.ok ? r.translations.filter(result => ids.has(result.id) && result.text).map(result => [result.id, result]) : []);
         for (const target of targets) {
           const translated = results.get(target.id);
-          const output = target.view === 'groups' ? translations : fragmentTranslations;
-          const failed = target.view === 'groups' ? failedCues : failedFragmentCues;
-          const pending = target.view === 'groups' ? pendingCues : pendingFragments;
           if (deferred.has(target.id)) continue;
-          pending.delete(target.index);
+          pendingCues.delete(target.index);
           if (translated) {
-            output.set(target.index, translated.text); failed.delete(target.index);
-            if (target.view === 'groups') translationSources.set(target.index, translationMode === 'ai' ? tr('AI 翻译')
+            translations.set(target.index, translated.text); failedCues.delete(target.index);
+            translationSources.set(target.index, translationMode === 'ai' ? tr('AI 翻译')
               : translated.source === 'browser-native' ? tr('浏览器内置翻译') : tr('Google 常规翻译'));
-          } else failed.add(target.index);
+          } else failedCues.add(target.index);
         }
         queueRender();
         scheduleTranslate();
@@ -1394,7 +1449,9 @@ export default defineContentScript({
             const target = tracklist.find(track => track.id === change.trackId);
             if (!target) { sendResponse({ok:false, error:'track-unavailable'}); return true; }
             pendingTrack = target; closeSelectionActions?.(); notice = ''; nocuesReason = '';
-            stopTranslation(); clearAcquisitionTimer(); sendConfig(target); renderBar();
+            stopTranslation(); clearAcquisitionTimer();
+            if (acquiringForView) { ensureCaptionsOn(20); sendConfig(target); }
+            renderBar();
             sendResponse({ok:true}); return true;
           }
           if (!modeReady || modeBusy || ('mode' in change && !['regular','ai'].includes(change.mode)) ||
@@ -1445,7 +1502,8 @@ export default defineContentScript({
             return true;
           }
           try {
-            if (c.action === 'seek' && typeof c.timeMs === 'number') {
+            if (c.action === 'retrySubtitles') retrySubtitleSource();
+            else if (c.action === 'seek' && typeof c.timeMs === 'number') {
               pinnedIndex = -1;
               v.currentTime = c.timeMs / 1000;
             } else if (c.action === 'togglePlay') {
@@ -1512,10 +1570,10 @@ export default defineContentScript({
       const from = currentVideoId;
       const to = videoIdFromLocation();
       if (from === to) return; // 同视频页内导航不算换视频
+      boundaryHost.cancel();
       clearAcquisitionTimer();
       postToInject({ type: 'source-cancel', nonce });
-      if (!to) restoreNativeCaptions();
-      else nativeCaptionsWereOn = null;
+      restoreNativeCaptions();
       stopTranslation();
       // 换视频：旧选区候选立即失效（读取侧另有身份校验兜底）
       void send({ type: 'selectionCandidateSet', candidate: null });
@@ -1527,7 +1585,7 @@ export default defineContentScript({
       void updateVideoSession();
       navSeq++;
       cues = [];
-      fragments = []; intervals = []; revision = ''; generation = crypto.randomUUID();
+      intervals = []; revision = ''; generation = crypto.randomUUID();
       pinnedIndex = -1; rowSeekTime = null;
       lastTrack = '';
       lastTrackLang = '';
@@ -1539,19 +1597,14 @@ export default defineContentScript({
       nocuesRetries = 0;
       clearTranslationResults();
       currentIdx = -1;
-      currentFragmentIdx = -1; apDisplayFragmentIndex = -1;
       pausedByUsVideo = null;
       // 换视频：旧弹窗直接移除（不触发恢复播放回调）
       popup.close(true);
       removeSubsHost();
       log('clear', { from, to, navSeq });
-      if (bilingualOn) sendConfig();
-      if (to) {
-        if (bilingualOn) {
-          hideNativeCaptions();
-          ensureCaptionsOn(20);
-        }
-      }
+      acquiringForView = translatingForView = false;
+      readers.clear();
+      refreshReaderDemand();
       renderBar();
       renderBadge();
     }
@@ -1590,12 +1643,27 @@ export default defineContentScript({
           return;
         }
 
+        if (d.type === 'subtitle-boundaries') {
+          const reply = evt.ports[0];
+          if (!reply) return;
+          if (!acquiringForView || typeof d.revision !== 'string') {
+            reply.postMessage([]);
+            reply.close();
+            return;
+          }
+          void boundaryHost.answer(d.revision, d.passages, reply);
+          return;
+        }
         if (d.type === 'track-selected') {
-          if (d.track && (pendingTrack || cues.length)) {
-            closeSelectionActions?.();
+          if (d.track && d.track.id !== trackOfUrl(lastTrackId)?.id && (pendingTrack || cues.length)) {
             pendingTrack = d.track;
-            stopTranslation();
+            if (cues.length) {
+              replaceSubtitleView([], [], '');
+              lastTrack = lastTrackLang = lastTrackId = '';
+              notice = ''; nocuesReason = ''; nocuesRetries = 0;
+            }
             armAcquisitionTimer();
+            ensureCaptionsOn(20);
             renderBar();
           }
           return;
@@ -1606,11 +1674,8 @@ export default defineContentScript({
           if (platformTimer) clearTimeout(platformTimer);
           platformRequest = null; platformState = 'done';
           const translated = Array.isArray(d.cues) ? d.cues : [];
-          const short = Array.isArray(d.fragments) ? d.fragments : [];
-          applyPlatformCues(translated, request.targetLang, 'groups');
-          applyPlatformCues(short, request.targetLang, 'fragments');
+          applyPlatformCues(translated, request.targetLang);
           if (translated.some(c => c.zh)) void send({ type: 'captionCache', key: request.cacheKey, cues: translated });
-          if (short.some(c => c.zh)) void send({ type: 'captionCache', key: request.fragmentCacheKey, cues: short });
           scheduleTranslate();
           return;
         }
@@ -1628,32 +1693,23 @@ export default defineContentScript({
           const lang = String(d.trackLang || '').toLowerCase();
           const newTrackId = String(d.trackId || '');
           const displayed = d.cues;
-          const short = d.fragments as Cue[];
           if (!displayed.length) { nocuesReason = 'empty-track'; return; }
           // 同内容重复捕获不失效译文；时间、时长或原文改变则旧索引不再适用。
           const contentChanged = lastTrackId !== newTrackId || revision !== d.revision;
           if (contentChanged) {
-            generation = crypto.randomUUID();
-            revision = d.revision;
-            cues = displayed; fragments = short; intervals = d.intervals;
-            pinnedIndex = -1; rowSeekTime = null;
-            closeSelectionActions?.();
-            pausedByUsVideo = null; popup.close(true); apIndex = -1; apHeld = false; apLastStopped = -1;
-            stopTranslation(); platformState = 'idle'; clearTranslationResults();
-            currentIdx = -1;
-            currentFragmentIdx = -1; apDisplayFragmentIndex = -1;
+            replaceSubtitleView(displayed, d.intervals, d.revision);
           }
           clearAcquisitionTimer();
           pendingTrack = null;
           if (bilingualOn) hideNativeCaptions();
+          else restoreNativeCaptions();
           lastTrack = kind;
           lastTrackLang = lang;
           lastTrackId = newTrackId;
           nocuesReason = '';
           nocuesRetries = 0;
           if (typeof d.seen === 'number') sawTimedtext = d.seen;
-          // M11：非英文原文字幕是合法轨道，按实际语言继续（不强切英语）
-          notice = '';
+          notice = d.segmentationFallback ? SUBTITLE_FALLBACK_NOTICE : '';
           log('cues', {
             videoId: d.videoId,
             track: `${lastTrackLang}(${lastTrack})`,
@@ -1719,12 +1775,7 @@ export default defineContentScript({
     document.head.append(layoutStyle);
 
     log('boot', { videoId: currentVideoId, url: location.href.slice(0, 120) });
-    if (currentVideoId) {
-      if (bilingualOn) hideNativeCaptions();
-      sendConfig();
-      ensureCaptionsOn(20);
-      renderBar();
-    }
+    if (currentVideoId) renderBar();
     void refreshSurfaceStatus();
     void refreshSettings();
     window.addEventListener('pagehide', () => { closeSelectionActions?.(); stopTranslation(); cancelSourceAcquisition(); });

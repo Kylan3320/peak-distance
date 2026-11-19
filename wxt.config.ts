@@ -7,6 +7,7 @@ export default defineConfig({
     name: 'Peak Distance',
     default_locale: 'en',
     minimum_chrome_version: '142',
+    content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
     description: '__MSG_extensionDescription__',
     permissions: ['storage', 'sidePanel', 'offscreen'],
     host_permissions: ['https://api.deepseek.com/*', 'https://dict.youdao.com/*', 'https://dictionary.cambridge.org/*', 'https://translate.googleapis.com/*'],

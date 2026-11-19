@@ -38,6 +38,7 @@ export type LookupIntent = 'active' | 'hover' | 'preview' | 'prefetch';
 
 /** content script / 侧栏 / 设置页 → background 的请求。 */
 export type BgcRequest =
+  | { type: 'prepareSubtitleWorker' }
   | { type: 'selectionVisibilityGet'; url: string }
   | { type: 'selectionVisibilitySet'; url: string; choice: PillVisibilityChoice }
   | { type: 'selectionVisibilityRestore'; url?: string; undo?: PillVisibilityUndo }
@@ -259,10 +260,11 @@ export interface SubGetMessage {
 }
 
 /** 侧栏 → 标签页：播放控制。videoId 不匹配当前视频时忽略（不串页）。 */
+export const SUBTITLE_FALLBACK_NOTICE = '部分英文字幕未能断句，可重新读取字幕';
 export interface SubControlMessage {
   type: 'blc-sub-control';
   videoId: string;
-  action: 'seek' | 'togglePlay' | 'replay' | 'next' | 'prev';
+  action: 'seek' | 'togglePlay' | 'replay' | 'next' | 'prev' | 'retrySubtitles';
   timeMs?: number;
 }
 
@@ -291,6 +293,14 @@ export interface VideoSettingsCommand {
 }
 
 /** content script → 侧栏：字幕视图状态（非视频页 videoId 为空）。 */
+export const SUBTITLE_READER_PORT = 'pd-subtitle-reader';
+export interface SubtitleReaderDemand {
+  videoId: string;
+  generation: string;
+  view: 'subs' | 'words';
+  visible: number[];
+}
+
 export interface SubViewState {
   chineseVisible?: boolean;
   /** M11：当前译文语言（原文轨道 → 理解语言）；缺省视为中文（迁移前兼容） */
