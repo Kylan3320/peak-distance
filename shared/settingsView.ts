@@ -26,10 +26,8 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     <label class="settings-field"><span data-i18n="界面语言"></span><select id="displayLanguage"></select></label>
     <label class="settings-field"><span data-i18n="翻译与释义语言"></span><select id="defaultComprehensionLang"></select></label></section>
     <section class="settings-section page-reading-settings"><h2 data-i18n="整页翻译"></h2>
-    <button id="toggle-page-translation" class="page-translate-action" type="button">${uiIcon('translate')}<span data-i18n="翻译或恢复当前网页"></span></button>
     <div class="settings-field"><span data-i18n="网页快捷键"></span><button id="page-translation-command" class="page-keycap" type="button" aria-describedby="shortcut-status" data-i18n-title="更改快捷键">${uiIcon('keyboard')}<kbd></kbd></button></div>
     <div id="shortcut-status" class="settings-status" role="status"></div>
-    <div id="page-translation-status" class="settings-status err" role="status"></div>
     <label class="settings-field"><span data-i18n="网页翻译样式"></span><select id="pageTranslationStyle"><option value="parallel" data-i18n="双语直显"></option><option value="frost" data-i18n="磨砂译文"></option><option value="translated" data-i18n="仅看译文"></option></select></label>
     <label class="settings-field"><span data-i18n="网页翻译方式"></span><select id="pageTranslationEngine"><option value="native" data-i18n="浏览器内置翻译"></option><option value="ai" data-i18n="AI 翻译"></option></select></label>
     <button id="prepare-native" class="settings-action" type="button"><span data-i18n="准备内置翻译"></span>${uiIcon('external')}</button></section>
@@ -130,8 +128,6 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     translationLanguage.value = value;
   }
   const videoSettings = videoContext ? mountVideoSettings(get('video-settings'), videoContext) : null;
-  const pageToggle = get<HTMLButtonElement>('toggle-page-translation');
-  pageToggle.hidden = !videoContext;
   const shortcutButton = get<HTMLButtonElement>('page-translation-command');
   const keycap = shortcutButton.querySelector('kbd')!;
   const shortcutStatus = get('shortcut-status');
@@ -172,18 +168,6 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     finally { shortcutButton.disabled = false; renderShortcut(); shortcutButton.focus(); }
   };
   renderShortcut();
-  pageToggle.onclick = async () => {
-    const status = get('page-translation-status');
-    setText(status, '');
-    try {
-      const id = await videoContext?.tab();
-      if (id === undefined) throw new Error('no-page');
-      const reply = await browser.tabs.sendMessage(id, {type:'page-translation-toggle'}, {frameId:0});
-      if (!reply?.ok) throw new Error('unsupported-page');
-    } catch {
-      setText(status, message('当前页面不支持段落翻译'));
-    }
-  };
   get('prepare-native').onclick = () => void browser.runtime.sendMessage({type:'prepareNativeTranslation'});
   const ai = mountAiSettings(get('ai-settings'));
   const themeControl=get<HTMLSelectElement>('appearanceTheme');

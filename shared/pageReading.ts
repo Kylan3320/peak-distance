@@ -238,17 +238,14 @@ export function mountPageReading(notice:Notice) {
     if (!shortcut || !event.isTrusted || event.repeat || event.defaultPrevented ||
         pageShortcutFromEvent(event) !== shortcut || document.designMode === 'on') return;
     if (event.composedPath().some(node => node instanceof HTMLElement &&
-        (node.isContentEditable || node.matches('input,textarea,select,[role="textbox"],[data-blc-skip]')))) return;
+        (node.isContentEditable || node.matches('input,textarea,select,[role="textbox"],[data-blc-skip]:not(pd-page-translation)')))) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     toggle();
   }, true);
-  browser.runtime.onMessage.addListener((msg,_sender,reply) => {
+  browser.runtime.onMessage.addListener(msg => {
     if (msg?.type === 'settings-changed' && msg.pageTranslationShortcut) shortcut = msg.pageTranslationShortcut;
-    if (msg?.type === 'page-translation-toggle') {
-      toggle();
-      reply({ok:true,enabled});
-    } else if (enabled && (msg?.type === 'settings-changed' || msg?.type === 'ai-service-changed')) {
+    if (enabled && (msg?.type === 'settings-changed' || msg?.type === 'ai-service-changed')) {
       void refresh(msg.type === 'ai-service-changed');
     }
   });

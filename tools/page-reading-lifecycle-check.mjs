@@ -16,14 +16,12 @@ try {
   }));
   await page.goto('https://article.test/read');
   await page.evaluate(() => {
-    const listeners = [];
     const settings = {displayLanguage:'en',pageTranslationEngine:'native',pageTranslationStyle:'translated',
       defaultComprehensionLang:'zh-Hans',markingEnabled:false};
-    window.broadcast = type => listeners.forEach(listener => listener({type},{},()=>{}));
     window.requests = [];
     window.browser = {i18n:{getUILanguage:()=>'en'},runtime:{
       id:'reading-test', getURL:path => location.origin + '/' + path,
-      onMessage:{addListener:listener => listeners.push(listener)},
+      onMessage:{addListener() {}},
       async sendMessage(m) { return m.type === 'getSettings' ? {ok:true,settings} : {ok:true,items:[]}; },
       connect() {
         let receive, close;
@@ -67,10 +65,12 @@ try {
   });
   await page.waitForFunction(()=>window.requests.length === 3);
   assert.equal((await page.locator('#story').innerText()).trim(),'更新后的段落。');
-  await page.evaluate(()=>{
-    window.broadcast('page-translation-toggle');
-    window.requests[2].answer('延迟的译文。');
+  await page.locator('#story pd-page-translation').evaluate(host => {
+    host.tabIndex = 0;
+    host.focus();
   });
+  await page.keyboard.press('Alt+s');
+  await page.evaluate(()=>window.requests[2].answer('延迟的译文。'));
   assert.equal((await page.locator('#story').innerText()).trim(),'Updated paragraph.');
   assert.equal(await page.locator('pd-page-translation,[data-pd-original]').count(),0);
   console.log('Verified source replacement, background reconnect, reparented originals and late replies after toggle-off.');
