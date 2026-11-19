@@ -45,6 +45,7 @@ import {
 } from '@/shared/protocol';
 import { cueIndexAt, fmtClock, buildCueTranslationBatch, DISPLAY_CUE_VERSION } from '@/shared/cues';
 import { subtitleScreenTimes } from '@/shared/subtitlePlayback';
+import { playerPages, translatedPages, pageTranslationInput, type SubtitlePage } from '@/shared/subtitlePages';
 import { subtitleFontSize } from '@/shared/youtubeWorkspace';
 import { createLookupPopup } from '@/shared/lookupPopup';
 import {
@@ -89,6 +90,9 @@ export default defineContentScript({
     let cues: LearningCue[] = [];
     let intervals: PlaybackInterval[] = [];
     let screenTimes: ReturnType<typeof subtitleScreenTimes> = [];
+    let pages: SubtitlePage[][] = [];
+    let currentPage = 0;
+    const pageTranslations = new Map<number,string[]>();
     let revision = '';
     let generation = crypto.randomUUID();
     let pinnedIndex = -1;
@@ -787,7 +791,7 @@ export default defineContentScript({
       const got = ensureSubsHost();
       if (!got) return;
       const { body } = got;
-      const key = generation + '/' + currentIdx;
+      const key = generation + '/' + currentIdx + '/' + currentPage;
       const bar = body.querySelector<HTMLDivElement>('.bar') ?? document.createElement('div');
       bar.className = 'bar';
       if (bar.dataset.screen !== key) {
@@ -832,7 +836,7 @@ export default defineContentScript({
         row = document.createElement('div'); row.dataset.row = String(index);
         const en = document.createElement('div');
         en.className = 'en'; en.dataset.cue = String(index);
-        appendSubtitleText(en, cue.text, baseLang(lastTrackLang) || 'en');
+        appendSubtitleText(en, pages[index]![currentPage]!.text.trim(), baseLang(lastTrackLang) || 'en');
         row.append(en); bar.append(row);
       }
       const en = row.firstElementChild!;
@@ -842,7 +846,7 @@ export default defineContentScript({
         const status = wordStatus(w.textContent!); if (status) w.classList.add(status);
       });
       if (zhVisible && !cue.segmentationFallback) {
-        const zh = translations.get(index);
+        const zh = pageTranslations.get(index)?.[currentPage];
         if (zh) {
           const z = document.createElement('div');
           z.className = 'zh';
@@ -1181,8 +1185,11 @@ export default defineContentScript({
           } else if (apIndex < 0 && intervalIndex >= 0 && intervalIndex !== apLastStopped) apIndex = intervalIndex;
         }
         if (apHeld) idx = apDisplayIndex;
-        if (idx !== currentIdx) {
+        const localPages = pages[idx];
+        const page = localPages ? Math.max(0,localPages.findLastIndex(p => p.start <= t)) : 0;
+        if (idx !== currentIdx || page !== currentPage) {
           currentIdx = idx;
+          currentPage = page;
           queueRender();
           renderBadge();
         }
@@ -1213,6 +1220,7 @@ export default defineContentScript({
 
     function clearTranslationResults(): void {
       translations.clear(); translationSources.clear();
+      pageTranslations.clear();
       failedCues.clear();
     }
 
@@ -1298,11 +1306,17 @@ export default defineContentScript({
         const result = translated[id];
         const zh = result?.text === cue.text && result.start === cue.start && result.dur === cue.dur ? result.zh : undefined;
         if (zh && !cue.segmentationFallback) {
-          translations.set(id, zh); pendingCues.delete(id);
+          storeTranslation(id,zh,false); pendingCues.delete(id);
           translationSources.set(id, sourceLabel);
         }
       });
       queueRender();
+    }
+
+    function storeTranslation(index:number, raw:string, tagged:boolean) {
+      const result = translatedPages(raw,pages[index]!,targetLangOf(),tagged);
+      translations.set(index,result.text);
+      pageTranslations.set(index,result.parts);
     }
 
     function intervalTranslationWindow(index: number) {
@@ -1334,6 +1348,7 @@ export default defineContentScript({
       }
       const ordered = new Set([currentIdx, ...visibleSubtitleIndices(), ...pendingCues].filter(i => pendingCues.has(i)));
       const { items, targets } = buildCueTranslationBatch(cues, ordered, 8);
+      const inputs = new Map(items.map(item=>[item.id,pageTranslationInput(pages[item.id]!)]));
       const ids = new Set(items.map(item => item.id));
       translating = true;
       queueRender();
@@ -1342,7 +1357,7 @@ export default defineContentScript({
       void send<import('@/lib/regularTranslation').RegularCueReply>({
         type: 'translateCues', mode: translationMode, requestId, videoId: currentVideoId, trackId: lastTrackId,
         sourceLang: lastTrackLang || undefined, targetLang: targetLangOf(),
-        items,
+        items:items.map(item=>({id:item.id,text:inputs.get(item.id)!})),
       }).then(r => {
         if (epoch !== fallbackEpoch) return;
         requestId = null; translating = false;
@@ -1358,7 +1373,15 @@ export default defineContentScript({
           if (deferred.has(target.id)) continue;
           pendingCues.delete(target.index);
           if (translated) {
-            translations.set(target.index, translated.text); failedCues.delete(target.index);
+            const input = inputs.get(target.id)!;
+            const tagged = input !== cues[target.id]!.text;
+            // Repeated text can have different speech timing. Reuse the one
+            // translation; hints from another occurrence belong to its cuts.
+            if (tagged && input !== pageTranslationInput(pages[target.index]!)) {
+              const cleaned = translatedPages(translated.text,pages[target.id]!,targetLangOf(),true).text;
+              storeTranslation(target.index,cleaned,false);
+            } else storeTranslation(target.index,translated.text,tagged);
+            failedCues.delete(target.index);
             translationSources.set(target.index, translationMode === 'ai' ? tr('AI 翻译')
               : translated.source === 'browser-native' ? tr('浏览器内置翻译') : tr('Google 常规翻译'));
           } else failedCues.add(target.index);
@@ -1574,7 +1597,7 @@ export default defineContentScript({
       void updateVideoSession();
       navSeq++;
       cues = [];
-      intervals = []; screenTimes = []; revision = ''; generation = crypto.randomUUID();
+      intervals = []; screenTimes = []; pages = []; currentPage = 0; revision = ''; generation = crypto.randomUUID();
       pinnedIndex = -1; rowSeekTime = null;
       lastTrack = '';
       lastTrackLang = '';
@@ -1687,7 +1710,10 @@ export default defineContentScript({
           const contentChanged = lastTrackId !== newTrackId || revision !== d.revision;
           if (contentChanged) {
             replaceSubtitleView(displayed, d.intervals, d.revision);
-            screenTimes = subtitleScreenTimes(displayed,d.intervals,d.fragments,lang);
+            const fragments = d.fragments;
+            screenTimes = subtitleScreenTimes(displayed,d.intervals,fragments,lang);
+            pages = displayed.map((cue,i)=>playerPages(cue,screenTimes[i]!,fragments,lang));
+            currentPage = 0;
           }
           clearAcquisitionTimer();
           pendingTrack = null;

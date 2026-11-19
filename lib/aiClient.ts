@@ -214,7 +214,10 @@ export async function translateSentences(
   if (!config.apiKey) return { ok: false, error: 'no-key' };
   if (!lines.length) return { ok: true, translations: [] };
   const numbered = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
-  const system = langs ? translateSystemPrompt(langs.source, langs.target) : SYSTEM_PROMPT_TRANSLATE;
+  let system = langs ? translateSystemPrompt(langs.source, langs.target) : SYSTEM_PROMPT_TRANSLATE;
+  if (lines.some(line=>/⟦\d+⟧/u.test(line))) {
+    system += '输入中的 ⟦数字⟧ 是同一句中的字幕换屏点。请结合整句理解，在对应译文之间原样保留标记与顺序，使各屏连读自然。';
+  }
   const r1 = await chat(config, system, numbered, MAX_TOKENS_TRANSLATE, signal);
   if ('error' in r1) return r1.error as TranslateSentencesResult;
   let arr = parseJsonArray(r1.content);
