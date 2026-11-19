@@ -250,7 +250,10 @@ function readingViews(fragments: SubtitleFragment[], kind: 'manual' | 'asr', lan
     let begin = from;
     for (const end of ends ?? [to-from]) {
       const [left, right] = trimRange(begin, from + end);
-      if (left < right) add(left, right);
+      if (left < right) {
+        add(left, right);
+        if (predict && prediction && !ends) cues[cues.length - 1]!.segmentationFallback = true;
+      }
       begin = from + end;
     }
     return true;

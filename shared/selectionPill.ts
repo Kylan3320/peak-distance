@@ -36,6 +36,7 @@ export interface PillSelectionInfo {
   blockText: string;
   source: SourceDescriptor | null;
   sourceLang?: string;
+  lookupLang: string;
   rect: DOMRect | null;
 }
 
@@ -122,7 +123,9 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     const startBlock = blockElementOf(range.startContainer);
     const endBlock = blockElementOf(range.endContainer);
     const blockText = readingText(startBlock).replace(/\s+/g, ' ').trim();
-    const lang = detectTextLanguage(raw) ?? detectTextLanguage(blockText) ?? 'en';
+    const sourceLang = inheritedSelectionLanguage(range.startContainer);
+    const script = detectTextLanguage(raw) ?? detectTextLanguage(blockText);
+    const lang = sourceLang ?? (script === 'en' ? 'und' : script ?? 'und');
     // 未跨正文块时才有词/短语分类；跨块（或选区落在无块元素文本上）按句段处理。
     // 分类与有效表达的计算见 shared/selection.ts 的 classifyRangeIn
     const crossesBlock = !startBlock || startBlock !== endBlock;
@@ -135,7 +138,7 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       sentence: cls?.sentence ?? null,
       blockText: blockText.slice(0, 600),
       source: deps.buildSource(),
-      sourceLang: inheritedSelectionLanguage(range.startContainer),
+      sourceLang, lookupLang: lang,
       rect,
     };
   }
@@ -308,7 +311,7 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       text: info.raw,
       kind: info.kind,
       expression: info.kind === 'sentence' ? null : info.expression,
-      lang: detectTextLanguage(info.raw) ?? detectTextLanguage(info.blockText) ?? undefined,
+      lang: info.lookupLang,
       ...(info.sentence ? { sentence: info.sentence } : {}),
       source: info.source,
       ...(definition ? { definition } : {}),
@@ -350,14 +353,14 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     const expression = info.expression ?? info.raw;
     void send({ type: 'selectionSnapshot', snapshot: { text: info.raw, url: info.source?.url ?? location.href, title: info.source?.title ?? document.title, source:info.source ?? undefined, sourceLang:info.sourceLang, languageEvidence:info.sourceLang ? 'element' : undefined } });
     lookup.open({
+      sourceMissing: !info.source,
       snapshot: {
         source: 'web',
         expression,
         sentence: info.sentence ?? info.blockText,
-        url: location.href,
-        title: document.title,
-        // 局部语言初判（选区优先，其次所在原句）；无法判定则缺省（待确认由词卡纠正）
-        lang: detectTextLanguage(expression) ?? detectTextLanguage(info.sentence ?? info.blockText) ?? undefined,
+        url: info.source?.url ?? location.href,
+        title: info.source?.title ?? document.title,
+        lang: info.lookupLang,
       },
       onContinueAsk: deps.onContinueAsk,
     });

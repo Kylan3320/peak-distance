@@ -122,9 +122,11 @@ try {
   const mount = document.querySelector<HTMLElement>('main')!;
   let viewEntries:EntryView[]=[];
   let reviewed:ArticleLearningSnapshot|undefined;
+  let libraryReads = 0;
   let displayedTitle: string | undefined;
   const article = createArticleLearning(mount, {
     send: async <T>(request: unknown): Promise<T> => {
+      libraryReads++;
       await gate;
       return ((request as { type: string }).type === 'listEntries'
         ? { ok: true, entries: viewEntries, vaultId: null }
@@ -137,7 +139,11 @@ try {
   const otherSource = { ...source, sourceKey: 'web:https://example.com/B', title: 'B', url: 'https://example.com/B' };
   await article.update(source, null);
   assert.equal(mount.querySelector<HTMLButtonElement>('[data-i18n-aria-label="复习本篇"]')!.hidden,true);
+  const initialReads = libraryReads;
+  await article.update(source,null);
+  assert.equal(libraryReads,initialReads);
   viewEntries=[{...entry('en::reading'),contexts:[context(source.url,'A sentence','A meaning',1)]}];
+  article.invalidate();
   await article.update(source,null);
   const editor = document.createElement('form'); editor.className = 'knowledge-editor'; mount.append(editor);
   await article.update(otherSource, null);

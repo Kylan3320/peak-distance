@@ -207,7 +207,7 @@ function switchView(view: string): void {
   if (view === 'chat') chatViewEnter();
   if (libraryViews.includes(view)) {void refresh();void syncLibraryOnActivity();}
   if (view === 'sentences') (libraryReview as HTMLButtonElement).disabled=false;
-  if (view === 'subs') pollSubs();
+  if (view === 'subs') { articleLearning.invalidate(); void pollSubs(); }
   if (view === 'review') {if(reviewQueue.length||knowledgeQueue.length){renderReview();void refreshReviewQueue();}else void startReview();}
   if (view === 'settings')void settingsView.refresh();
   void persistPanel();
@@ -1363,6 +1363,7 @@ browser.runtime.onMessage.addListener((msg: unknown) => {
     if(currentView==='review'&&reviewSession.category==='knowledge')void refreshReviewQueue();
   }
   if(t==='vault-changed'){
+    articleLearning.invalidate();
     subsLibraryRequest=null;subsLibraryDirty=true;
     void checkLearningLibrary();
   }

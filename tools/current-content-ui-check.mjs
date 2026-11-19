@@ -197,13 +197,7 @@ try {
   assert.ok((await panel.locator('.knowledge-row').innerText()).includes('Saved citation from Article A.'));
   await panel.getByRole('button',{name:'编辑',exact:true}).click();
   await panel.locator('.knowledge-editor').getByRole('textbox',{name:'知识点正文'}).fill('Revised independent body');
-  await panel.evaluate(()=>{
-    globalThis.articleSend=chrome.runtime.sendMessage;globalThis.articlePolls=0;
-    chrome.runtime.sendMessage=function(...args){if(args[0]?.type==='listKnowledge')articlePolls++;return articleSend.apply(this,args);};
-  });
   await other.bringToFront();
-  await panel.waitForFunction(()=>articlePolls>=2);
-  await panel.evaluate(()=>{chrome.runtime.sendMessage=articleSend;});
   assert.equal(await panel.locator('#workspace-title').innerText(),'Article A');
   await panel.getByRole('button',{name:'复习本篇',exact:true}).click();
   await panel.getByRole('button',{name:'显示答案',exact:true}).click();

@@ -172,6 +172,25 @@ function decode(translated: string, templates: HTMLElement[]): DocumentFragment 
 // translation; link-label queries locate the target span, never supply surrounding prose.
 async function alignTranslation(parts:Part[], text: string, templates: HTMLElement[], request: (text: string) => Promise<string>) {
   const translation = await request(text);
+  try {
+    return await restoreFormatting(parts,text,templates,translation,request);
+  } catch (error) {
+    console.warn('[pd] paragraph link alignment unavailable',error);
+    const fragment = document.createDocumentFragment();
+    fragment.append(translation);
+    const linked = document.createDocumentFragment();
+    linked.append(translation);
+    for (const template of templates.filter(el => el.matches('a'))) {
+      const link = shell(template);
+      link.textContent = template.textContent;
+      linked.append(' ',link);
+    }
+    replacementVersions.set(fragment,linked);
+    return fragment;
+  }
+}
+
+async function restoreFormatting(parts:Part[], text:string, templates:HTMLElement[], translation:string, request:(text:string)=>Promise<string>) {
   const ranges: {start:number; end:number; element:HTMLElement}[] = [];
   const fragment = document.createDocumentFragment();
   const labels = new Map<HTMLElement,string>();

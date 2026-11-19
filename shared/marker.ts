@@ -72,7 +72,7 @@ export function buildMarkBuckets(items: VocabIndexItem[]): Map<string, MarkBucke
     }
     return b;
   };
-  const formOwner = new Map<string, { lang: string; status: string }>();
+  const formOwner = new Map<string, { key: string; status: string }>();
   const formConflict = new Set<string>();
 
   for (const it of items) {
@@ -95,14 +95,15 @@ export function buildMarkBuckets(items: VocabIndexItem[]): Map<string, MarkBucke
       if (!fk || fk === key) continue;
       const ownerKey = `${lang}\u0000${fk}`;
       const prev = formOwner.get(ownerKey);
-      if (prev && prev.status !== status) formConflict.add(ownerKey);
-      else if (!prev) formOwner.set(ownerKey, { lang, status });
+      if (prev && prev.key !== it.key) formConflict.add(ownerKey);
+      else if (!prev) formOwner.set(ownerKey, { key: it.key, status });
     }
   }
   for (const [ownerKey, owner] of formOwner) {
     if (formConflict.has(ownerKey)) continue;
     const [lang, fk] = ownerKey.split('\u0000');
-    bucketFor(lang!).statusByKey.set(fk!, owner.status);
+    const statuses = bucketFor(lang!).statusByKey;
+    if (!statuses.has(fk!)) statuses.set(fk!, owner.status);
   }
   return buckets;
 }

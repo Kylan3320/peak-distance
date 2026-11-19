@@ -152,24 +152,24 @@ check('A4 句段分类：隐藏查词，保留翻译与添加', await page.evalu
   return root.querySelector('#translate').hidden === false && root.querySelector('#chat').hidden === false;
 }));
 
-// A4b 词/短语翻译卡片使用补全+清洗后的正常表达（残缺词补齐、去词外标点）
+// A4b 翻译使用实际选中的文字。
 await selectText('#p1', p1Text.indexOf('teady'), p1Text.indexOf('pace.') + 5); // teady pace.
 await page.waitForFunction(() => document.getElementById('blc-lookup-pill')?.shadowRoot?.querySelector('#translate')?.hidden === false, null, { timeout: 4000 });
 await page.click('#translate');
 await page.waitForSelector('#pd-translation #original');
-check('A4b 翻译卡片展示补全/清洗后的表达：teady pace. → steady pace',
-  await page.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'steady pace'),
+check('A4b 翻译保留实际选区 teady pace.',
+  await page.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'teady pace.'),
   await page.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent));
 await page.getByRole('button', { name: '关闭翻译' }).click();
 await page.waitForFunction(() => !document.getElementById('pd-translation'));
 
-// A4c 句段选区（含内部句界）：翻译卡同样清洗首尾（残缺词补齐；内部保持原文）
+// A4c 翻译使用实际选中的文字。
 await selectText('#p1', p1Text.indexOf('teady'), p1Text.indexOf('. The') + 4); // teady pace. Th
 await page.waitForFunction(() => document.getElementById('blc-lookup-pill')?.shadowRoot?.querySelector('#lookup')?.hidden === true, null, { timeout: 4000 });
 await page.click('#translate');
 await page.waitForSelector('#pd-translation #original');
-check('A4c 句段翻译卡清洗首尾：teady pace. Th → steady pace. The（内部句号保留）',
-  await page.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'steady pace. The'),
+check('A4c 翻译保留跨句选区（内部句号保留）',
+  await page.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'teady pace. Th'),
   await page.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent));
 await page.getByRole('button', { name: '关闭翻译' }).click();
 await page.waitForFunction(() => !document.getElementById('pd-translation'));
@@ -209,7 +209,7 @@ await xpage.evaluate(() => {
 });
 await xpage.waitForFunction(() => !document.getElementById('blc-lookup-popup'));
 
-// X2 跨省略号句段（用户报障场景）：翻译卡清洗首尾
+// X2 翻译使用实际选中的文字。
 await xSelect(0, 16); // Seriously.... wh
 await xpage.waitForFunction(() => {
   const root = document.getElementById('blc-lookup-pill')?.shadowRoot;
@@ -217,8 +217,8 @@ await xpage.waitForFunction(() => {
 }, null, { timeout: 4000 });
 await xpage.click('#translate');
 await xpage.waitForSelector('#pd-translation #original');
-check('X2 X 句段翻译卡清洗首尾：Seriousl.... wh → Seriously.... what',
-  await xpage.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'Seriously.... what'),
+check('X2 翻译保留 X 帖子选区',
+  await xpage.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'Seriously.... what'.slice(0,16)),
   await xpage.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent));
 await xpage.getByRole('button', { name: '关闭翻译' }).click();
 await xpage.close();
@@ -390,20 +390,22 @@ await yt.evaluate(() => {
   window.__candidates = [];
   window.__listeners = [];
   window.browser = {
+    i18n: {getUILanguage: () => 'zh-CN'},
     runtime: {
+      onConnect: {addListener() {}},
       id: 'sel-check',
       getURL: () => 'data:,',
-      sendMessage: (msg, cb) => {
-        if (msg.type === 'chatEnsure') { window.__chat.push(msg); cb({ ok: true, chat: null, panelOpened: true }); }
-        else if (msg.type === 'selectionCandidateSet') { window.__candidates.push(msg.candidate); cb({ ok: true }); }
-        else if (msg.type === 'subtitleMode') cb({ ok: true, mode: 'regular', autoPause: false });
-        else if (msg.type === 'getSettings') cb({ ok: true, settings: { markingEnabled: false, translationMode: 'regular', chineseVisible: true, bilingualEnabled: true } });
-        else if (msg.type === 'listSentences') cb({ ok: true, sentences: [] });
-        else if (msg.type === 'listEntries') cb({ ok: true, entries: [] });
-        else if (msg.type === 'vocabIndex') cb({ ok: true, items: [] });
-        else if (msg.type === 'captionCache') cb({ ok: true, cues: [] });
-        else if (msg.type === 'translateCues') cb({ ok: true, translations: msg.items.map((i) => ({ id: i.id, text: `译${i.id}` })) });
-        else cb({ ok: true });
+      sendMessage: async (msg) => {
+        if (msg.type === 'chatEnsure') { window.__chat.push(msg); return { ok: true, chat: null, panelOpened: true }; }
+        else if (msg.type === 'selectionCandidateSet') { window.__candidates.push(msg.candidate); return { ok: true }; }
+        else if (msg.type === 'subtitleMode') return { ok: true, mode: 'regular', autoPause: false };
+        else if (msg.type === 'getSettings') return { ok: true, settings: { displayLanguage:'zh-Hans', defaultComprehensionLang:'zh-Hans', markingEnabled: false, translationMode: 'regular', chineseVisible: true, bilingualEnabled: true } };
+        else if (msg.type === 'listSentences') return { ok: true, sentences: [] };
+        else if (msg.type === 'listEntries') return { ok: true, entries: [] };
+        else if (msg.type === 'vocabIndex') return { ok: true, items: [] };
+        else if (msg.type === 'captionCache') return { ok: true, cues: [] };
+        else if (msg.type === 'translateCues') return { ok: true, translations: msg.items.map((i) => ({ id: i.id, text: `译${i.id}` })) };
+        else return { ok: true };
       },
       onMessage: { addListener: (fn) => window.__listeners.push(fn) },
     },
@@ -422,11 +424,11 @@ await yt.addScriptTag({ content: ytScript });
 await yt.waitForFunction(() => window.__cfgNonce !== null);
 const ytNonce = await yt.evaluate(() => window.__cfgNonce);
 const postMsg = (data) => yt.evaluate((d) => window.postMessage(d, '*'), { source: 'blc-inject', videoId: 'testvid1', nonce: ytNonce, seen: 2, ...data });
-await postMsg({ type: 'cues', trackKind: 'manual', trackLang: 'en', trackId: 'https://t/tt-en', cues: [
-  { start: 0, dur: 3000, text: 'the sounds of silence', lastOff: 2800 },
-  { start: 5000, dur: 3000, text: 'one went home', lastOff: 7800 },
-  { start: 9000, dur: 3000, text: 'they finally decided to give it all up today', lastOff: 11800 },
-] });
+const rawCues = ['the sounds of silence', 'one went home', 'they finally decided to give it all up today']
+  .map((text,i) => ({start:[0,5000,9000][i], dur:3000, lastOff:0, text}));
+const { buildSubtitleViews } = await import('../shared/cues.ts');
+await postMsg({type:'cues', trackKind:'manual', trackLang:'en', trackId:'https://t/tt-en',
+  revision:'selection-fixture', ...buildSubtitleViews(rawCues,'manual','en')});
 await yt.waitForFunction(() => document.getElementById('blc-debug')?.getAttribute('data-blc-count') === '3');
 await yt.evaluate(() => { document.querySelector('video').currentTime = 5.5; });
 await yt.waitForFunction(() => document.getElementById('blc-subs')?.shadowRoot?.querySelector('.en')?.textContent === 'one went home');
@@ -506,13 +508,13 @@ await yt.evaluate(() => {
   [...card.querySelectorAll('button')].find((b) => b.textContent === '关闭')?.click();
 });
 
-// B3b 字幕短语翻译卡片同样使用补全后的表达（went ho → went home）
+// B3b 翻译使用实际选中的文字。
 await barSelect(4, 11);
 await yt.waitForSelector('#pd-phrase-actions');
 await yt.locator('#pd-phrase-actions').getByRole('button', { name: '翻译', exact: true }).click();
 await yt.waitForSelector('#pd-translation #original');
-check('B3b 字幕翻译卡片展示补全表达：went ho → went home',
-  await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'went home'),
+check('B3b 翻译保留字幕短语选区',
+  await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'went ho'),
   await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent));
 await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#close')?.click());
 await yt.waitForFunction(() => !document.getElementById('pd-translation'));
@@ -524,13 +526,13 @@ await barSelect(0, 100);
 await yt.waitForSelector('#pd-phrase-actions');
 check('B4 播放器句段：隐藏查词', await yt.evaluate(() => document.getElementById('pd-phrase-actions')?.shadowRoot?.querySelector('#lookup').hidden === true));
 
-// B4b 句段残缺首尾：翻译卡补全首尾（hey…it al → they…all）
+// B4b 翻译使用实际选中的文字。
 await barSelect(2, 33);
 await yt.waitForSelector('#pd-phrase-actions');
 await yt.locator('#pd-phrase-actions').getByRole('button', { name: '翻译', exact: true }).click();
 await yt.waitForSelector('#pd-translation #original');
-check('B4b 字幕句段翻译卡补全首尾：hey… it al → they … it all',
-  await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'they finally decided to give it all'),
+check('B4b 翻译保留字幕句段选区',
+  await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'they finally decided to give it all today'.slice(2,33)),
   await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent));
 await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#close')?.click());
 await yt.waitForFunction(() => !document.getElementById('pd-translation'));

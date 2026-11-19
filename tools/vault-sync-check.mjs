@@ -7,6 +7,14 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
+const modes = ['--vocab-note-only', '--collection-publication-only', '--chat-notes-only', '--chat-conflict-only', '--preference-only', '--translation-only'];
+const args = process.argv.slice(2);
+const [mode] = args;
+if (args.length > 1 || mode && !modes.includes(mode)) {
+  const help = args.length === 1 && mode === '--help';
+  console[help ? 'log' : 'error']('Usage: node tools/vault-sync-check.mjs [' + modes.join(' | ') + ']');
+  process.exit(help ? 0 : 2);
+}
 const root = resolve(import.meta.dirname, "..");
 const workspace = mkdtempSync(join(tmpdir(), "pd-vault-sync-"));
 const directory = join(workspace, "shared");
@@ -213,7 +221,25 @@ async function checkChatConflicts(chrome, edge) {
 try {
   const chrome = await open("chrome");
   const edge = await open("edge");
-  if (process.argv.includes('--collection-publication-only')) {
+  if (mode === '--vocab-note-only') {
+    const checked = await chrome.evaluate(async () => {
+      const {db} = Vault;
+      await Vault.adoptVault();
+      await db.importVaultEntry({ key:'gift', expression:'gift', language:'en', kind:'word', status:'known', createdAt:1, updatedAt:1 }, []);
+      const saved = await db.saveSnapshot({ source:'web', expression:'Gift', lang:'de', sentence:'Das Gift.', url:'https://example.com', title:'DE' }, {});
+      const note = 'Bedeutung\n## Beispiel\nDas ist Gift.';
+      await db.setEntryNote(saved.key,note);
+      const flush = await Vault.flushVaultWrites();
+      return {key:saved.key,note,after:(await db.getEntry('de::gift')).note,old:(await db.getEntry('gift')).status,flush};
+    });
+    assert.equal(checked.flush.failed,0);
+    assert.equal(checked.key,'de::gift');
+    assert.equal(checked.old,'known');
+    assert.equal(checked.after,checked.note);
+    await edge.evaluate(() => Vault.adoptVault());
+    assert.equal(await edge.evaluate(async () => (await Vault.db.getEntry('de::gift')).note),checked.note);
+    console.log('PASS scoped save and multiline note survive publication and second-browser import');
+  } else if (mode === '--collection-publication-only') {
     assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
     assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
     const key = 'en::publication';
@@ -250,7 +276,7 @@ try {
     assert.equal(next.contexts[0].explanation.text, 'New explanation -->');
     assert.ok(!(await chrome.evaluate(() => Vault.db.listVaultQueue())).some(write => write.recordId === key));
     console.log('PASS an interrupted collection publication exposes only the complete old version; retry exposes the complete new version');
-  } else if (process.argv.includes('--chat-notes-only')) {
+  } else if (mode === '--chat-notes-only') {
     assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
     assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
     const id = 'chat-notes';
@@ -279,7 +305,7 @@ try {
     assert.equal(published.messages.length, 4);
     assert.equal(published.messages[3].text, 'Answer Follow-up');
     console.log('PASS legacy heading remains part of the reply; external notes and old citations survive readback and continuation');
-  } else if (process.argv.includes('--chat-conflict-only')) {
+  } else if (mode === '--chat-conflict-only') {
     assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
     assert.ok((await edge.evaluate(() => Vault.adoptVault())).ok);
     const id = 'moved-chat';
@@ -299,7 +325,7 @@ try {
     assert.deepEqual(readdirSync(join(directory, '对话')), ['Archive']);
     assert.equal(JSON.parse(readFileSync(join(directory, '.peak-distance/index.json'), 'utf8'))[id], '对话/Archive/Renamed.md');
     await checkChatConflicts(chrome, edge);
-  } else if (process.argv.includes('--preference-only')) {
+  } else if (mode === '--preference-only') {
     assert.ok((await chrome.evaluate(() => Vault.adoptVault())).ok);
     const prefPath = join(directory, '偏好.md');
     writeFileSync(prefPath, '默认理解语言: fr\nen -> de\nja -> en\n');
@@ -323,7 +349,7 @@ try {
     assert.equal(readFileSync(prefPath,'utf8'), '默认理解语言: zh-Hans\nen -> de\nja -> en\n');
     for (const page of [chrome,edge]) assert.deepEqual(await page.evaluate(() => Vault.db.listKnowledge()), [record]);
     console.log('PASS Chrome/Edge preference file round trip preserves legacy entries and saved knowledge while syncing the shared target');
-  } else if (process.argv.includes('--translation-only')) {
+  } else if (mode === '--translation-only') {
     // Keep this mode limited to the new source and its existing collection lifecycle.
     const snapshot={text:'US policy\nCafé!',url:'https://example.com/translation#section',title:'Translation'};
     const first=await chrome.evaluate(async snapshot=>{

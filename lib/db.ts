@@ -9,7 +9,7 @@
 
 import {
   buildFormIndex,
-  lookupKeyCandidates,
+  normalizeEntryKey,
   normalizeExpression,
   planSave,
   shouldBackfill,
@@ -210,22 +210,21 @@ export async function resolveEntry(key: string): Promise<VocabEntryRecord | unde
 async function findEntry(
   tx: IDBTransaction,
   key: string,
+  legacySave = false,
 ): Promise<VocabEntryRecord | undefined> {
   const store = tx.objectStore(ENTRIES);
-  for (const candidate of lookupKeyCandidates(key)) {
-    const direct = (await px(store.get(candidate))) as VocabEntryRecord | undefined;
-    if (direct) return direct;
-  }
+  const direct = await px(store.get(normalizeEntryKey(key))) as VocabEntryRecord | undefined;
+  if (direct) return direct;
   const all = (await px(store.getAll())) as VocabEntryRecord[];
   const parsed = parseEntryKey(key);
   const bare = parsed ? normalizeExpressionInLanguage(parsed.expression, parsed.lang) : normalizeExpression(key);
   const language = parsed?.lang;
-  const matching = language ? all.filter(e => effectiveEntryLanguage(e) === language) : all;
+  const matching = language ? all.filter(e => effectiveEntryLanguage(e) === language) : legacySave ? all.filter(e => !effectiveEntryLanguage(e)) : all;
   if (parsed) {
     const scoped = matching.find(e => normalizeExpressionInLanguage(parseEntryKey(e.key)?.expression ?? e.expression, parsed.lang) === bare);
     if (scoped) return scoped;
   }
-  if (!parsed) {
+  if (!parsed && !legacySave) {
     // 裸键查询（getEntry 消息只传一个键，无语言）：唯一匹配的作用域词条兜底；
     // 多语言同形词条并存时不猜，保持跨语言分离。
     const scoped = all.filter((e) => e.key.endsWith(`::${bare}`));
@@ -251,30 +250,9 @@ export async function saveSnapshot(
       return null;
     }
 
-    // 先做纯决策，再在同一事务内落地。键与 planSave 共用同一规范化函数。
-    // 已存在词条按候选键解析：裸键（迁移前记录直连）→ 快照语言的作用域键
-    //（entryKeyOf 做语言感知规范化）→ 词形索引（键无语言前缀，跨语言靠
-    // 作用域键分离）。saveSnapshot 掌握快照语言，不做无语言的兜底扫描。
-    let existingEntry: VocabEntryRecord | undefined;
-    for (const key of lookupKeyCandidates(snapshot.expression, snapshot.lang)) {
-      const direct = (await px(entries.get(key))) as VocabEntryRecord | undefined;
-      if (direct) {
-        existingEntry = direct;
-        break;
-      }
-    }
-    if (!existingEntry) {
-      const allPre = (await px(entries.getAll())) as VocabEntryRecord[];
-      // 词形关联：查词 'constrained' 落到词条 'constrain' 时，上下文键用目标键。
-      const sameLanguage = allPre.filter(e => effectiveEntryLanguage(e) === (snapshot.lang ? normalizeLangTag(snapshot.lang) : null));
-      const normalize = (expression: string) => snapshot.lang ? normalizeExpressionInLanguage(expression, snapshot.lang) : normalizeExpression(expression);
-      existingEntry = sameLanguage.find(e => normalize(e.expression) === normalize(snapshot.expression));
-      const owner = buildFormIndex(sameLanguage).get(normalize(snapshot.expression));
-      if (!existingEntry && owner) existingEntry = sameLanguage.find((e) => e.key === owner);
-    }
-    // 上下文查重用解析后的键：已存在词条用其键；否则用 planSave 将生成的键。
-    const contextKey = existingEntry?.key
-      ?? (snapshot.lang ? entryKeyOf(snapshot.lang, snapshot.expression) : normalizeExpression(snapshot.expression));
+    const requestedKey = snapshot.lang ? entryKeyOf(snapshot.lang, snapshot.expression) : normalizeExpression(snapshot.expression);
+    const existingEntry = await findEntry(tx, requestedKey, !snapshot.lang);
+    const contextKey = existingEntry?.key ?? requestedKey;
     const allContexts = (await px(
       contexts.index('entryKey').getAll(contextKey),
     )) as ContextRecord[];
@@ -381,7 +359,7 @@ export async function listIndex(): Promise<VocabIndexItem[]> {
 export async function setEntryNote(key: string, note: string, owner?: string | null): Promise<boolean> {
   return withDb(async (db) => {
     const tx = db.transaction([ENTRIES, CONTEXTS, VAULT, VAULT_QUEUE], 'readwrite');
-    if(owner!==undefined){const identity=await px(tx.objectStore(VAULT).get('lastIdentity')) as VaultIdentity|undefined;if((identity?.vaultId??null)!==owner){await txDone(tx);return false;}}
+    if (owner !== undefined && owner !== await dataVaultId(tx)) { await txDone(tx); return false; }
     const store = tx.objectStore(ENTRIES);
     const entry = (await px(store.get(key))) as VocabEntryRecord | undefined;
     if (!entry) {
@@ -401,7 +379,7 @@ export async function setEntryNote(key: string, note: string, owner?: string | n
 export async function setStatus(key: string, status: VocabStatus, owner?: string | null): Promise<boolean> {
   return withDb(async (db) => {
     const tx = db.transaction([ENTRIES, CONTEXTS, VAULT, VAULT_QUEUE], 'readwrite');
-    if(owner!==undefined){const identity=await px(tx.objectStore(VAULT).get('lastIdentity')) as VaultIdentity|undefined;if((identity?.vaultId??null)!==owner){await txDone(tx);return false;}}
+    if (owner !== undefined && owner !== await dataVaultId(tx)) { await txDone(tx); return false; }
     const store = tx.objectStore(ENTRIES);
     const entry = (await px(store.get(key))) as VocabEntryRecord | undefined;
     if (!entry) {
@@ -421,7 +399,7 @@ export async function setStatus(key: string, status: VocabStatus, owner?: string
 export async function deleteEntry(key: string, enqueueDeletion = true, expected?: VaultVocabRecord | null, owner?: string | null): Promise<boolean> {
   return withDb(async (db) => {
     const tx = db.transaction([ENTRIES, CONTEXTS, VAULT, VAULT_QUEUE], 'readwrite');
-    if(owner!==undefined){const identity=await px(tx.objectStore(VAULT).get('lastIdentity')) as VaultIdentity|undefined;if((identity?.vaultId??null)!==owner){await txDone(tx);return false;}}
+    if (owner !== undefined && owner !== await dataVaultId(tx)) { await txDone(tx); return false; }
     const entries = tx.objectStore(ENTRIES);
     const contexts = tx.objectStore(CONTEXTS);
     const existing = (await px(entries.get(key))) as VocabEntryRecord | undefined;
@@ -488,7 +466,7 @@ export async function backfillDefinition(
 export async function removeForm(key: string, form: string, owner?: string | null): Promise<boolean> {
   return withDb(async (db) => {
     const tx = db.transaction([ENTRIES, CONTEXTS, VAULT, VAULT_QUEUE], 'readwrite');
-    if(owner!==undefined){const identity=await px(tx.objectStore(VAULT).get('lastIdentity')) as VaultIdentity|undefined;if((identity?.vaultId??null)!==owner){await txDone(tx);return false;}}
+    if (owner !== undefined && owner !== await dataVaultId(tx)) { await txDone(tx); return false; }
     const store = tx.objectStore(ENTRIES);
     const entry = (await px(store.get(key))) as VocabEntryRecord | undefined;
     if (!entry || !entry.forms?.length) {

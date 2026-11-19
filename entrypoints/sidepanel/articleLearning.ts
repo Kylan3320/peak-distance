@@ -43,16 +43,18 @@ export function createArticleLearning(mount: HTMLElement, actions: {
   let notice:{sourceKey:string;text:UiText}|null=null;
   async function update(source: SourceDescriptor | null, selection: SelectionSnapshot | null) {
     const version = ++generation, captured = structuredClone({...state, source: state.pinned ? state.source : source});
+    const next = JSON.stringify([captured, selection]);
+    if (next === signature) { actions.title(state.source); return; }
+    const editing = () => mount.querySelector('.knowledge-editor,.note-editor') ||
+      [...mount.querySelectorAll('textarea')].some(t => t === document.activeElement);
+    if (editing()) return;
     const [vocab, knowledge] = await Promise.all([
       actions.send<{ ok: boolean; entries: EntryView[];vaultId:string|null }>({ type: 'listEntries' }),
       actions.send<{ ok: boolean; records: KnowledgeRecord[]; vaultId: string | null }>({ type: 'listKnowledge' }),
     ]);
     if (version !== generation) return;
     if(vocab?.ok&&knowledge?.ok&&vocab.vaultId!==knowledge.vaultId)return;
-    const next = JSON.stringify([captured, selection, vocab, knowledge]);
-    if (next === signature) { actions.title(state.source); return; }
-    // Keep an open editor and unsaved notes intact during polling; mutations refresh after completion.
-    if (mount.querySelector('.knowledge-editor,.note-editor') || [...mount.querySelectorAll('textarea')].some(t => t === document.activeElement)) return;
+    if (editing()) return;
     const sameSource = state.source?.sourceKey === captured.source?.sourceKey;
     const expanded = new Set(sameSource ? [...mount.querySelectorAll<HTMLElement>('.entry:has(.entry-expand[aria-expanded=true])')].map(row=>row.dataset.key) : []);
     const knowledgeExpanded = new Set(sameSource ? [...mount.querySelectorAll<HTMLDetailsElement>('.knowledge-row[open]')].map(row=>row.dataset.id) : []);
@@ -122,5 +124,5 @@ export function createArticleLearning(mount: HTMLElement, actions: {
       mount.append(empty);
     }
   }
-  return { update, snapshot: () => structuredClone(state), restore: (saved: ArticleLearningSnapshot) => { generation++; state = structuredClone(saved); signature = ''; }, follow: () => { generation++; state.pinned = false; }, invalidate: () => { signature = ''; }, reset: () => { generation++;signature='';notice=null;state={source:null,category:'vocab',language:'all',pinned:false};mount.replaceChildren(); } };
+  return { update, snapshot: () => structuredClone(state), restore: (saved: ArticleLearningSnapshot) => { generation++; state = structuredClone(saved); signature = ''; }, follow: () => { generation++; state.pinned = false; }, invalidate: () => { generation++; signature = ''; }, reset: () => { generation++;signature='';notice=null;state={source:null,category:'vocab',language:'all',pinned:false};mount.replaceChildren(); } };
 }

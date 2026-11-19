@@ -34,6 +34,7 @@ export const POPUP_ID = 'blc-lookup-popup';
 // Extension context invalidated；地址本身不变，注入期上下文必然有效。
 
 export interface PopupOpenArgs {
+  sourceMissing?: boolean;
   snapshot: LookupSnapshot;
   anchor?: HTMLElement;
   compact?: boolean;
@@ -60,6 +61,7 @@ export interface LookupPopup {
 }
 
 interface PinnedState {
+  sourceMissing?: boolean;
   anchor?: HTMLElement;
   compact?: boolean;
   snapshot: LookupSnapshot;
@@ -319,7 +321,7 @@ export function createLookupPopup(opts: {
     save.setAttribute('aria-busy', String(busy));
     save.disabled = busy;
     save.addEventListener('click', () => void toggleSave());
-    row.append(save);
+    if (!p.sourceMissing) row.append(save);
 
     if (!p.compact && typeof p.onContinueAsk === 'function') {
       const ask = document.createElement('button');
@@ -607,6 +609,7 @@ export function createLookupPopup(opts: {
       anchorRect = null;
       pinned = {
         snapshot: args.snapshot,
+        sourceMissing: args.sourceMissing,
         anchor: args.anchor, compact: args.compact,
         subLine: args.subLine,
         onClose: args.onClose,
@@ -617,7 +620,7 @@ export function createLookupPopup(opts: {
         note: undefined,
         lookupError: undefined,
       };
-      void querySavedContext();
+      if (!args.sourceMissing) void querySavedContext();
       void requestLookup();
     },
     isCompact() { return !!pinned?.compact; },

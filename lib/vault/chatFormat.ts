@@ -1,3 +1,4 @@
+import { encodeProse, decodeProse } from './prose';
 // M11 学习库：完整聊天会话与材料快照的 Markdown 往返（spec 4.5）。
 // 会话一份（对话/<标题>-<id短码>.md），材料每版本一份（材料/<chatId>-v<N>.md）。
 // 受管内容：消息按“## 消息 N · 角色”分节，元数据行（- 键：值）+ 空行 + 正文；
@@ -207,7 +208,7 @@ export function serializeMaterialSnapshot(chatId: string, snapshot: MaterialSnap
   const lines = ['---', `id: ${fmValue(materialIdOf(chatId, snapshot.version))}`, `chat: ${fmValue(chatId)}`, `version: ${snapshot.version}`, `label: ${fmValue(snapshot.label)}`, `source: ${fmValue(JSON.stringify(snapshot.source))}`, `createdAt: ${snapshot.createdAt}`, '---', '', `# ${snapshot.label}`, ''];
   for (const b of snapshot.blocks) {
     const time = b.startMs !== undefined ? `（${b.startMs}–${b.endMs ?? ''} ms）` : '';
-    lines.push(`## ${b.id}${time}`, '', b.text, '');
+    lines.push(`## ${b.id}${time}`, '', encodeProse(b.text, /^## p\d+/m), '');
   }
   return lines.join('\n');
 }
@@ -239,7 +240,7 @@ export function parseMaterialDocument(text: string): { chatId: string; version: 
     const content = section.slice(head[0].length).replace(/^\n+/, '').trim();
     blocks.push({
       id: head[1]!,
-      text: content,
+      text: decodeProse(content),
       ...(head[2] !== undefined && head[2] !== '' ? { startMs: Number(head[2]), endMs: head[3] ? Number(head[3]) : undefined } : {}),
     });
   }

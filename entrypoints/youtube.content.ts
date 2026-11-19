@@ -133,7 +133,8 @@ export default defineContentScript({
       syncSubtitleDemand();
     }
     function visibleSubtitleIndices() { return readerGeneration === generation ? readerRows : []; }
-    function translationDemand() { return zhVisible && (bilingualOn || readerWantsTranslation); }
+    function showTranslation() { return zhVisible && baseLang(lastTrackLang) !== baseLang(targetLangOf()); }
+    function translationDemand() { return showTranslation() && (bilingualOn || readerWantsTranslation); }
 
     function syncSubtitleDemand() {
       if (!settingsReady || !currentVideoId) return;
@@ -845,7 +846,7 @@ export default defineContentScript({
         w.classList.remove('saved', 'learning', 'known');
         const status = wordStatus(w.textContent!); if (status) w.classList.add(status);
       });
-      if (zhVisible && !cue.segmentationFallback) {
+      if (showTranslation() && !cue.segmentationFallback) {
         const zh = pageTranslations.get(index)?.[currentPage];
         if (zh) {
           const z = document.createElement('div');
@@ -1009,7 +1010,7 @@ export default defineContentScript({
       return {
         type: 'blc-chat-source-info',
         source,
-        canMaterial: !!buildVideoMaterial(),
+        canMaterial: !!lastTrackId && cues.length > 0,
         hint: cues.length ? '' : '字幕尚未就绪，稍后再试',
         pageUrl: location.href,
       };
@@ -1494,7 +1495,7 @@ export default defineContentScript({
               from: c.from,
               to: c.to,
             })),
-            chineseVisible: zhVisible,
+            chineseVisible: showTranslation(),
             currentIndex: currentIdx,
             playing: !!v && !v.paused,
             notice,

@@ -6,6 +6,7 @@
 
 import {
   applyVocabToDocument,
+  restoreLegacyNote,
   applySentenceToDocument,
   applyPreferenceToDocument,
   contextIdentity,
@@ -261,6 +262,10 @@ function vocabRecord(text: string, data: RecordData): VaultVocabRecord {
   const parsed = parseVocabDocument(text);
   if ('error' in parsed || !parsed.id || !parsed.expression || !parsed.language || !parsed.status) throw new Error('format: vocab');
   const stored = data.vocab?.[parsed.id];
+  if (stored?.note && stored.note !== parsed.note) {
+    const recovered = restoreLegacyNote(text, stored.note);
+    if (recovered !== text) return vocabRecord(recovered,data);
+  }
   const contexts = new Map(stored?.contexts.map(context => [contextIdentity(context), context]) ?? []);
   return {
     id: parsed.id, expression: parsed.expression, language: parsed.language, status: parsed.status,
@@ -321,7 +326,7 @@ export async function editCollection(dir: DirHandle, kind: CollectionKind) {
         next = serializeKnowledge(record as KnowledgeRecord);
       } else if (kind === 'vocab') {
         const vocab = record as VaultVocabRecord;
-        next = previous === undefined ? serializeVocabRecord(vocab) : applyVocabToDocument(vocab, previous);
+        next = previous === undefined ? serializeVocabRecord(vocab) : applyVocabToDocument(vocab, restoreLegacyNote(previous, data.vocab?.[record.id]?.note));
       } else {
         const sentence = record as VaultSentenceRecord;
         next = previous === undefined ? serializeSentenceRecord(sentence) : applySentenceToDocument(sentence, previous);

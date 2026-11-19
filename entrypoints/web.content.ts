@@ -166,24 +166,17 @@ export default defineContentScript({
 
     // X：目标帖子（详情页直接取 URL；信息流须经由选区所在帖子拿 permalink）
     function xTargetPost(): { statusId: string; article: Element; url: string } | null {
+      const selected = selectionElement()?.closest('article[data-testid="tweet"]');
       const detail = statusIdFromXUrl(location.href);
-      if (detail) {
-        const art =
-          document.querySelector('article[data-testid="tweet"]') ??
-          document.querySelector('article');
-        if (art) {
-          return {
-            statusId: detail,
-            article: art,
-            url: `https://x.com/i/web/status/${detail}`,
-          };
+      const articles = selected ? [selected] : detail ? [...document.querySelectorAll('article')] : [];
+      for (const article of articles) {
+        const link = article.querySelector('a[href*="/status/"] time')?.closest('a') ??
+          article.querySelector<HTMLAnchorElement>('a[href*="/status/"]');
+        const id = link && statusIdFromXUrl(link.href);
+        if (link && id && (selected || id === detail)) return {statusId:id, article, url:link.href};
+        if (!link && detail && document.querySelectorAll('article').length === 1) {
+          return {statusId:detail, article, url:location.href};
         }
-      }
-      const art = selectionElement()?.closest('article[data-testid="tweet"]');
-      const link = art?.querySelector('a[href*="/status/"]') as HTMLAnchorElement | null;
-      const id = link ? statusIdFromXUrl(link.href) : null;
-      if (art && id && link) {
-        return { statusId: id, article: art, url: link.href };
       }
       return null;
     }

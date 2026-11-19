@@ -441,21 +441,9 @@ export function buildFormIndex(items: FormIndexInput[]): Map<string, string> {
   return index;
 }
 
-/**
- * 查询候选键（顺序即优先级）：裸键在前（迁移前记录直连）；带语言时
- * 再加语言作用域键。db 的保存 / 查询解析与词卡查询共用，保证同一
- * 表达在两侧落到同一条目（entryKeyOf 内部做语言感知规范化）。
- */
-export function lookupKeyCandidates(expression: string, lang?: LanguageTag): string[] {
-  const parsed = parseEntryKey(expression);
-  if (parsed) return [entryKeyOf(parsed.lang, parsed.expression)];
-  const bare = normalizeExpression(expression);
-  const scoped = lang ? entryKeyOf(lang, expression) : '';
-  return [...new Set([bare, scoped].filter(Boolean))];
-}
-
 export function normalizeEntryKey(key: string): string {
-  return lookupKeyCandidates(key)[0] ?? '';
+  const parsed = parseEntryKey(key);
+  return parsed ? entryKeyOf(parsed.lang, parsed.expression) : normalizeExpression(key);
 }
 
 /**

@@ -1,3 +1,4 @@
+import { encodeProse, decodeProse } from './prose';
 // M11 学习库 Markdown 格式（spec 4.2 / 4.3 / 4.4，docs/specs/m11-multilingual-local-vault.md）：
 // 词条 / 句子 / 偏好的序列化、解析、受管写入与三方合并。纯逻辑，无 DOM /
 // 无浏览器 API，可在 Node 下离线检查（tools/m11-vault-format-check.ts）。
@@ -40,6 +41,21 @@ import {
 } from '@/shared/vault';
 
 // ===== 受管块标题 =====
+
+function noteLines(note: string): string[] {
+  return encodeProse(note, /^(?:##[ \t]|<!-- peak-distance:|```yaml)/m).split('\n');
+}
+
+// Older writers stored the complete note in recovery metadata but emitted its headings unquoted.
+export function restoreLegacyNote(markdown: string, stored?: string): string {
+  if (!stored || !/^##[ \t]/m.test(stored)) return markdown;
+  const heading = '\n## ' + NOTE_HEADING + '\n';
+  const start = markdown.indexOf(heading);
+  if (start < 0) return markdown;
+  const offset = start + heading.length;
+  if (!markdown.startsWith(stored + '\n', offset)) return markdown;
+  return markdown.slice(0,offset) + noteLines(stored).join('\n') + markdown.slice(offset + stored.length);
+}
 
 const NOTE_HEADING = '我的笔记';
 const DEFINITION_HEADING = '释义';
@@ -519,7 +535,7 @@ function renderDefinitionSection(contexts: VaultVocabContext[]): Section | null 
 // ===== 词条：序列化 / 解析 / 受管写入 =============================================
 
 export function serializeVocabRecord(record: VaultVocabRecord): string {
-  const sections: Section[] = [makeSection(NOTE_HEADING, record.note ? record.note.split('\n') : [])];
+  const sections: Section[] = [makeSection(NOTE_HEADING, record.note ? noteLines(record.note) : [])];
   const def = renderDefinitionSection(record.contexts);
   if (def) sections.push(def);
   sections.push(makeSection(CONTEXTS_HEADING, renderContexts(record.contexts)));
@@ -565,7 +581,7 @@ export function parseVocabDocument(text: string): ParsedVocabDocument | { error:
   for (const s of sections) {
     if (s.name === NOTE_HEADING) {
       if (!sawNote) {
-        note = s.contentLines.join('\n').trim();
+        note = decodeProse(s.contentLines.join('\n')).trim();
         sawNote = true;
       } else {
         unknown.push([s.headingLine, ...s.contentLines].join('\n')); // 重复笔记块：保留原文
@@ -612,7 +628,7 @@ export function applyVocabToDocument(
   const ctxLines = renderContexts(record.contexts);
   const out: Section[] = sections.map((s) =>
     s.name === CONTEXTS_HEADING ? { ...s, contentLines: ctxLines }
-      : s.name === NOTE_HEADING && record.note !== undefined ? { ...s, contentLines: record.note.split('\n') } : { ...s },
+      : s.name === NOTE_HEADING && record.note !== undefined ? { ...s, contentLines: noteLines(record.note) } : { ...s },
   );
 
   const hasContexts = out.some((s) => s.name === CONTEXTS_HEADING);
@@ -652,7 +668,7 @@ export function applyVocabToDocument(
   }
   if (record.note !== undefined && !out.some(s => s.name === NOTE_HEADING)) {
     ensureGapBeforeAppend();
-    out.push(makeSection(NOTE_HEADING, record.note.split('\n')));
+    out.push(makeSection(NOTE_HEADING, noteLines(record.note)));
   }
 
   return buildDoc(renderVocabFm(entries, record), { prefixLines, sections: out });

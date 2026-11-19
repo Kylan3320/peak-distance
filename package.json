@@ -16,7 +16,7 @@
     "check-ui-i18n": "node tools/check-ui-i18n.mjs",
     "check-current-content": "node tools/current-content-ui-check.mjs",
     "probe:youtube": "node tools/probe-youtube.mjs",
-    "selection-check": "node tools/selection-check.mjs",
+    "selection-check": "tsx tools/selection-check.mjs",
     "check-ai": "tsx tools/ai-services-check.ts",
     "zip": "wxt zip"
   },
