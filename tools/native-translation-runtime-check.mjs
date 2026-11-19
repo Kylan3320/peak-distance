@@ -126,7 +126,7 @@ for (const [name, executablePath] of Object.entries(browserPaths)) {
       await card.locator('#copy:not([disabled]), #retry-inline:visible').first().waitFor();
       const state = await card.locator('#query-state').textContent();
       const output = await card.locator('#result').textContent();
-      const attribution = await card.locator('#channel').getAttribute('title');
+      const attribution = await card.locator('#channel-regular').getAttribute('title');
       result.samples.push({ id, text, output, attribution, state });
       console.log(JSON.stringify({browser:name, ...result.samples.at(-1)}));
       await card.locator('#close').click();

@@ -432,6 +432,8 @@ export const UI_MESSAGES: Record<string, readonly [string, string, string, strin
   '刷新页面': ['刷新页面', '重新整理', 'Reload page', 'Seite neu laden', 'Recharger la page'],
   '用 AI 翻译': ['AI翻译', 'AI翻譯', 'Use AI translation', 'Mit KI übersetzen', 'Traduire avec l’IA'],
   'AI 翻译': ['AI翻译', 'AI翻譯', 'AI translation', 'KI-Übersetzung', 'Traduction IA'],
+  '选区常规翻译': ['常规翻译', '一般翻譯', 'Standard translation', 'Standardübersetzung', 'Traduction standard'],
+  '选区 AI 翻译': ['AI 翻译', 'AI 翻譯', 'AI translation', 'KI-Übersetzung', 'Traduction IA'],
   'Google 常规翻译': ['Google 翻译', 'Google 翻譯', 'Google Translate', 'Google Übersetzer', 'Google Traduction'],
   'Google 翻译': ['Google 翻译', 'Google 翻譯', 'Google Translate', 'Google Übersetzer', 'Google Traduction'],
   '平台翻译': ['视频译文', '影片譯文', 'YouTube translation', 'YouTube-Übersetzung', 'Traduction YouTube'],

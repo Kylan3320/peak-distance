@@ -8,7 +8,8 @@ import { selectionError, MAX_SELECTION_CHARS, type SelectionSnapshot } from './p
 import { TARGET_LANGUAGES, isLanguageTag, normalizeLangTag, primaryOfLang } from './languages';
 import { DEFAULT_SETTINGS, type Settings } from './settings';
 
-interface SavedState { ok: boolean; changed?: boolean; vaultId: string | null; connected?: boolean; folder?: string; id?: string; written?: boolean; error?: string }
+interface SavedState { ok: boolean; changed?: boolean; vaultId: string | null; connected?: boolean; id?: string; written?: boolean; error?: string }
+type Channel = Settings['selectionTranslationMode'];
 export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
   let active: { host: HTMLElement; openedAt: number; page: string; pinned: boolean; close: (restore: boolean) => void; constrain: () => void } | null = null;
   let documentPage = location.href;
@@ -33,20 +34,28 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       main{overflow:auto;overscroll-behavior:contain;padding:0 20px;min-height:0}p{white-space:pre-wrap;overflow-wrap:anywhere}#language-toggle{display:flex;align-items:center;gap:6px;max-width:100%;padding:3px 0;border:0;background:transparent;color:var(--pd-muted);font-size:12px;text-align:start}#language-toggle:hover{color:var(--pd-blue)}#language-toggle span{min-width:0;overflow-wrap:anywhere}#language-toggle svg{width:12px;height:12px}#language-toggle[aria-expanded=true] svg{transform:rotate(180deg)}
       .languages{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin:8px 0 12px}.languages label{min-width:0;font-size:11px;color:var(--pd-muted)}.languages select{width:100%;min-width:0;margin-top:2px;padding:4px 0;border:0;border-radius:4px;color:var(--pd-ink);background:transparent;font-size:13px}.languages select:hover,.languages select:open{background:var(--pd-nav)}
       #original{margin:12px 0 0;font-size:14px;line-height:1.6;color:var(--pd-muted)}#result{margin:12px 0 0;font-size:14px;line-height:1.6;color:var(--pd-ink)}#result:empty{display:none}#query-state{margin:12px 0 0;font-size:13px;color:var(--pd-muted)}#query-state:empty{display:none}.query-feedback{display:flex;flex-wrap:wrap;align-items:center;gap:8px}#retry-inline,#configure-ai{flex-shrink:0;border:0;background:transparent;padding:2px 0;color:var(--pd-blue);font-size:13px}
-      .attribution{display:flex;gap:6px;align-items:center;min-width:0;flex:1;color:var(--pd-muted);font-size:11px}#channel{field-sizing:content;max-width:70%;min-height:34px;padding:4px 2px;color:inherit;background:transparent;border:0;font:12px/1.5 var(--pd-font-ui)}#channel:hover{background:var(--pd-selected);color:var(--pd-ink)}#source{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration:none}#source:hover{text-decoration:underline;color:var(--pd-blue)}
-      main{padding-bottom:20px}footer{flex-shrink:0;padding:8px 12px 8px 20px;border-top:1px solid var(--pd-line)}.actions{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}.action-buttons{margin-inline-start:auto}.action-buttons,.save-actions{display:flex;align-items:center;gap:2px}.actions button{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;min-height:34px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pd-muted)}.actions button:hover{background:var(--pd-selected);color:var(--pd-ink)}.actions button:disabled{color:#91979a}#view{color:var(--pd-blue)}#view svg{fill:currentColor;stroke:currentColor}#save[aria-busy=true] svg{opacity:.5}#copy.copied{color:var(--pd-blue)}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}#save-state{display:block;margin:4px 0;font-size:12px;color:var(--pd-muted);overflow-wrap:anywhere}#save-state:empty{display:none}
-      #more{anchor-name:--translation-more}#more-panel{position-anchor:--translation-more;inline-size:min(256px,calc(100dvw - 24px))}#more-panel button{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;text-align:start;padding:7px 10px;font-size:13px}#more-panel button:hover{background:var(--pd-selected)}#destination{display:block;padding:9px 10px 3px;font-size:12px;color:var(--pd-muted);overflow-wrap:anywhere}#more-panel .library-options{border-top:1px solid var(--pd-line);margin-top:4px;padding-top:3px}
+      main{padding-bottom:20px}footer{flex-shrink:0;padding:8px 12px 8px 20px;border-top:1px solid var(--pd-line)}.actions{display:flex;justify-content:flex-end;align-items:center;gap:2px}.actions button{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;min-height:34px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pd-muted)}.actions button:hover{background:var(--pd-selected);color:var(--pd-ink)}.actions button:disabled{color:#91979a}#view{color:var(--pd-blue)}#view svg{fill:currentColor;stroke:currentColor}#save[aria-busy=true] svg{opacity:.5}#copy.copied{color:var(--pd-blue)}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}#save-state,#channel-error{display:block;margin:4px 0;font-size:12px;color:var(--pd-muted);overflow-wrap:anywhere}#save-state:empty,#channel-error:empty{display:none}
+      #more{anchor-name:--translation-more}#more[aria-expanded=true]{background:var(--pd-hover);color:var(--pd-ink)}
+      #more-panel{position-anchor:--translation-more;inline-size:max-content;min-inline-size:0}#more-panel:popover-open{display:grid}
+      #more-panel button{width:auto;min-height:var(--pd-control-size);justify-content:space-between;gap:12px;font-size:13px}
+      #more-panel hr{margin:4px;border:0;border-top:1px solid var(--pd-line)}
       @media(max-width:360px){.languages{grid-template-columns:minmax(0,1fr)}header{padding-left:16px}main{padding:0 16px}footer{padding:10px 12px}}@media(prefers-reduced-motion:reduce){button{transition:none}}
     </style><section class="card" role="dialog"><header tabindex="0"><strong data-i18n="翻译"></strong><button id="pin" class="icon" aria-pressed="false" data-i18n-title="保持展开" data-i18n-aria-label="保持展开">${icon('<path d="m16 3 5 5-4 1-3 5-1 4-3-3-6 6 6-6-3-3 4-1 5-3z"/>')}</button><button id="more" class="icon" aria-expanded="false" aria-controls="more-panel" data-i18n-title="更多翻译操作" data-i18n-aria-label="更多翻译操作">${uiIcon('more')}</button><button id="close" class="icon" data-i18n-title="关闭翻译" data-i18n-aria-label="关闭翻译">${uiIcon('close')}</button></header>
-      <div id="more-panel" class="ui-action-menu" popover="auto" role="group" data-i18n-aria-label="更多翻译操作"><button id="retry" disabled>${icon('<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-2l2 2M4 17l2 2a7 7 0 0 0 12-2"/>')}<span data-i18n="重新翻译"></span></button><div class="library-options"><small id="destination"></small><button id="connect" data-i18n="管理学习库"></button></div></div>
-      <main><button id="language-toggle" aria-expanded="false" aria-controls="languages" data-i18n-title="调整本次翻译语言"><span id="direction"></span>${uiIcon('expand')}</button><div id="languages" class="languages" hidden><label><span data-i18n="原文语言"></span><select id="from"></select></label><label><span data-i18n="目标语言"></span><select id="to"></select></label></div><p id="original"></p><p id="result"></p><div class="query-feedback"><p id="query-state" role="status" data-i18n="正在加载…"></p><button id="retry-inline" data-i18n="重试" hidden></button><button id="configure-ai" data-i18n="打开设置填写 API key" hidden></button></div></main>
-      <footer><div class="actions"><div class="attribution"><select id="channel" disabled data-i18n-aria-label="选区翻译方式"><option value="regular" data-i18n="常规翻译"></option><option value="ai" data-i18n="AI 翻译"></option></select><a id="source" target="_blank" rel="noopener"></a></div><div class="action-buttons"><button id="copy" class="quiet" disabled>${uiIcon('copy')}<span class="sr-only" id="copy-label" role="status" data-i18n="复制译文"></span></button><div class="save-actions"><button id="save" class="primary" disabled>${uiIcon('bookmark')}<span class="sr-only" id="save-label" data-i18n="收藏原文"></span></button><button id="view" class="primary" data-i18n-title="查看收藏" data-i18n-aria-label="查看收藏" hidden>${uiIcon('saved')}<span class="sr-only" data-i18n="查看收藏"></span></button></div></div></div><small id="channel-error" role="status" hidden></small><small id="save-state" role="status"></small></footer></section>`;
+      <div id="more-panel" class="ui-action-menu" popover="auto" role="group" data-i18n-aria-label="更多翻译操作">
+        <button id="channel-regular" type="button" aria-pressed="false" disabled><span data-i18n="选区常规翻译"></span>${uiIcon('check')}</button>
+        <button id="channel-ai" type="button" aria-pressed="false" disabled><span data-i18n="选区 AI 翻译"></span>${uiIcon('check')}</button>
+        <hr><button id="retry" type="button" data-i18n="重新翻译" disabled></button>
+      </div>
+      <main><button id="language-toggle" aria-expanded="false" aria-controls="languages" data-i18n-title="调整本次翻译语言"><span id="direction"></span>${uiIcon('expand')}</button><div id="languages" class="languages" hidden><label><span data-i18n="原文语言"></span><select id="from"></select></label><label><span data-i18n="目标语言"></span><select id="to"></select></label></div><p id="original"></p><p id="result"></p><div class="query-feedback"><p id="query-state" role="status" data-i18n="正在加载…"></p><button id="retry-inline" data-i18n="重试" hidden></button><button id="configure-ai" data-i18n="打开设置填写 API key" hidden></button></div><small id="channel-error" role="status"></small></main>
+      <footer><div class="actions"><button id="copy" class="quiet" disabled>${uiIcon('copy')}<span class="sr-only" id="copy-label" role="status" data-i18n="复制译文"></span></button><button id="save" class="primary" disabled>${uiIcon('bookmark')}<span class="sr-only" id="save-label" data-i18n="收藏原文"></span></button><button id="view" class="primary" data-i18n-title="查看收藏" data-i18n-aria-label="查看收藏" hidden>${uiIcon('saved')}<span class="sr-only" data-i18n="查看收藏"></span></button></div><small id="save-state" role="status"></small></footer></section>`;
     const card = root.querySelector<HTMLElement>('.card')!, header = root.querySelector<HTMLElement>('header')!;
     const node = (id: string) => root.getElementById(id)!;
     const button = (id: string) => node(id) as HTMLButtonElement;
     const from = node('from') as HTMLSelectElement, to = node('to') as HTMLSelectElement;
-    const channel = node('channel') as HTMLSelectElement;
+    const channelButtons = { regular: button('channel-regular'), ai: button('channel-ai') };
+    const morePanel = node('more-panel');
     let mode = DEFAULT_SETTINGS.selectionTranslationMode;
+    let changingMode = false;
     const sourceLang = snapshot.sourceLang && snapshot.languageEvidence !== 'heuristic' && isLanguageTag(snapshot.sourceLang) && snapshot.sourceLang !== 'und' ? normalizeLangTag(snapshot.sourceLang) : 'auto';
     let sourceManual = false;
     let owner: string | null = null, ownerReady = false, libraryChanged = false;
@@ -94,9 +103,6 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
     setLocalizedAttribute(header, 'aria-label', message('移动翻译卡（方向键）'));
     setLocalizedAttribute(from, 'aria-label', message('原文语言')); setLocalizedAttribute(to, 'aria-label', message('目标语言'));
     node('original').textContent = snapshot.text;
-    const link = node('source') as HTMLAnchorElement;
-    if (/^https?:\/\//.test(snapshot.source?.url ?? snapshot.url)) link.href = snapshot.source?.url ?? snapshot.url;
-    link.textContent = snapshot.source?.title || snapshot.title || snapshot.url; link.title = link.textContent; link.setAttribute('aria-label', link.textContent);
     direction();
     localize(root);
     (document.fullscreenElement ?? document.documentElement).append(host);
@@ -132,8 +138,6 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       libraryChanged = !!r.changed;
       if (libraryChanged) { setText(node('save-state'), message('学习库已切换，请重新打开翻译卡')); saveControls(); return; }
       savedId = r.id ?? '';
-      setText(node('destination'), r.connected ? message('学习库：{folder}', {folder:r.folder || ''}) : message('本机保存'));
-      setText(button('connect'), message(r.connected ? '管理学习库' : '连接学习库'));
       setText(node('save-state'), savedId && !r.written && (r.connected || owner) ? message('已保存在本机，待写入学习库') : '');
       setLocalizedAttribute(button('view'), 'title', r.written ? message('{source} · {text}', {source:message('查看收藏'),text:message('已写入学习库')}) : message('查看收藏'));
       saveControls();
@@ -143,7 +147,10 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       const error = selectionError(snapshot.text);
       if (error) { setText(node('query-state'), message(error, {limit:MAX_SELECTION_CHARS})); return; }
       const previousId = requestId, id = requestId = `selection-${crypto.randomUUID()}`, version = ++generation;
-      if (changed) { setLocalizedAttribute(channel, 'title', message('选区翻译方式')); saving = false; setText(node('save-state'),''); translated = ''; detectedLang = ''; savedId = ''; copying++; node('result').textContent = ''; copyState('复制译文'); }
+      if (changed) {
+        for (const option of Object.values(channelButtons)) setChannelSource(option, '');
+        saving = false; setText(node('save-state'),''); translated = ''; detectedLang = ''; savedId = ''; copying++; node('result').textContent = ''; copyState('复制译文');
+      }
       button('copy').disabled = !translated; button('retry').disabled = true; button('retry-inline').hidden = true; button('configure-ai').hidden = true;
       setText(node('query-state'), message(translated ? '正在更新译文…' : '正在翻译…')); direction(); saveControls();
       void refreshSaved(version);
@@ -154,7 +161,7 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       if (r?.ok) {
         const provider = r.source.slice(3);
         const label = isAiProvider(provider) ? AI_PRESETS[provider].label : r.source === 'browser-native' ? '浏览器内置翻译' : 'Google';
-        setLocalizedAttribute(channel, 'title', materialLabel(label));
+        setChannelSource(channelButtons[mode], materialLabel(label));
         translated = r.text; detectedLang = r.detectedLang ?? ''; node('result').textContent = translated;
         setText(node('query-state'), '');  direction();
       } else if (r?.error === 'extension-context-invalidated') {
@@ -174,13 +181,26 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
     }
     button('close').onclick = () => close();
     button('pin').onclick = () => { state.pinned = !state.pinned; button('pin').setAttribute('aria-pressed', String(state.pinned)); };
+    function setChannelSource(option: HTMLButtonElement, label: ReturnType<typeof materialLabel>) {
+      setLocalizedAttribute(option, 'title', label);
+      setLocalizedAttribute(option, 'aria-description', label);
+    }
+    function renderChannels() {
+      for (const [choice, option] of Object.entries(channelButtons)) {
+        option.setAttribute('aria-pressed', String(initialized && mode === choice));
+        option.disabled = !initialized || changingMode;
+      }
+    }
     function more(open: boolean, restoreFocus = false) {
-      const panel = node('more-panel');
-      if (open && !panel.matches(':popover-open')) panel.showPopover();
-      if (!open && panel.matches(':popover-open')) panel.hidePopover();
+      if (open && !morePanel.matches(':popover-open')) morePanel.showPopover();
+      if (!open && morePanel.matches(':popover-open')) morePanel.hidePopover();
       button('more').setAttribute('aria-expanded',String(open));
       if (restoreFocus) button('more').focus({preventScroll:true});
-      if (open) { languages(false); button('retry').disabled ? button('connect').focus({preventScroll:true}) : button('retry').focus({preventScroll:true}); }
+      if (open) {
+        languages(false);
+        const selected = channelButtons[mode];
+        (selected.disabled ? button('retry') : selected).focus({preventScroll:true});
+      }
     }
     function languages(open: boolean, restoreFocus = false) {
       node('languages').hidden = !open; button('language-toggle').setAttribute('aria-expanded',String(open));
@@ -188,22 +208,25 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       if (open) { more(false); from.focus({preventScroll:true}); }
       constrain();
     }
-    button('more').onclick = () => more(!node('more-panel').matches(':popover-open'));
-    node('more-panel').addEventListener('toggle', () => {
-      button('more').setAttribute('aria-expanded', String(node('more-panel').matches(':popover-open')));
+    button('more').onclick = () => more(!morePanel.matches(':popover-open'));
+    morePanel.addEventListener('toggle', () => {
+      button('more').setAttribute('aria-expanded', String(morePanel.matches(':popover-open')));
     });
     button('language-toggle').onclick = () => languages(node('languages').hidden);
     button('retry').onclick = () => {more(false,true);void run(true);};
     button('retry-inline').onclick = () => void run(true);
     root.addEventListener('pointerdown', e => {
       const path = e.composedPath();
-      if (!path.includes(node('more-panel')) && !path.includes(button('more'))) more(false);
+      if (!path.includes(morePanel) && !path.includes(button('more'))) more(false);
     });
     button('configure-ai').onclick = () => void send({type:'openSettings', ai:true});
-    channel.onchange = async () => {
-      const next = channel.value === 'ai' ? 'ai' : 'regular';
-      channel.disabled = true;
-      node('channel-error').hidden = true;
+    async function changeChannel(next: Channel) {
+      if (!initialized || changingMode) return;
+      more(false,true);
+      if (next === mode) return;
+      changingMode = true;
+      renderChannels();
+      setText(node('channel-error'), '');
       try {
         const result = await send<{ok:boolean}>({type:'setSetting', name:'selectionTranslationMode', value:next});
         if (!result?.ok) throw new Error('setting write failed');
@@ -211,11 +234,14 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
         mode = next;
         void run(false,true);
       } catch {
-        channel.value = mode;
-        setText(node('channel-error'), message('保存失败，请重试'));
-        node('channel-error').hidden = false;
-      } finally { channel.disabled = false; }
-    };
+        if (current()) setText(node('channel-error'), message('保存失败，请重试'));
+      } finally {
+        changingMode = false;
+        if (current()) renderChannels();
+      }
+    }
+    channelButtons.regular.onclick = () => void changeChannel('regular');
+    channelButtons.ai.onclick = () => void changeChannel('ai');
     from.onchange = () => { sourceManual = true; void run(false,true); };
     to.onchange = () => { targetManual = true; void run(false,true); };
     button('copy').onclick = async () => {
@@ -238,7 +264,6 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       const r = await send<{ok:boolean;error?:string}>({type:'viewSelectionKnowledge',id:savedId,vaultId:owner});
       if (current() && version === generation && !r?.ok) setText(node('save-state'), message(r?.error === 'conflict' ? '学习库已切换，请重新打开翻译卡' : '收藏已删除或无法打开'));
     };
-    button('connect').onclick = () => void send({type:'openSettings'});
     const move = (left: number, top: number) => { dragged = true; card.style.left = `${left}px`; card.style.top = `${top}px`; constrain(); lastPosition = {left:parseFloat(card.style.left),top:parseFloat(card.style.top)}; };
     header.onpointerdown = e => {
       if (e.button !== 0 || (e.target as Element).closest('button,a,input,select,label')) return;
@@ -252,7 +277,7 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       const delta: Record<string,[number,number]> = {ArrowLeft:[-16,0],ArrowRight:[16,0],ArrowUp:[0,-16],ArrowDown:[0,16]};
       const d=delta[e.key]; if(d){e.preventDefault();move(parseFloat(card.style.left)+d[0],parseFloat(card.style.top)+d[1]);}
     };
-    host.addEventListener('keydown', e => { e.stopPropagation(); if(e.key === 'Escape'){if(root.querySelector('select:open')) return; e.preventDefault(); if(node('more-panel').matches(':popover-open')) more(false,true); else if(!node('languages').hidden) languages(false,true); else close();} });
+    host.addEventListener('keydown', e => { e.stopPropagation(); if(e.key === 'Escape'){if(root.querySelector('select:open')) return; e.preventDefault(); if(morePanel.matches(':popover-open')) more(false,true); else if(!node('languages').hidden) languages(false,true); else close();} });
     host.addEventListener('mousedown', e => e.stopPropagation());
     button('close').focus({preventScroll:true});
     void send({type:'selectionSnapshot',snapshot});
@@ -266,8 +291,9 @@ export function createTranslationPopup(send: <T>(msg: unknown) => Promise<T>) {
       if (!sourceManual && snapshot.languageEvidence === 'element' && from.value !== 'auto'
         && primaryOfLang(from.value) === primaryOfLang(to.value)) from.value = 'auto';
       mode = r?.settings?.selectionTranslationMode ?? DEFAULT_SETTINGS.selectionTranslationMode;
-      channel.value = mode; channel.disabled = false;
-      initialized = true; void run(false,true);
+      initialized = true;
+      renderChannels();
+      void run(false,true);
     })();
   }
   document.addEventListener('pointerdown', e => { if(active && !active.pinned && !e.composedPath().includes(active.host)) close(false); }, true);

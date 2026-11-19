@@ -54,6 +54,7 @@ try {
  await popup().locator('#view').click();
  const frame=web.frameLocator('#pd-floating-panel iframe');await frame.locator('#view-knowledge:not([hidden])').waitFor();await frame.locator(`.knowledge-row[data-id="${saved.id}"][open]`).waitFor();
  assert.ok((await frame.locator('.knowledge-body').innerText()).includes('美国政策'));
+ assert.equal(await frame.locator(`.knowledge-row[data-id="${saved.id}"] a`).getAttribute('href'),article);
  assert.equal(await frame.locator('#review-library').isVisible(),false);
  // Close outer card through Escape, then outside click must remain a real page click.
  await popup().locator('header').focus();await popup().locator('header').press('Escape');assert.equal(await popup().count(),0);
@@ -76,11 +77,15 @@ try {
  const refined=zhPage.locator('#pd-translation');await refined.locator('#copy:not([disabled])').waitFor();
  assert.equal(await refined.locator('#languages').isVisible(),false);assert.equal(await refined.locator('#more-panel').isVisible(),false);
  assert.equal(await refined.locator('footer button:visible').count(),2);assert.ok(!(await refined.locator('footer').innerText()).includes('知识点.md'));
- await refined.locator('.card').screenshot({path:'/tmp/peak-distance-translation-refined.png'});
+ await refined.locator('.card').screenshot({path:join(tmpdir(),'peak-distance-translation-refined.png')});
  const cardBeforeMore=await refined.locator('.card').boundingBox();const queryCount=await worker.evaluate(()=>queries.length);
- await refined.locator('#more').click();await refined.locator('#more-panel').waitFor();assert.equal(await refined.locator('#retry').evaluate(n=>n.getRootNode().activeElement===n),true);
+ await refined.locator('#more').click();await refined.locator('#more-panel').waitFor();
+ assert.deepEqual(await refined.locator('#more-panel button').allTextContents(),['常规翻译','AI 翻译','重新翻译']);
+ assert.equal(await refined.locator('#channel-regular').evaluate(n=>n.getRootNode().activeElement===n),true);
+ assert.equal(await refined.locator('#channel-regular').getAttribute('aria-pressed'),'true');
+ assert.equal(await refined.locator('footer a,footer select,#more-panel a').count(),0);
  assert.equal((await refined.locator('.card').boundingBox()).x,cardBeforeMore.x);assert.equal(await worker.evaluate(()=>queries.length),queryCount);
- await refined.locator('#retry').press('Escape');assert.equal(await refined.locator('#more-panel').isVisible(),false);assert.equal(await refined.count(),1);assert.equal(await refined.locator('#more').evaluate(n=>n.getRootNode().activeElement===n),true);
+ await refined.locator('#channel-regular').press('Escape');assert.equal(await refined.locator('#more-panel').isVisible(),false);assert.equal(await refined.count(),1);assert.equal(await refined.locator('#more').evaluate(n=>n.getRootNode().activeElement===n),true);
  await refined.locator('#more').click();await refined.locator('#retry').click();await until(()=>worker.evaluate(()=>queries.filter(q=>q.text==='The quality of our work lies in the details.').length===2));
  assert.equal(await refined.locator('#result').innerText(),'工作的品质，往往体现在细节之中。');
  await worker.evaluate(()=>queries.filter(q=>q.text==='The quality of our work lies in the details.')[1].reply('品质，藏在认真对待的每一处细节里。'));
@@ -101,7 +106,9 @@ try {
  assert.deepEqual(xRequest,{source:'fr',target:'zh-CN'});
  await worker.evaluate(post=>queries.find(q=>q.text===post).reply('火车在午夜发车。'),post);
  await x.locator('#pd-translation #copy:not([disabled])').waitFor();
- assert.equal(await x.locator('#pd-translation #source').getAttribute('href'),'https://x.com/test/status/123456789');
+ await x.locator('#pd-translation #save').click();
+ await x.locator('#pd-translation #view:not([hidden])').waitFor();
+ assert.equal((await send({type:'listKnowledge'})).records.find(record=>record.body.includes(post))?.source.url,'https://x.com/test/status/123456789');
  await x.close();
  console.log('PASS X feed selection uses the selected post language and permalink');
 
@@ -137,9 +144,9 @@ try {
 
  // The real card remembers the channel and sends the full selection through the active AI configuration.
  await select('a');
- const channel = popup().locator('#channel');
- assert.equal(await channel.locator('option').count(),2);
- await channel.selectOption('ai');
+ const aiChannel = popup().locator('#channel-ai');
+ await popup().locator('#more').click();
+ await aiChannel.click();
  await popup().locator('#configure-ai').waitFor();
  assert.equal(await popup().locator('#result').textContent(),'');
  await worker.evaluate(async()=>{
@@ -154,15 +161,16 @@ try {
  await popup().locator('#retry-inline').click();
  await popup().locator('#result').filter({hasText:'整段 AI 译文'}).waitFor();
  assert.equal(await worker.evaluate(()=>selectionAiInput),'US policy\nCafé!');
- assert.equal(await channel.getAttribute('title'),'DeepSeek');
+ assert.equal(await aiChannel.getAttribute('title'),'DeepSeek');
  await popup().locator('#close').click();
  await select('b');
  await popup().locator('#result').filter({hasText:'整段 AI 译文'}).waitFor();
- assert.equal(await channel.inputValue(),'ai');
+ assert.equal(await aiChannel.getAttribute('aria-pressed'),'true');
  await popup().locator('#save').click();
  await popup().locator('#view:not([hidden])').waitFor();
  assert.ok((await send({type:'listKnowledge'})).records.some(record=>record.origin.service==='ai:deepseek' && record.origin.translation==='整段 AI 译文'));
- await channel.selectOption('regular');
+ await popup().locator('#more').click();
+ await popup().locator('#channel-regular').click();
  await until(()=>worker.evaluate(async()=>(await chrome.storage.local.get('selectionTranslationMode')).selectionTranslationMode==='regular'));
  await popup().locator('#close').click();
  console.log('PASS two selection channels, no-key recovery, full AI input, saved provider and remembered choice');
@@ -194,7 +202,11 @@ try {
  await lifecycle.setViewportSize({width:360,height:620});await lifecycle.evaluate(()=>{document.querySelector('#pd-translation').shadowRoot.getElementById('result').textContent='Long translated text. '.repeat(600);});
  await lifecycle.waitForFunction(()=>{const r=document.querySelector('#pd-translation')?.shadowRoot.querySelector('.card')?.getBoundingClientRect();return r&&r.x>=12&&r.y>=12&&r.right<=innerWidth-12&&r.bottom<=innerHeight-12;});
  const bounds=await lifecycle.locator('#pd-translation .card').boundingBox();assert.ok(bounds.x>=12&&bounds.y>=12&&bounds.x+bounds.width<=348&&bounds.y+bounds.height<=608);assert.equal(await lifecycle.locator('#pd-translation footer').isVisible(),true);
- await lifecycle.screenshot({path:'/tmp/pd-translation-narrow.png'});
+ await lifecycle.locator('#pd-translation #more').click();
+ const narrowMenu=await lifecycle.locator('#pd-translation #more-panel').boundingBox();
+ assert.ok(narrowMenu && narrowMenu.x>=0 && narrowMenu.y>=0 && narrowMenu.x+narrowMenu.width<=360 && narrowMenu.y+narrowMenu.height<=620);
+ await lifecycle.locator('#pd-translation #channel-regular').press('Escape');
+ await lifecycle.screenshot({path:join(tmpdir(),'pd-translation-narrow.png')});
  await lifecycle.evaluate(()=>testPopup.open({text:'次の段落を読む。',url:location.href,title:'C',sourceLang:'ja',languageEvidence:'element'}));
  await lifecycle.evaluate(()=>pendingSettings[2]({ok:true,settings:{defaultComprehensionLang:'zh-Hans',comprehensionOverrides:{ja:'en'}}}));
  await lifecycle.waitForFunction(()=>popupCalls.some(m=>m.type==='translateSelection'&&m.text==='次の段落を読む。'&&m.sourceLang==='ja'&&m.targetLang==='zh-Hans'));
