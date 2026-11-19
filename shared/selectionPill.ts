@@ -1,22 +1,28 @@
 import { applyAppearance } from './appearance';
-import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
+import { localize, onDisplayLanguageChange, message, setText, setLocalizedAttribute, type UiText } from './i18n';
 // 选区浮条（选区查词 spec 的单层入口）：普通网页 / X 与 YouTube 页面正文共用。
 // 分类表驱动按钮：word=查词+添加到对话；phrase=查词+翻译+添加到对话；
 // sentence=翻译+添加到对话。查词用有效表达（补残缺词边界、去词外标点），
 // 翻译与附加用原始选区（不改写）；选区形成即固定候选（文本、来源、位置与
 // 局部上下文）。来源、轻提示与「继续问」由调用方注入，跳过条件可扩展
 // （YouTube 用它排除字幕栏等自身 UI 内的选区）。
-import { brandTokens, CHAT_ADD_ICON } from './brand';
+import { brandTokens, sharedControls, CHAT_ADD_ICON } from './brand';
 import selectionActionStyles from './selectionActions.css?inline';
-import { iconButton } from './uiControls';
+import { actionMenu, iconButton } from './uiControls';
 import { detectTextLanguage } from './tokenize';
 import { classifyRangeIn, inlineRunContainer } from './selection';
 import { materialFromCandidate, type SelectionCandidate, type SourceDescriptor } from './chat';
 import type { LookupPopup } from './lookupPopup';
 import { isLanguageTag, normalizeLangTag } from './languages';
 import type { SelectionSnapshot } from './panel';
+import type { PillVisibilityChoice, PillVisibilityUndo } from './selectionVisibility';
 
 export const PILL_ID = 'blc-lookup-pill';
+const visibilityOptions = {
+  page: ['本页不再显示', '本页已隐藏浮条'],
+  hour: ['暂停 1 小时', '所有网页已暂停 1 小时'],
+  day: ['暂停 1 天', '所有网页已暂停 1 天'],
+} as const;
 
 export interface PillSelectionInfo {
   /** 原始选区（翻译/附加用；不改写）。 */
@@ -58,7 +64,6 @@ function editableTarget(sel: Selection): boolean {
 }
 
 export function createSelectionPill(deps: SelectionPillDeps) {
-  onDisplayLanguageChange(()=>{const root=document.getElementById(PILL_ID)?.shadowRoot;if(root)localize(root);});
   const { send, lookup, translation } = deps;
 
   let dismissedRange: Range | null = null;
@@ -66,6 +71,16 @@ export function createSelectionPill(deps: SelectionPillDeps) {
   let selectionTimer: ReturnType<typeof setTimeout> | null = null;
   let currentInfo: PillSelectionInfo | null = null;
   let pushedCandidateKey = '';
+  let revision = 0;
+  let pendingDisplay = false;
+  let selecting = false;
+  let notice: HTMLElement | undefined;
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  const stopLocalizing = onDisplayLanguageChange(() => {
+    const root = document.getElementById(PILL_ID)?.shadowRoot;
+    if (root) localize(root);
+    if (notice?.shadowRoot) localize(notice.shadowRoot);
+  });
 
   const sameDismissedSelection = () => {
     const s = document.getSelection();
@@ -139,7 +154,13 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       const style = document.createElement('style');
       style.textContent = `
         ${brandTokens}:host {display:block;text-shadow:none;letter-spacing:normal;text-transform:none;font-weight:400}
-        ${selectionActionStyles}
+        ${sharedControls}${selectionActionStyles}
+        .selection-actions .pill-visibility-trigger svg {width:12px;height:12px}
+        .selection-actions .pill-visibility-menu {inline-size:max-content;min-inline-size:0;
+          position-try-fallbacks:flip-inline,--pill-menu-beside,flip-block,flip-block flip-inline,--menu-scroll-below,--menu-scroll-above}
+        @position-try --pill-menu-beside {position-area:inline-end span-block-end;align-self:start;justify-self:start;margin:0 6px}
+        .selection-actions .pill-visibility-menu > button {display:flex;width:auto;height:auto;justify-content:flex-start;
+          padding:6px 10px;color:var(--pd-ink);font:inherit;font-size:var(--pd-text-nav)}
       `;
       root.appendChild(style);
       const bar = document.createElement('div'); bar.className = 'selection-actions'; root.append(bar);
@@ -164,6 +185,34 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       setLocalizedAttribute(chat, 'aria-label', message('添加到对话'));
       chat.innerHTML = CHAT_ADD_ICON;
       bar.append(chat);
+      const { wrap, trigger, menu } = actionMenu(message('浮条显示选项'), 'expand');
+      trigger.classList.add('pill-visibility-trigger');
+      menu.classList.add('pill-visibility-menu');
+      menu.id = 'pill-visibility-menu';
+      trigger.setAttribute('aria-controls', menu.id);
+      trigger.setAttribute('aria-expanded', 'false');
+      menu.addEventListener('toggle', () => {
+        trigger.setAttribute('aria-expanded', String(menu.matches(':popover-open')));
+      });
+      for (const choice of Object.keys(visibilityOptions) as PillVisibilityChoice[]) {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.value = choice;
+        setText(option, message(visibilityOptions[choice][0]));
+        if (choice !== 'page') setLocalizedAttribute(option, 'aria-label', message('所有网页：{action}', { action: message(visibilityOptions[choice][0]) }));
+        option.onclick = async event => {
+          if (menu.hasAttribute('aria-busy')) return;
+          const url = location.href;
+          menu.setAttribute('aria-busy', 'true');
+          const result = await send<{ok: boolean; undo?: PillVisibilityUndo}>({type:'selectionVisibilitySet', choice, url});
+          menu.removeAttribute('aria-busy');
+          if (!result?.ok || !result.undo) { deps.toast(message('保存失败，请重试')); return; }
+          if (menu.isConnected) dismissSelection();
+          if (location.href === url) showVisibilityNotice(choice, url, result.undo, event.detail === 0);
+        };
+        menu.append(option);
+      }
+      bar.append(wrap);
       localize(root);
       chat.addEventListener('click', () => {
         const info = evaluate() ?? currentInfo;
@@ -177,6 +226,49 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       });
     }
     return host;
+  }
+
+  function clearNotice(): void {
+    clearTimeout(noticeTimer);
+    notice?.remove();
+    notice = undefined;
+  }
+
+  function showVisibilityNotice(choice: PillVisibilityChoice, url: string, undo: PillVisibilityUndo, focus: boolean): void {
+    clearNotice();
+    const host = document.createElement('div');
+    host.id = 'pd-selection-visibility-notice';
+    applyAppearance(host);
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = `<style>${brandTokens}
+      :host {position:fixed;inset:auto 12px 32px;z-index:2147483647;display:flex;justify-content:center;pointer-events:none}
+      div {display:flex;align-items:center;gap:12px;max-width:100%;padding:6px 8px 6px 12px;pointer-events:auto;
+        border-radius:8px;background:var(--pd-surface);color:var(--pd-ink);box-shadow:var(--pd-menu-shadow);font:13px/1.5 var(--pd-font-ui)}
+      button {min-height:34px;border:0;border-radius:6px;padding:0 8px;background:transparent;color:var(--pd-blue);font:inherit;cursor:pointer}
+      button:hover {background:var(--pd-hover)}
+      button:focus-visible {outline:2px solid var(--pd-blue)}
+    </style><div><span role="status"></span><button type="button"></button></div>`;
+    const button = root.querySelector('button')!;
+    setText(root.querySelector('span')!, message(visibilityOptions[choice][1]));
+    setText(button, message('撤销'));
+    button.onclick = async () => {
+      button.disabled = true;
+      const result = await send<{ok: boolean}>({type:'selectionVisibilityRestore', url:choice === 'page' ? url : undefined, undo});
+      if (notice === host) clearNotice();
+      if (!result?.ok) deps.toast(message('撤销失败，请在设置中检查浮条状态'));
+    };
+    notice = host;
+    document.documentElement.prepend(host);
+    const expire = () => {
+      clearTimeout(noticeTimer);
+      if (!host.matches(':hover') && !root.activeElement) noticeTimer = setTimeout(clearNotice, 8000);
+    };
+    host.addEventListener('pointerenter', () => clearTimeout(noticeTimer));
+    host.addEventListener('pointerleave', expire);
+    host.addEventListener('focusin', () => clearTimeout(noticeTimer));
+    host.addEventListener('focusout', expire);
+    if (focus) button.focus({ preventScroll: true });
+    expire();
   }
 
   function show(info: PillSelectionInfo): void {
@@ -197,7 +289,6 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     host.style.left = `${Math.round(x)}px`;
     host.style.top = `${Math.round(y)}px`;
     host.style.zIndex = '2147483646';
-    pushCandidate(info);
   }
 
   /** 有效阅读选区形成时固定候选（文本、来源、位置与局部上下文）。 */
@@ -247,6 +338,8 @@ export function createSelectionPill(deps: SelectionPillDeps) {
   }
 
   function remove(): void {
+    revision++;
+    pendingDisplay = false;
     currentInfo = null;
     document.getElementById(PILL_ID)?.remove();
   }
@@ -271,7 +364,8 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     remove();
   }
 
-  function refresh(): void {
+  async function refresh(allowShow = true): Promise<void> {
+    if (selecting || !allowShow && !currentInfo) return;
     const info = evaluate();
     if (document.getSelection()?.isCollapsed) dismissedRange = null;
     if (sameDismissedSelection()) { remove(); return; }
@@ -279,21 +373,56 @@ export function createSelectionPill(deps: SelectionPillDeps) {
       remove();
       return;
     }
-    show(info);
+    if (allowShow) pushCandidate(info);
+    const url = location.href;
+    const request = ++revision;
+    pendingDisplay = allowShow;
+    const result = await send<{ ok: boolean; suppressed?: boolean }>({ type:'selectionVisibilityGet', url });
+    if (request !== revision) return;
+    pendingDisplay = false;
+    if (url !== location.href) return;
+    if (result?.suppressed) remove();
+    else if (allowShow) show(info);
   }
 
   function onMaybeSelection(): void {
+    revision++;
+    pendingDisplay = false;
     if (selectionTimer) clearTimeout(selectionTimer);
-    selectionTimer = setTimeout(refresh, 250);
+    if (!selecting) selectionTimer = setTimeout(() => void refresh(), 250);
   }
 
   const onKeyUp = (e: KeyboardEvent): void => {
     if (e.shiftKey) onMaybeSelection();
   };
+  const onPointerDown = (event: PointerEvent): void => {
+    if (!event.isPrimary || event.button !== 0) return;
+    const host = document.getElementById(PILL_ID);
+    if (host && event.composedPath().includes(host)) return;
+    selecting = true;
+    if (host) dismissSelection();
+  };
+  const onPointerEnd = (event: PointerEvent): void => {
+    if (!event.isPrimary || !selecting) return;
+    selecting = false;
+    onMaybeSelection();
+  };
+  const onEscape = (event: KeyboardEvent): void => {
+    const root = document.getElementById(PILL_ID)?.shadowRoot;
+    if (event.key === 'Escape' && root && !root.querySelector(':popover-open')) dismissSelection();
+  };
+  const onVisibilityChanged = (event: {type?: string}): void => {
+    if (event.type === 'selection-visibility-changed' && (currentInfo || pendingDisplay)) void refresh(pendingDisplay);
+  };
 
   document.addEventListener('selectionchange', onMaybeSelection, true);
   document.addEventListener('mouseup', onMaybeSelection, true);
   document.addEventListener('keyup', onKeyUp, true);
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('pointerup', onPointerEnd, true);
+  document.addEventListener('pointercancel', onPointerEnd, true);
+  document.addEventListener('keydown', onEscape, true);
+  browser.runtime.onMessage.addListener(onVisibilityChanged);
 
   return {
     /** 当前选区信息（供外部即时读取）。 */
@@ -302,14 +431,24 @@ export function createSelectionPill(deps: SelectionPillDeps) {
     /** 站内导航（SPA）后清理旧浮条与候选去重键。 */
     reset() {
       remove();
+      clearNotice();
+      if (selectionTimer) clearTimeout(selectionTimer);
+      dismissedRange = null;
       pushedCandidateKey = '';
     },
     dispose() {
       if (selectionTimer) clearTimeout(selectionTimer);
       remove();
+      clearNotice();
+      stopLocalizing();
       document.removeEventListener('selectionchange', onMaybeSelection, true);
       document.removeEventListener('mouseup', onMaybeSelection, true);
       document.removeEventListener('keyup', onKeyUp, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('pointerup', onPointerEnd, true);
+      document.removeEventListener('pointercancel', onPointerEnd, true);
+      document.removeEventListener('keydown', onEscape, true);
+      browser.runtime.onMessage.removeListener(onVisibilityChanged);
     },
   };
 }

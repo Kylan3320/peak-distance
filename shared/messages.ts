@@ -1,5 +1,6 @@
 import type { DictionarySource } from '@/lib/onlineDictionary';
 import type { Settings } from './settings';
+import type { PillVisibilityChoice, PillVisibilityUndo } from './selectionVisibility';
 import type { LearningResult, ContextExplanation } from './vocab';
 // 扩展内部消息协议（chrome.runtime 消息）。
 // shared/protocol.ts 是 YouTube 页面内 MAIN↔ISOLATED 的 postMessage 桥，
@@ -37,6 +38,9 @@ export type LookupIntent = 'active' | 'hover' | 'preview' | 'prefetch';
 
 /** content script / 侧栏 / 设置页 → background 的请求。 */
 export type BgcRequest =
+  | { type: 'selectionVisibilityGet'; url: string }
+  | { type: 'selectionVisibilitySet'; url: string; choice: PillVisibilityChoice }
+  | { type: 'selectionVisibilityRestore'; url?: string; undo?: PillVisibilityUndo }
   | {
       type: 'translateSelection';
       mode?: Settings['selectionTranslationMode'];
@@ -209,6 +213,7 @@ export type VaultMutationResult = ({ ok: true } | BgcError) & { formatDiagnostic
  *（runtime 广播到不了 content script）。
  */
 export type BroadcastEvent =
+  | { type: 'selection-visibility-changed' }
   | { type: 'knowledge-changed' }
   | { type: 'ai-service-changed' }
   | { type: 'vocab-changed' }

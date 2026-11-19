@@ -1,5 +1,18 @@
 /** Product copy only. Source keys stay stable across wording changes and saved material labels. */
 export const UI_MESSAGES: Record<string, readonly [string, string, string, string, string]> = {
+  '选区浮条': ['选区浮条', '選取浮動工具列', 'Selection toolbar', 'Auswahlleiste', 'Barre de sélection'],
+  '浮条显示选项': ['浮条显示选项', '浮動工具列顯示選項', 'Toolbar visibility', 'Sichtbarkeit der Leiste', 'Affichage de la barre'],
+  '本页不再显示': ['本页不再显示', '本頁不再顯示', 'Hide on this page', 'Auf dieser Seite ausblenden', 'Masquer sur cette page'],
+  '暂停 1 小时': ['暂停 1 小时', '暫停 1 小時', 'Pause for 1 hour', '1 Stunde pausieren', 'Suspendre 1 heure'],
+  '暂停 1 天': ['暂停 1 天', '暫停 1 天', 'Pause for 1 day', '1 Tag pausieren', 'Suspendre 1 jour'],
+  '所有网页：{action}': ['所有网页：{action}', '所有網頁：{action}', 'All pages: {action}', 'Alle Seiten: {action}', 'Toutes les pages : {action}'],
+  '本页已隐藏浮条': ['本页已隐藏浮条', '本頁已隱藏浮動工具列', 'Toolbar hidden on this page', 'Leiste auf dieser Seite ausgeblendet', 'Barre masquée sur cette page'],
+  '所有网页已暂停 1 小时': ['所有网页已暂停 1 小时', '所有網頁已暫停 1 小時', 'Paused for 1 hour on all pages', 'Auf allen Seiten 1 Stunde pausiert', 'Suspendue 1 heure sur toutes les pages'],
+  '所有网页已暂停 1 天': ['所有网页已暂停 1 天', '所有網頁已暫停 1 天', 'Paused for 1 day on all pages', 'Auf allen Seiten 1 Tag pausiert', 'Suspendue 1 jour sur toutes les pages'],
+  '所有网页已暂停至 {time}': ['所有网页已暂停至 {time}', '所有網頁已暫停至 {time}', 'Paused on all pages until {time}', 'Auf allen Seiten pausiert bis {time}', 'Suspendue sur toutes les pages jusqu’à {time}'],
+  '恢复显示': ['恢复显示', '恢復顯示', 'Show again', 'Wieder anzeigen', 'Réafficher'],
+  '撤销': ['撤销', '復原', 'Undo', 'Rückgängig', 'Annuler'],
+  '撤销失败，请在设置中检查浮条状态': ['撤销失败，请在设置中检查浮条状态。', '復原失敗，請在設定中檢查浮動工具列狀態。', 'Could not undo. Check the toolbar in Settings.', 'Rückgängig fehlgeschlagen. Leiste in den Einstellungen prüfen.', 'Annulation impossible. Vérifiez la barre dans les paramètres.'],
   '词典发音': ['词典发音', '詞典發音', 'Dictionary pronunciation', 'Wörterbuchaussprache', 'Prononciation du dictionnaire'],
   '音频加载失败': ['音频加载失败', '音訊載入失敗', 'Audio could not load', 'Audio konnte nicht geladen werden', 'Impossible de charger l’audio'],
   '本范围内暂无待复习的词条': ['本范围内暂无待复习的词条。', '本範圍內暫無待複習的詞條。', 'No words to review in this scope.', 'Keine Wörter in diesem Bereich zu wiederholen.', 'Aucun mot à réviser dans ce périmètre.'],

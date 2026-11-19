@@ -7,6 +7,7 @@ import { iconButton, uiIcon } from './uiControls';
 import { mountVideoSettings, type VideoSettingsContext } from './videoSettings';
 import type { VaultFormatDiagnostic, VaultAccessStatus } from './vault';
 import type { VaultConnectResult, VaultMutationResult } from './messages';
+import { PAGE_PILL_PREFIX, PILL_PAUSE_KEY, isPillVisibilityKey, type PillVisibilityRule } from './selectionVisibility';
 import { DISPLAY_LANGUAGES, DISPLAY_LANGUAGE_NAMES, localize, onDisplayLanguageChange, getDisplayLanguage, getDisplayLocale, t, message, setText, setLocalizedAttribute, languageLabel, type UiText } from './i18n';
 
 /** 理解语言候选：中文区分简繁，其余用主标签。 */
@@ -32,7 +33,9 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     <label class="settings-field"><span data-i18n="查询缓存上限"></span><input id="cacheLimit" type="number" min="20" max="500" step="1" data-i18n-title="请检查输入范围" aria-describedby="cache-range"></label>
     <span id="cache-range" class="ui-sr-only" data-i18n="请检查输入范围"></span>
     <button id="clear-query-cache" class="settings-action" type="button"><span data-i18n="清除查询缓存"></span>${uiIcon('trash')}${uiIcon('check')}</button><div id="cache-state" class="settings-status err" role="status"></div><span id="cache-announcement" class="ui-sr-only" role="status"></span>
-    </details></section>
+    </details>
+    <details id="pill-visibility-settings" class="settings-details" hidden><summary data-i18n="选区浮条"></summary>
+    <div id="pill-visibility-rules"></div><div id="pill-visibility-error" class="settings-status err" role="status"></div></details></section>
     <section class="settings-section"><h2 data-i18n="字幕设置"></h2>
     <label class="settings-field"><span data-i18n="默认翻译方式"></span><select id="translationMode"><option value="regular" data-i18n="常规翻译"></option><option value="ai" data-i18n="AI 翻译（LLM）"></option></select></label>
     <label class="settings-field"><span data-i18n="开启双语字幕"></span><input id="bilingualEnabled" type="checkbox"></label>
@@ -54,6 +57,62 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     <details class="settings-section settings-details settings-group settings-about"><summary data-i18n="关于"></summary><div class="settings-field"><span data-i18n="版本"></span><span id="version" class="hint"></span></div></details>`;
   localize(root);
   const get = <T extends HTMLElement>(id:string) => root.querySelector<T>(`#${id}`)!;
+  const visibilitySettings = get('pill-visibility-settings');
+  const visibilityRules = get('pill-visibility-rules');
+  const visibilityError = get('pill-visibility-error');
+  let visibilityRevision = 0;
+  let pauseTimer: ReturnType<typeof setTimeout> | undefined;
+  async function refreshPillVisibility() {
+    const revision = ++visibilityRevision;
+    const storage = browser.storage.local;
+    try {
+      const [keys, stored] = await Promise.all([storage.getKeys(), storage.get(PILL_PAUSE_KEY)]);
+      if (revision !== visibilityRevision) return;
+      const until = (stored[PILL_PAUSE_KEY] as PillVisibilityRule | undefined)?.until ?? 0;
+      const timeLeft = until - Date.now();
+      const rows = keys.filter(key => key.startsWith(PAGE_PILL_PREFIX)).sort().map(key => {
+        const url = key.slice(PAGE_PILL_PREFIX.length);
+        return visibilityRow(url.replace(/^https:\/\//, ''), url);
+      });
+      clearTimeout(pauseTimer);
+      if (timeLeft > 0) {
+        const time = new Intl.DateTimeFormat(getDisplayLocale(), { dateStyle: 'short', timeStyle: 'short' }).format(until);
+        rows.unshift(visibilityRow(message('所有网页已暂停至 {time}', {time})));
+        pauseTimer = setTimeout(() => void refreshPillVisibility(), timeLeft);
+      }
+      visibilityRules.replaceChildren(...rows);
+      setText(visibilityError, '');
+      visibilitySettings.hidden = !rows.length;
+    } catch {
+      if (revision !== visibilityRevision) return;
+      visibilitySettings.hidden = false;
+      setText(visibilityError, message('设置读取失败，请重新打开设置重试'));
+    }
+  }
+  function visibilityRow(label: string | UiText, url?: string) {
+    const row = document.createElement('div');
+    row.className = 'settings-field';
+    const caption = document.createElement('span');
+    setText(caption, label);
+    const restore = document.createElement('button');
+    restore.type = 'button';
+    setText(restore, message('恢复显示'));
+    restore.onclick = async () => {
+      restore.disabled = true;
+      try {
+        const result = await browser.runtime.sendMessage({type:'selectionVisibilityRestore', url}) as {ok: boolean};
+        if (!result?.ok) throw new Error('restore-selection-visibility-failed');
+        await refreshPillVisibility();
+        if (visibilitySettings.hidden) get('markingEnabled').focus({preventScroll:true});
+        else visibilitySettings.querySelector('summary')?.focus({preventScroll:true});
+      } catch {
+        restore.disabled = false;
+        setText(visibilityError, message('保存失败，请重试'));
+      }
+    };
+    row.append(caption, restore);
+    return row;
+  }
   const translationLanguage = get<HTMLSelectElement>('defaultComprehensionLang');
   function setTranslationLanguage(value: string) {
     if (![...translationLanguage.options].some(option => option.value === value)) {
@@ -316,10 +375,12 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     display.options[0]!.textContent=t('跟随浏览器');
     for (const option of translationLanguage.options) setText(option, languageLabel(option.value));
     ai.localize();
+    void refreshPillVisibility();
     void refreshVault();
   });
   browser.storage.onChanged.addListener((changes,area)=>{
     if(area!=='local')return;
+    if (Object.keys(changes).some(isPillVisibilityKey)) void refreshPillVisibility();
     for(const [name] of fields){
       if(!changes[name]||!validSetting(name,changes[name].newValue))continue;
       const control=get<HTMLInputElement|HTMLSelectElement>(name),value=changes[name].newValue;
@@ -329,5 +390,7 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
       else control.value=String(value);
     }
   });
-  void load();return {refresh:async()=>{await load();void videoSettings?.refresh();void syncOnActivity();},showAi:ai.show};
+  void load();
+  void refreshPillVisibility();
+  return {refresh:async()=>{await load();void videoSettings?.refresh();void syncOnActivity();},showAi:ai.show};
 }

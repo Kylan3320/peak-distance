@@ -2,6 +2,8 @@ import { lookupOnline, type LookupRequestContext } from '@/lib/lookupService';
 import { listKnowledgeState, isKnowledgeWritePending, saveAnswerKnowledge, updateKnowledge, deleteKnowledge, translationKnowledgeState } from '@/lib/db';
 import { handlePanelMessage, openPanel, startNativePanel, initPanelLifecycle } from '@/lib/panelService';
 import { handleSelectionCandidateMessage, initSelectionCandidateStore } from '@/lib/selectionCandidates';
+import { handleSelectionVisibility } from '@/lib/selectionVisibility';
+import { isPillVisibilityKey } from '@/shared/selectionVisibility';
 import { selectionError } from '@/shared/panel';
 import { startSelectionQuery, saveSelectionQuery, cancelSelectionQuery, detachSelectionScope } from '@/lib/translationLearning';
 import { selectionSource, translationIdentity } from '@/shared/knowledge';
@@ -245,6 +247,10 @@ async function handle(
     if (r !== undefined) return r;
   }
   switch (m.type) {
+    case 'selectionVisibilityGet':
+    case 'selectionVisibilitySet':
+    case 'selectionVisibilityRestore':
+      return handleSelectionVisibility(m as Parameters<typeof handleSelectionVisibility>[0]);
     case 'translateSelection': {
       if (m.mode !== undefined && !validSetting('selectionTranslationMode', m.mode)) return bad('bad-payload', 'mode');
       const error = selectionError(m.text);
@@ -676,6 +682,7 @@ export default defineBackground(() => {
   // 设置页直接写 storage 时经 onChanged 广播给页面与各标签页。
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
+    if (Object.keys(changes).some(isPillVisibilityKey)) broadcast({ type: 'selection-visibility-changed' });
     if ('cacheLimit' in changes) void trimCache();
     if ('displayLanguage' in changes) void updateActionTitle();
     if (changes.appearanceTheme) broadcast({type:'theme-changed',theme:appearanceTheme(changes.appearanceTheme.newValue)});
