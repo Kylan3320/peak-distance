@@ -144,9 +144,11 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     setText(shortcutStatus, '');
   }
   shortcutButton.onclick = () => {
+    if (shortcutButton.hasAttribute('aria-busy')) return;
     if (recording) { finishRecording(); return; }
     recording = true;
     renderShortcut();
+    shortcutStatus.classList.remove('ui-sr-only');
     setText(shortcutStatus, message('快捷键录入提示'));
   };
   shortcutButton.onblur = () => { if (recording) finishRecording(); };
@@ -159,13 +161,14 @@ export function mountSettings(root: HTMLElement, videoContext?: VideoSettingsCon
     const next = pageShortcutFromEvent(event);
     if (!next) { setText(shortcutStatus, message('快捷键录入提示')); return; }
     recording = false;
-    shortcutButton.disabled = true;
+    shortcutButton.setAttribute('aria-busy', 'true');
     try {
       await browser.storage.local.set({pageTranslationShortcut:next});
       savedShortcut = next;
+      shortcutStatus.classList.add('ui-sr-only');
       setText(shortcutStatus, message('快捷键已保存'));
     } catch { setText(shortcutStatus, message('保存失败，请重试')); }
-    finally { shortcutButton.disabled = false; renderShortcut(); shortcutButton.focus(); }
+    finally { shortcutButton.removeAttribute('aria-busy'); renderShortcut(); }
   };
   renderShortcut();
   get('prepare-native').onclick = () => void browser.runtime.sendMessage({type:'prepareNativeTranslation'});
