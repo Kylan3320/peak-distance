@@ -5,8 +5,8 @@
 ## 按任务查阅
 
 - 产品约定：[docs/PRD.md](docs/PRD.md)
-- 界面布局、视觉与素材：[design.md](design.md)
-- 界面语言与文案：[docs/specs/ui-i18n.md](docs/specs/ui-i18n.md)、[docs/ui-copy.md](docs/ui-copy.md)
+- 界面布局、视觉与素材：[docs/DESIGN.md](docs/DESIGN.md)
+- 界面语言与文案：[docs/specs/ui-i18n.md](docs/specs/ui-i18n.md)
 - 技术边界与代码入口：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 阶段目标与优先顺序：[docs/ROADMAP.md](docs/ROADMAP.md)
 - 已确认缺陷与单项验收：[GitHub Issues](https://github.com/Kylan3320/peak-distance/issues)

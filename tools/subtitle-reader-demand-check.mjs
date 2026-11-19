@@ -104,4 +104,73 @@ try {
   assert.equal(await cc.getAttribute('aria-pressed'),'false');
   assert.equal((await command({type:'blc-sub-get'})).trackLang,'fr');
   console.log('PASS cold reader acquires subtitles, restores native CC, shares results, translates visible rows while paused, and releases demand on close');
+
+  let finishBrazilian;
+  const brazilianResponse = new Promise(resolve => { finishBrazilian = resolve; });
+  await context.route(/\/api\/timedtext\?v=tracks01&/, async route => {
+    const url = new URL(route.request().url());
+    const text = url.searchParams.get('name');
+    if (url.searchParams.get('lang') === 'pt-BR' && !url.searchParams.has('tlang')) {
+      await brazilianResponse;
+    }
+    const events = url.searchParams.has('tlang') ? [] : [{tStartMs:0,dDurationMs:2000,segs:[{utf8:text+'.'}]}];
+    await route.fulfill({json:{events}});
+  });
+  await context.route('https://www.youtube.com/watch?v=tracks01', route => route.fulfill({contentType:'text/html',body:`
+    <!doctype html><title>Subtitle track selection</title><ytd-watch-flexy><div id="player-container-outer">
+    <div id="movie_player"><video></video><div class="ytp-chrome-bottom"><div class="ytp-right-controls">
+    <button class="ytp-subtitles-button" aria-pressed="false" aria-disabled="false">CC</button></div></div></div></div></ytd-watch-flexy>
+    <script>
+      const player = document.querySelector('#movie_player');
+      const cc = document.querySelector('.ytp-subtitles-button');
+      const tracks = [['ar','Arabic'],['en','Automatic English','asr'],['en','Manual English'],
+                      ['pt-BR','Brazilian Portuguese'],['pt-PT','European Portuguese']].map(([languageCode,name,kind]) => ({
+        languageCode, name, kind, baseUrl:'https://www.youtube.com/api/timedtext?v=tracks01&lang='+languageCode+
+          '&name='+encodeURIComponent(name)+(kind ? '&kind='+kind : '')
+      }));
+      window.ytInitialPlayerResponse = {videoDetails:{videoId:'tracks01'},captions:{playerCaptionsTracklistRenderer:{
+        captionTracks:tracks, defaultAudioTrackIndex:1, audioTracks:[{defaultCaptionTrackIndex:0},{defaultCaptionTrackIndex:1}]
+      }}};
+      let selected;
+      cc.onclick = () => cc.setAttribute('aria-pressed', String(cc.getAttribute('aria-pressed') !== 'true'));
+      player.loadModule = () => {};
+      player.getOption = (_, key) => key === 'tracklist' ? tracks : selected;
+      player.setOption = (_, key, value) => {
+        selected = tracks.find(track => track.languageCode === value.languageCode && track.name === value.name);
+        if (selected) {
+          const {baseUrl, languageCode} = selected;
+          fetch(baseUrl).then(response => response.json()).then(() => {
+            if (languageCode === 'pt-BR') window.brazilianResponseDelivered = true;
+          });
+        }
+      };
+    </script>`}));
+
+  await page.goto('https://www.youtube.com/watch?v=tracks01');
+  await toggle.click();
+  await page.locator('#blc-subs .en').filter({hasText:'Manual English.'}).waitFor();
+  const settings = await command({type:'pd-video-settings-get'});
+  assert.deepEqual(settings.tracks.map(track => track.lang), ['ar','en','en','pt-br','pt-pt']);
+  assert.equal(settings.trackId, settings.tracks.find(track => track.name === 'Manual English').id);
+
+  const selectTrack = async lang => {
+    const current = await command({type:'pd-video-settings-get'});
+    const trackId = current.tracks.find(track => track.lang === lang).id;
+    const result = await command({type:'pd-video-settings-set', videoId:current.videoId, generation:current.generation, change:{trackId}});
+    assert.equal(result.ok, true);
+    return trackId;
+  };
+  await Promise.all([
+    page.waitForRequest(request => request.url().includes('v=tracks01&lang=pt-BR')),
+    selectTrack('pt-br'),
+  ]);
+  const europeanTrackId = await selectTrack('pt-pt');
+  await page.locator('#blc-subs .en').filter({hasText:'European Portuguese.'}).waitFor();
+  finishBrazilian();
+  await page.waitForFunction(() => window.brazilianResponseDelivered);
+  const settled = await command({type:'blc-sub-get'});
+  assert.equal((await command({type:'pd-video-settings-get'})).trackId, europeanTrackId);
+  assert.equal(settled.trackLang, 'pt-pt');
+  assert.equal(settled.cues[0].text, 'European Portuguese.');
+  console.log('PASS the default audio track prefers matching manual captions, and late captions cannot replace a selected regional variant');
 } finally { await context.close(); }

@@ -20,7 +20,7 @@
 
 - 用户提供的 ChatGPT 生图包括[山峰原图](../design/brand/peak-mark.png)、[纸纹](../public/brand/paper-tile.png)及[停用的山海插画](https://github.com/Rayyy3320/peak-distance/blob/41398a81381312a142e0a8029dab4621c194921e/public/brand/mountain-coast.png)。
 - [图标生成脚本](../tools/make-brand-assets.py)用山峰原图与纸纹生成[工具栏图标](../public/brand/peak-icon.png)。
-- [五张界面确认稿](../design.md#界面确认稿)由 ImageGen 基于用户提供的旧方案生成，经用户确认后保存在 `design/ui-refresh/`。
+- [界面确认稿及历史设置图](DESIGN.md#界面确认稿)由 ImageGen 基于用户提供的旧方案生成，经用户确认。
 
 ## 已移植：yt-dual-subs
 
@@ -32,25 +32,4 @@ commit：[5657c8a18ca30c84b5d4662bca58e3e9214ffdff](https://github.com/Gythiro/y
 | content.js | entrypoints/youtube.content.ts | CC 驱动、导航清理与消息过期判断 |
 | inject.js 协议 | shared/protocol.ts | MAIN / ISOLATED 字幕桥 |
 
-各移植文件头部保留来源。MIT，Copyright (c) 2026 Gythiro：
-
-  > Permission is hereby granted, free of charge, to any person obtaining a copy
-  > of this software and associated documentation files (the "Software"), to deal
-  > in the Software without restriction, including without limitation the rights
-  > to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  > copies of the Software, and to permit persons to whom the Software is
-  > furnished to do so, subject to the following conditions:
-  >
-  > The above copyright notice and this permission notice shall be included in all
-  > copies or substantial portions of the Software.
-  >
-  > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  > IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  > FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  > AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-  > SOFTWARE.
-
-
-Google 翻译移植自同一提交的 `background.js` 中的 `gtxFetch`，本地落点为 [regularTranslation.ts](../lib/regularTranslation.ts)。yt-dual-subs 的许可同上。
+Google 翻译移植自同一提交的 `background.js` 中的 `gtxFetch`，本地落点为 [regularTranslation.ts](../lib/regularTranslation.ts)。各移植文件头部保留来源，Gythiro 的版权与 MIT 许可全文见[分发声明](../public/THIRD_PARTY_NOTICES.txt)。

@@ -1,6 +1,6 @@
 # YouTube 词卡与播放交互
 
-布局、字幕设置和收藏见 [PRD](../PRD.md#youtube-学习界面)。字幕范围和逐句暂停单位见[学习句规格](subtitle-sentence-units.md)，跟随与阅读见[字幕阅读](subtitle-reading-fixes.md)。
+布局、字幕设置和收藏分类见 [PRD](../PRD.md#youtube-学习界面)。字幕范围、逐句暂停单位和跟随见[字幕规格](youtube-subtitles.md)。
 
 ## 词卡
 

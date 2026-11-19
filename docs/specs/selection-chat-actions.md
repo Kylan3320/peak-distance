@@ -6,7 +6,7 @@
 
 普通网页、X、YouTube 页面正文（描述 / 评论 / 标题）与字幕（播放器字幕栏、侧栏字幕列表）支持选区直接添加到当前聊天；附加内容可预览；查词容忍标点及漏选字母；长句、段落隐藏查词。
 
-产品概述见 [PRD](../PRD.md)，布局见 [design.md](../../design.md)，消息与存储边界见 [ARCHITECTURE](../ARCHITECTURE.md)。
+产品概述见 [PRD](../PRD.md)，布局见[设计规范](../DESIGN.md)，消息与存储边界见 [ARCHITECTURE](../ARCHITECTURE.md)。
 
 ## 选区入口
 
