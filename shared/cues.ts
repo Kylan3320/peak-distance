@@ -28,7 +28,7 @@ export function cueWords(cues: Cue[], lang?: string): { word: string; count: num
 }
 
 /** 平台译文缓存随表示规则更新；轨道身份与历史收藏不变。 */
-export const DISPLAY_CUE_VERSION = 5;
+export const DISPLAY_CUE_VERSION = 6;
 
 /** JSON3 的词段偏移和换人标记转换到规范化后的字符坐标。 */
 export function parseJson3(json: any): SourceFragment[] {
@@ -105,17 +105,77 @@ export async function buildSegmentedSubtitleViews(raw: SourceFragment[], kind: '
   return incomplete ? {...views, segmentationFallback: true} : views;
 }
 
+// Examine soft punctuation only in long English ASR sentences. A comma can
+// introduce an aside, a list item, a reason, or a new assertion. Accept a
+// narrow set of positive clause shapes; ambiguity keeps the translation together.
+function independentThought(left: string, right: string): boolean {
+  // Ignore parenthetical asides when looking for the main assertion, but
+  // retain a trailing comma: "I, along with the whole team," has no predicate.
+  const main = (clause: string) => clause.replace(/,\s*[^,]+,\s+(?=\S)/g, ' ');
+  const freeRelative = /^what\s+(?:i|we|you|he|she|they)(?:['’]\w+)?\s+[a-z]+\b[^,;.!?]*?\s+(?:is|was|are|were)\s+\S/i;
+  const start = main(left).replace(/^(?:and|but|so|yet)\s+/i, '');
+  // "This particular morning, and I ... , was ..." is a subject with an
+  // intervening aside. A demonstrative + modifier is not a completed clause.
+  const personal = /^(?:i|we|you|he|she|it|they)(?:['’](?:m|re|ve|ll|d|s)\b|\s+(?!(?:and|or|along|with|together|like|of|in|as)\b)[a-z]+\b)|^(?:this|that)(?:['’]s|\s+(?:is|was|has|had|can|will|did|does))\b/i;
+  if (!personal.test(start) && !freeRelative.test(start)) return false;
+  if (/\b(?:is|are|was|were|be|been|the|a|an|to|and|or|but|that|whether|as|because|although|except)[,;]$/i.test(left)) return false;
+  if (/\b(?:whether|unless|until|if|either|neither|not only|not just)\b/i.test(left)) return false;
+  // A standalone-looking "what ..." clause can still be the object of the
+  // first verb. Split only an explicit contrast with a completed negative
+  // assertion using the same subject and verb ("we didn't see X; what we did see ...").
+  if (/^what\b/i.test(right)) {
+    const contrast = /^what\s+(i|we|you|he|she|they)\s+(?:do|does|did)\s+([a-z]+)\b/i.exec(right);
+    if (!contrast || !freeRelative.test(main(right))) return false;
+    const negative = new RegExp(`\\b${contrast[1]}\\s+(?:do|does|did)(?:n['’]t|\\s+not)\\s+${contrast[2]}\\s+\\w`, 'i');
+    return negative.test(left);
+  }
+  if (/\b(?:because|although|while|when|that)\s+/i.test(left)) return false;
+  const coordinated = right.replace(/^(and|but|yet)\s+(i|we|you|he|she|it|they),\s+/i, '$1 $2 ');
+  return /^(?:and|but|yet)\s+(?:(?:and|but)\s+)?(?:i|we|you|he|she|it|they|that|this)(?:['’](?:m|re|ve|ll|d|s)\b|\s+(?:am|are|is|was|were|have|has|had|do|does|did|can|could|will|would|should|must)\b|\s+(?:think|believe|feel|know)\s+(?:it|we|they|i|you)\b)/i.test(coordinated);
+}
+
+/** Predicted punctuation sometimes detaches a subject or the predicate of
+ * a gerund: "I think going down the hill. A little faster helps my balance." */
+function incompletePrediction(left: string, following: string): boolean {
+  const plain = left.toLowerCase().replace(/[.,!?;:]/g,'').trim();
+  if (/^(?:and |but )?(i|you|we|they|she|he|it|that)(?: \1)*$/.test(plain) ||
+      /\b(?:a|an|the)$/.test(plain)) return true;
+  const reportedSubject = /^(?:(?:and|but) )?(?:i|we|they|you) (?:think|believe|feel) (?:\w+ly )?\w+ing\b(.*)$/.exec(plain);
+  if (!reportedSubject || /\b(?:\w+s|is|was|can|could|will|would|should|must|does|did)\s+(?:my|your|their|our|his|her|me|us|him|them|the|a|an|it)\b/.test(reportedSubject[1]!)) return false;
+  // Require an adverbial modifier followed by its predicate. A comparative
+  // adjective can instead start a new subject ("Faster runs can help ...").
+  return /^(?:a (?:bit|little) (?:more|less|further|farther|faster|slower|longer)|(?:more|less) \w+ly)\s+(?:\w+s\s+(?:me|us|my|our|your|the|a|an|it|them)|(?:can|will|would)\s+[a-z]+)\b/i.test(following);
+}
+
 /** Restore only source offsets. Predicted casing and punctuation never replace the transcript. */
-function predictedEnds(source: string, prediction: string): number[] | null {
+function predictedEnds(source: string, prediction: string, refineLongAsr: boolean): number[] | null {
   const words = [...source.matchAll(/\S+/gu)];
   const out = prediction.trim().split(/\s+/u);
   if (words.length !== out.length) return null;
   const ends: number[] = [];
   const normalize = (word: string) => word.toLowerCase().replace(/[.,!?;:]+$/u, '');
+  let start = 0;
   for (let i = 0; i < words.length; i++) {
     const {0: word, index} = words[i]!;
     if (normalize(word) !== normalize(out[i]!)) return null;
-    if (/[.!?]$/u.test(out[i]!) && !/^(?:mr|mrs|ms|dr|prof|sr|jr)\.?$/i.test(word)) ends.push(index + word.length);
+    const terminal = /[.!?]$/u.test(out[i]!) && !/^(?:mr|mrs|ms|dr|prof|sr|jr)\.?$/i.test(word);
+    if (!terminal && i !== words.length-1) continue;
+    if (terminal && refineLongAsr && prediction !== source && i + 1 < words.length &&
+        incompletePrediction(out.slice(start,i+1).join(' '),out.slice(i+1,i+10).join(' '))) continue;
+    // Length only opens the search. It never determines where to cut.
+    if (refineLongAsr && i-start+1 > 24) {
+      for (let j = start; j < i; j++) {
+        const delayedComma = /^(and|but|yet)$/i.test(out[j+1]!) && /^(i|we|you|he|she|it|they),$/i.test(out[j+2] ?? '');
+        if ((!/[,;]$/u.test(out[j]!) && !delayedComma) || j-start < 3 || i-j < 4) continue;
+        const left = out.slice(start,j+1).join(' ');
+        const right = out.slice(j+1,i+1).join(' ');
+        if (!independentThought(left,right)) continue;
+        ends.push(words[j]!.index + words[j]![0].length);
+        start = j+1;
+      }
+    }
+    ends.push(index + word.length);
+    start = i+1;
   }
   if (ends.at(-1) !== source.length) ends.push(source.length);
   return ends;
@@ -179,7 +239,9 @@ function readingViews(fragments: SubtitleFragment[], kind: 'manual' | 'asr', lan
       !/[,;:—!?]/u.test(source.slice(0, -1)) && source.split(/\s+/u).length > 38;
     const predict = english && (uncertain || sparseAsr) && /\s/u.test(source) && !/^\[[^\]]+\]$/u.test(source);
     const result = predict ? prediction?.(source) : undefined;
-    const ends = typeof result === 'string' && result ? predictedEnds(source, result) : null;
+    const punctuatedAsr = !predict && english && kind === 'asr' && /[,;]/.test(source);
+    const ends = result ? predictedEnds(source, result, kind === 'asr') :
+      punctuatedAsr ? predictedEnds(source, source, true) : null;
     if (predict && !ends) markUnaligned?.();
     if (!ends && uncertain) {
       provisionalTail = Boolean(predict && prediction);

@@ -44,6 +44,7 @@ import {
   type PlaybackInterval,
 } from '@/shared/protocol';
 import { cueIndexAt, fmtClock, buildCueTranslationBatch, DISPLAY_CUE_VERSION } from '@/shared/cues';
+import { subtitleScreenTimes } from '@/shared/subtitlePlayback';
 import { subtitleFontSize } from '@/shared/youtubeWorkspace';
 import { createLookupPopup } from '@/shared/lookupPopup';
 import {
@@ -87,6 +88,7 @@ export default defineContentScript({
     // 播放器与侧栏以相同学习项为单位；AP 按可定位的播放区间暂停。
     let cues: LearningCue[] = [];
     let intervals: PlaybackInterval[] = [];
+    let screenTimes: ReturnType<typeof subtitleScreenTimes> = [];
     let revision = '';
     let generation = crypto.randomUUID();
     let pinnedIndex = -1;
@@ -555,7 +557,7 @@ export default defineContentScript({
         root.innerHTML = `<style>
           ${brandTokens}:host { display:block; color:#fff; font:var(--blc-font,28px)/1.45 system-ui,"Microsoft YaHei",sans-serif; }
           .wrap { text-align:center; padding:12px 18px; background:#151719; border-radius:0 0 8px 8px; }
-          .bar:has([data-row] ~ [data-row]) { max-height:min(40vh,12em); overflow-y:auto; overscroll-behavior:contain; }
+          .bar { max-inline-size:56ch; margin-inline:auto; overflow-wrap:anywhere; }
           .en { font-weight:600; overflow-wrap:anywhere; } .zh { font-size:.8em; color:#e1cc91; margin-top:6px; }
           .notice { color:#b7bdc7; font-size:14px; } .w { cursor:pointer; border-radius:3px; } .w:hover { background:#454d58; }
           .w:focus-visible { outline:2px solid #8ab4f8; } .saved,.known { border-bottom:2px solid color-mix(in srgb,var(--pd-blue),white 62%); }
@@ -785,15 +787,12 @@ export default defineContentScript({
       const got = ensureSubsHost();
       if (!got) return;
       const { body } = got;
-      const intervalIndex = cues[currentIdx]?.interval ?? -1;
-      const interval = intervals[intervalIndex];
-      const key = generation + '/' + intervalIndex;
+      const key = generation + '/' + currentIdx;
       const bar = body.querySelector<HTMLDivElement>('.bar') ?? document.createElement('div');
       bar.className = 'bar';
-      if (bar.dataset.interval !== key) {
+      if (bar.dataset.screen !== key) {
         bar.replaceChildren();
-        bar.scrollTop = 0;
-        bar.dataset.interval = key;
+        bar.dataset.screen = key;
       }
       for (const child of bar.querySelectorAll(':scope > .notice, :scope > button')) child.remove();
       if (bar.parentElement !== body) body.appendChild(bar);
@@ -825,49 +824,47 @@ export default defineContentScript({
         bar.prepend(n);
       }
 
-      if (!interval) return;
-      const end = intervals[intervalIndex + 1]?.firstCue ?? cues.length;
-      for (let index = interval.firstCue; index < end; index++) {
-        const cue = cues[index]!;
-        let row = bar.querySelector<HTMLDivElement>(`[data-row="${index}"]`);
-        if (!row) {
-          row = document.createElement('div'); row.dataset.row = String(index);
-          const en = document.createElement('div');
-          en.className = 'en'; en.dataset.cue = String(index);
-          appendSubtitleText(en, cue.text, baseLang(lastTrackLang) || 'en');
-          row.append(en); bar.append(row);
-        }
-        const en = row.firstElementChild!;
-        while (row.lastElementChild !== en) row.lastElementChild!.remove();
-        en.querySelectorAll<HTMLElement>('.w').forEach(w => {
-          w.classList.remove('saved', 'learning', 'known');
-          const status = wordStatus(w.textContent!); if (status) w.classList.add(status);
-        });
-        if (zhVisible && !cue.segmentationFallback) {
-          const zh = translations.get(index);
-          if (zh) {
-            const z = document.createElement('div');
-            z.className = 'zh';
-            z.textContent = zh;
-            row.appendChild(z);
-          } else if (settingsFailed) {
-            const error = document.createElement('div'); error.className = 'notice'; setText(error, message('无法连接扩展，请刷新页面')); row.appendChild(error);
-            const reload = document.createElement('button'); setText(reload, message('刷新页面')); reload.addEventListener('click', () => location.reload()); row.appendChild(reload);
-          } else if (failedCues.has(index) || fallbackRetryAt > Date.now() && pendingCues.has(index)) {
-            const error = document.createElement('div'); error.className = 'notice'; setText(error, message('翻译暂不可用')); row.appendChild(error);
-            const ai = document.createElement('button'); setText(ai, message('用 AI 翻译')); ai.addEventListener('click', () => void setTranslationMode('ai')); row.appendChild(ai);
-            const retry = document.createElement('button'); setText(retry, message('重试')); retry.addEventListener('click', () => {
-              fallbackRetryAt = 0;
-              const window = intervalTranslationWindow(cues[currentIdx]?.interval ?? -1);
-              if (window) for (let i = window.from; i < window.to; i++) failedCues.delete(i);
-              queuedInterval = -1;
-              scheduleTranslate(); renderBar();
-            }); row.appendChild(retry);
-          } else {
-            const pending = document.createElement('div'); pending.className = 'notice'; pending.setAttribute('role', 'status');
-            setText(pending, !settingsReady ? message('正在读取翻译设置…') : platformState === 'waiting' ? message('正在获取{language}译文…',{language:langDisplayName(targetLangOf())}) : message('正在翻译…'));
-            row.appendChild(pending);
-          }
+      if (currentIdx < 0) return;
+      const index = currentIdx;
+      const cue = cues[index]!;
+      let row = bar.querySelector<HTMLDivElement>(`[data-row="${index}"]`);
+      if (!row) {
+        row = document.createElement('div'); row.dataset.row = String(index);
+        const en = document.createElement('div');
+        en.className = 'en'; en.dataset.cue = String(index);
+        appendSubtitleText(en, cue.text, baseLang(lastTrackLang) || 'en');
+        row.append(en); bar.append(row);
+      }
+      const en = row.firstElementChild!;
+      while (row.lastElementChild !== en) row.lastElementChild!.remove();
+      en.querySelectorAll<HTMLElement>('.w').forEach(w => {
+        w.classList.remove('saved', 'learning', 'known');
+        const status = wordStatus(w.textContent!); if (status) w.classList.add(status);
+      });
+      if (zhVisible && !cue.segmentationFallback) {
+        const zh = translations.get(index);
+        if (zh) {
+          const z = document.createElement('div');
+          z.className = 'zh';
+          z.textContent = zh;
+          row.appendChild(z);
+        } else if (settingsFailed) {
+          const error = document.createElement('div'); error.className = 'notice'; setText(error, message('无法连接扩展，请刷新页面')); row.appendChild(error);
+          const reload = document.createElement('button'); setText(reload, message('刷新页面')); reload.addEventListener('click', () => location.reload()); row.appendChild(reload);
+        } else if (failedCues.has(index) || fallbackRetryAt > Date.now() && pendingCues.has(index)) {
+          const error = document.createElement('div'); error.className = 'notice'; setText(error, message('翻译暂不可用')); row.appendChild(error);
+          const ai = document.createElement('button'); setText(ai, message('用 AI 翻译')); ai.addEventListener('click', () => void setTranslationMode('ai')); row.appendChild(ai);
+          const retry = document.createElement('button'); setText(retry, message('重试')); retry.addEventListener('click', () => {
+            fallbackRetryAt = 0;
+            const window = intervalTranslationWindow(cues[currentIdx]?.interval ?? -1);
+            if (window) for (let i = window.from; i < window.to; i++) failedCues.delete(i);
+            queuedInterval = -1;
+            scheduleTranslate(); renderBar();
+          }); row.appendChild(retry);
+        } else {
+          const pending = document.createElement('div'); pending.className = 'notice'; pending.setAttribute('role', 'status');
+          setText(pending, !settingsReady ? message('正在读取翻译设置…') : platformState === 'waiting' ? message('正在获取{language}译文…',{language:langDisplayName(targetLangOf())}) : message('正在翻译…'));
+          row.appendChild(pending);
         }
       }
     }
@@ -940,22 +937,13 @@ export default defineContentScript({
       const v = getVideo(), cue = cues[index]; if (!v || !cue) return;
       pausedByUsVideo = null; apHeld = false; apIndex = -1; apLastStopped = -1;
       pinnedIndex = index;
-      if (v.currentTime !== cue.start / 1000) {
-        v.currentTime = cue.start / 1000;
+      const start = screenTimes[index]!.start / 1000;
+      if (v.currentTime !== start) {
+        v.currentTime = start;
         rowSeekTime = v.currentTime;
       }
       if (play) void v.play();
       tick();
-      // 多句共用时间时，侧栏逐项定位仍能把所选的播放器行带入可读范围。
-      requestAnimationFrame(() => {
-        if (pinnedIndex !== index) return;
-        const bar = document.getElementById(SUBS_ID)?.shadowRoot?.querySelector<HTMLElement>('.bar');
-        const row = bar?.querySelector<HTMLElement>(`[data-row="${index}"]`);
-        if (!bar || !row || bar.scrollHeight <= bar.clientHeight) return;
-        const view = bar.getBoundingClientRect(), item = row.getBoundingClientRect();
-        if (item.top < view.top || item.height >= view.height) bar.scrollTop += item.top - view.top;
-        else if (item.bottom > view.bottom) bar.scrollTop += item.bottom - view.bottom;
-      });
     }
 
     // ---- M5 问答：视频来源与材料 ---------------------------------------------------
@@ -1181,8 +1169,9 @@ export default defineContentScript({
         bindPlayListener();
         const t = v.currentTime * 1000;
         const intervalIndex = cueIndexAt(intervals, t);
-        if (cues[pinnedIndex]?.interval !== intervalIndex && !apHeld) pinnedIndex = -1;
-        let idx = pinnedIndex >= 0 ? pinnedIndex : intervals[intervalIndex]?.firstCue ?? -1;
+        const selectedScreen = screenTimes[pinnedIndex];
+        if (selectedScreen && (t < selectedScreen.start - 2 || t >= selectedScreen.start + selectedScreen.dur)) pinnedIndex = -1;
+        let idx = pinnedIndex >= 0 ? pinnedIndex : cueIndexAt(screenTimes,t);
         if (autoPause && !pendingTrack && !v.paused && !v.seeking) {
           const ap = intervals[apIndex];
           if (ap && t >= ap.start + ap.dur) {
@@ -1585,7 +1574,7 @@ export default defineContentScript({
       void updateVideoSession();
       navSeq++;
       cues = [];
-      intervals = []; revision = ''; generation = crypto.randomUUID();
+      intervals = []; screenTimes = []; revision = ''; generation = crypto.randomUUID();
       pinnedIndex = -1; rowSeekTime = null;
       lastTrack = '';
       lastTrackLang = '';
@@ -1698,6 +1687,7 @@ export default defineContentScript({
           const contentChanged = lastTrackId !== newTrackId || revision !== d.revision;
           if (contentChanged) {
             replaceSubtitleView(displayed, d.intervals, d.revision);
+            screenTimes = subtitleScreenTimes(displayed,d.intervals,d.fragments,lang);
           }
           clearAcquisitionTimer();
           pendingTrack = null;

@@ -53,6 +53,47 @@ export async function subtitleSentenceChecks(check: (name: string, pass: boolean
   const reliableLong = await buildSegmentedSubtitleViews(make([complete]), 'manual', 'en',
     async () => { throw Error('A complete sentence should bypass inference'); });
   check('带可靠句界的长句保留整句译文上下文', same(reliableLong.cues.map(c => c.text), [complete]));
+  // Actual independent assertions in the skiing ASR, with the local model's
+  // comma-only prediction. Times and raw source spelling must both survive.
+  const ideas = [
+    "we tend to teach what we're comfortable with",
+    "and I'm a little bit uncomfortable talking about this because I don't know it through and through to a te",
+    "what I do know as I often say is my experience as a at a cellular level as an accomplished skier what I'm feeling",
+    "and and that's what I convey",
+  ];
+  const ideaCues = await buildSegmentedSubtitleViews(make(ideas), 'asr', 'en', async () => [
+    ideas.join(', ').replace('know as I often say is','know, as I often say, is') + '.',
+  ]);
+  check('长口语仅在有独立主谓的分句处分开，保留原因与插入语以及每段真实起点',
+    same(ideaCues.cues.map(c => [c.text,c.start]), ideas.map((text,i) => [text,i*1000])));
+  const linked = "i didn't realize how much it mattered until I tried the same exercise for myself and watched what happened to my balance and the pressure under both feet";
+  const connected = await buildSegmentedSubtitleViews(make([linked]), 'asr', 'en',
+    async () => [linked.replace(' until',', until').replace(' and watched',', and watched') + '.']);
+  check('否定时序及共用主语的动词不因长度和模型逗号拆分', same(connected.cues.map(c=>c.text),[linked]));
+  const continuation = "I think running up the hill a little faster improves my balance";
+  const repaired = await buildSegmentedSubtitleViews(make(["I know it", continuation]), 'asr', 'en',
+    async () => ["I? know it. I think running up the hill. A little faster improves my balance."]);
+  check('预测标点不能把孤立主语或动名词主语与其谓语拆开',same(repaired.cues.map(c => c.text),["I know it",continuation]));
+  for (const first of ['running every morning improves my balance','I think running every morning improves my balance']) {
+    const second = 'faster runs can help me build strength';
+    const separate = await buildSegmentedSubtitleViews(make([first,second]),'asr','en',async () => [first + '. ' + second + '.']);
+    check('已有谓语的动名词句与下一句比较级主语保持独立',same(separate.cues.map(c=>c.text),[first,second]));
+  }
+  const examples = [
+    ["This particular morning before sunrise, and I have rarely seen such strong winds coming down from the mountains, was the worst time to attempt this exercise with the children"],
+    ["I am still waiting to find out, what we learned is supposed to tell us about the changes in the pressure under both feet during this exercise"],
+    ["I am saying nothing except, what we learned is that this exercise can make a difference to the balance of the students in our class"],
+    ["We do not teach this exercise because, what we have learned is that it can cause pain in the ankles when the balance is wrong"],
+    ["we collected the final samples before the storm reached the camp at the foot of the mountain", "but they were still waiting for permission to ship the crates back to the laboratory"],
+    ["I, along with the rest of the research team, and I believe several of the volunteers as well, will be staying in this building until tomorrow morning"],
+    ["what I would really like to know is, what he actually thinks is wrong with the plan to move all the equipment back to the laboratory tomorrow"],
+  ];
+  for (const clauses of examples) {
+    const source = clauses.join(', ') + '.';
+    const reading = buildSubtitleViews(make([source]), 'asr', 'en').cues.map(c=>c.text);
+    check('协调新断言可独立翻译，主语插入语和未完表语保留在主句内',
+      same(reading, clauses.length === 1 ? [source] : [clauses[0] + ',', clauses[1] + '.']));
+  }
   const unmarkedIdeas = [
     'we arrived at the station in time to see the last train leave',
     'the ticket office had closed and the next bus was still an hour away',

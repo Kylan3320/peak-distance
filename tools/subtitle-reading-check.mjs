@@ -243,14 +243,19 @@ try {
   const rowRef=(state,index)=>({type:'pd-video-action',videoId:state.videoId,trackId:state.trackId,generation:state.generation,index,text:state.cues[index].text});
   const expectIndex=index=>control.waitForFunction(async({tabId,index})=>
     (await chrome.tabs.sendMessage(tabId,{type:'blc-sub-get'})).currentIndex===index,{tabId,index});
+  const expectVisiblePair=async(index,text,translation)=>{
+    await page.locator('#blc-subs [data-row="'+index+'"] .zh').filter({hasText:translation}).waitFor();
+    assert.deepEqual(await playerEn.allTextContents(),[text]);
+    assert.deepEqual(await playerZh.allTextContents(),[translation]);
+  };
   await gate('first','ready');
   const state=await getState();
   assert.deepEqual(state.cues.slice(0,3).map(c=>[c.text,c.startMs,c.endMs]),[
     [sentences[0],0,2000],[sentences[1],0,2000],[sentences[2],2000,4000],
   ]);
   check('packaged acquisition recovers into split and cross-fragment sentences',true);
-  assert.deepEqual(await playerEn.allTextContents(),sentences.slice(0,2));
-  check('a shared interval presents both learning sentences while their translation is pending',
+  assert.deepEqual(await playerEn.allTextContents(),[sentences[0]]);
+  check('a shared interval shows only the current sentence while its translation is pending',
     !(await playerZh.allTextContents()).includes(combinedTranslation));
   const playerWord = playerEn.locator('.w').filter({hasText:/^society$/});
   const playerCard = page.locator('#blc-lookup-popup');
@@ -354,7 +359,7 @@ try {
   check('split rows receive separate full-text fallback translations and retain reading state',
     await row(0).locator('.zh').textContent()===learnedTranslations[0]&&await readingPreserved()&&
     await worker.evaluate(sentences=>globalThis.fallbackBatches.some(items=>sentences.slice(0,2).every((text,id)=>items.some(i=>i.id===id&&i.text===text))),sentences));
-  assert.deepEqual(await playerZh.allTextContents(),learnedTranslations);
+  await expectVisiblePair(0,sentences[0],await row(0).locator('.zh').textContent());
   assert.equal(await row(2).locator('.zh').textContent(),denseTranslations[2]);
   check('player and list use the same full-sentence translations across source packets',true);
   const save=row(1).getByRole('button',{name:'收藏句子',exact:true});
@@ -420,11 +425,16 @@ try {
   await button('下一句').click();await expectIndex(1);
   await button('下一句').click();await expectIndex(2);
   await button('上一句').click();await expectIndex(1);
-  check('shared interval is reached item by item and preserves the explicitly selected second row',
-    await page.evaluate(()=>document.querySelector('video').currentTime<.1));
-  await page.evaluate(()=>{document.querySelector('video').currentTime=1.25;});
+  await expectVisiblePair(1,sentences[1],await row(1).locator('.zh').textContent());
+  await page.evaluate(()=>{document.querySelector('video').currentTime=.1;});
   await expectIndex(0);
-  check('automatic following picks the first row when a shared interval is entered',true);
+  await page.evaluate(()=>{document.querySelector('video').currentTime=1.8;});
+  await expectIndex(1);
+  await expectVisiblePair(1,sentences[1],learnedTranslations[1]);
+  await page.evaluate(()=>{document.querySelector('video').currentTime=.1;});
+  await expectIndex(0);
+  check('opening the list, selecting a sibling and seeking back reuse each translated sentence',
+    await worker.evaluate(texts=>texts.every(text=>globalThis.fallbackBatches.flat().filter(item=>item.text===text).length===1),sentences.slice(0,2)));
 
   const videoTime=()=>page.evaluate(()=>document.querySelector('video').currentTime);
   const play=()=>page.evaluate(()=>document.querySelector('video').play());
@@ -453,7 +463,7 @@ try {
   await button('下一句').click();await expectIndex(1);
   await button('重播').click();await waitPause(2);
   check('AP pauses once at the shared interval end and holds its explicitly selected row and playable interval',
-    await videoTime()<2.4&&JSON.stringify(await playerEn.allTextContents())===JSON.stringify(sentences.slice(0,2))&&(await getState()).currentIndex===1);
+    await videoTime()<2.4&&await playerEn.textContent()===sentences[1]&&(await getState()).currentIndex===1);
   await play();await page.waitForFunction(()=>!document.querySelector('video').paused&&document.querySelector('video').currentTime>2.3);
   const beforeTheme=await getState();
   await control.evaluate(()=>chrome.storage.local.set({appearanceTheme:'minimal'}));
@@ -548,7 +558,7 @@ try {
     assert.fail('Timed out waiting for dense subtitle state');
   };
   await gate('denseLast','ready');
-  assert.deepEqual(await densePlayer.allTextContents(),eight);
+  assert.deepEqual(await densePlayer.allTextContents(),[eight[0]]);
   check('the active sentence is requested first and no combined fragment is sent',
     await worker.evaluate(({first,fragment})=>globalThis.denseBatches[0]?.[0].text===first&&
       globalThis.denseBatches.every(items=>items.every(item=>item.text!==fragment)),{first:eight[0],fragment:denseLines[0]}));
@@ -556,12 +566,9 @@ try {
   const denseInitial=await waitDense(state=>state.cues.slice(0,12).every(cue=>cue.zh));
   await control.evaluate(({tabId,ref})=>chrome.tabs.sendMessage(tabId,{type:'pd-video-action',...ref,action:'seek'}),
     {tabId:denseTab,ref:rowRef(denseInitial,7)});
-  await dense.waitForFunction(()=>{
-    const bar=document.querySelector('#blc-subs').shadowRoot.querySelector('.bar');
-    const line=bar.querySelector('[data-cue="7"]');
-    const bounds=bar.getBoundingClientRect(), target=line.getBoundingClientRect();
-    return bar.scrollHeight>bar.clientHeight && target.top>=bounds.top-1 && target.bottom<=bounds.bottom+1;
-  });
+  await dense.locator('#blc-subs [data-row="7"] .zh').waitFor();
+  assert.deepEqual(await densePlayer.allTextContents(),[eight[7]]);
+  assert.deepEqual(await dense.locator('#blc-subs .zh').allTextContents(),[denseInitial.cues[7].zh]);
   check('eight learning rows receive their own translations without a row action or playhead change',
     denseInitial.currentIndex===0&&denseInitial.cues.slice(0,8).every((cue,i)=>
       cue.text===eight[i]&&cue.zh===denseTranslations[i]&&cue.startMs===0&&cue.endMs===30000));
