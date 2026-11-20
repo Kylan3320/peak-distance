@@ -36,11 +36,13 @@ export function buildAiRequest(config: AiConfig, messages: ChatCompletionMessage
   return { url: `${base}/chat/completions`, headers, body: { model: config.model, messages, stream, [tokenField]: maxTokens, ...reasoning, ...(config.serviceTier && supportsAiFast(config) && { service_tier: config.serviceTier }) } };
 }
 
-export async function requestAi(config: AiConfig, messages: ChatCompletionMessage[], stream: boolean, maxTokens: number, signal: AbortSignal): Promise<Response> {
+export async function requestAi(config: AiConfig, messages: ChatCompletionMessage[], stream: boolean, maxTokens: number, signal: AbortSignal, onDispatch?: () => void): Promise<Response> {
   if (validateAiProfile(config)) throw Error('invalid-config');
   const request = buildAiRequest(config, messages, stream, maxTokens);
   const origin = `${new URL(request.url).origin}/*`;
   if (!await browser.permissions.contains({ origins: [origin] })) throw Error('permission');
+  signal.throwIfAborted();
+  onDispatch?.();
   return fetch(request.url, { method: 'POST', headers: request.headers, body: JSON.stringify(request.body), signal, credentials: 'omit', redirect: 'error' });
 }
 

@@ -81,7 +81,8 @@ export async function translateSubtitleBatch(scope: SubtitleRequestScope, items:
     if (hit) translations.push(hit); else missing.push(item);
   }
   signal.throwIfAborted();
-  if (!missing.length) return {ok:true,translations};
+  if (!missing.length) return {ok:true,translations,aiRequests:0};
+  let aiRequests = 0;
   let failure: Extract<SubtitleTranslationReply,{ok:false}> | undefined;
   let deferred: number[] | undefined;
   if (ai) {
@@ -89,7 +90,7 @@ export async function translateSubtitleBatch(scope: SubtitleRequestScope, items:
     // The coalescer only persists complete batches. Preserve valid *sentences*
     // from a partial reply in the individual-record cache and leave the rest retryable.
     const reply = await cached(key, async requestSignal => {
-      const r = await translateSentences(ai, missing, scope.variant, scope, requestSignal);
+      const r = await translateSentences(ai, missing, scope.variant, scope, requestSignal, () => { aiRequests++; });
       return {ok:r.ok && !r.failure,reply:r};
     },signal);
     if (reply.reply.ok) {
@@ -115,6 +116,6 @@ export async function translateSubtitleBatch(scope: SubtitleRequestScope, items:
   for (const row of translations) if (newIds.has(row.id)) {
     await cachePut(keys.get(row.id)!,row,() => !signal.aborted);
   }
-  if (!translations.length && failure) return {...failure,deferred};
-  return {ok:true,translations,...(failure && {failure}),...(deferred && {deferred})};
+  if (!translations.length && failure) return {...failure,deferred,aiRequests};
+  return {ok:true,translations,aiRequests,...(failure && {failure}),...(deferred && {deferred})};
 }

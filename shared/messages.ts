@@ -183,7 +183,7 @@ export interface SubtitleTranslationFailure {
 export type SubtitleTranslationReply = (
   | SubtitleTranslationFailure
   | {ok: true; translations: SubtitleTranslationRecord[]; failure?: SubtitleTranslationFailure}
-) & {deferred?: number[]};
+) & {deferred?: number[]; aiRequests?: number};
 
 export interface ContextView {
   id: number;

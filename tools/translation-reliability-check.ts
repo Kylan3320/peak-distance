@@ -203,10 +203,10 @@ output(valid);const aiA=await api.translateSubtitleBatch(scope,one,signal(),aiCo
 assert.ok(aiA.ok);assert.equal('full' in aiA.translations[0],false);
 output([{id:19,full:'完整意思',lines:['简述']}]);
 const count=calls;const aiB=await api.translateSubtitleBatch({...scope,variant:'B'},one,signal(),aiConfig);
-assert.equal(calls,count+1);assert.equal(aiB.translations[0].full,'完整意思');
+assert.equal(aiB.aiRequests,1);assert.equal(calls,count+1);assert.equal(aiB.translations[0].full,'完整意思');
 assert.equal(aiB.translations[0].lines[0],'简述');assert.match(lastRequest.messages[0].content,/仅从这份 full 改写/);
 assert.deepEqual(Object.keys(JSON.parse(lastRequest.messages[1].content).items[0]),['id','text','parts']);
-await api.translateSubtitleBatch({...scope,variant:'B'},one,signal(),aiConfig);assert.equal(calls,count+1);
+const warmB=await api.translateSubtitleBatch({...scope,variant:'B'},one,signal(),aiConfig);assert.equal(warmB.aiRequests,0);assert.equal(calls,count+1);
 const revised=[{...one[0],parts:[{...one[0]!.parts[0]!,dur:3999}]}];
 await api.translateSubtitleBatch({...scope,variant:'B'},revised,signal(),aiConfig);assert.equal(calls,count+2);
 const changedUnit=[{...one[0],parts:[{...one[0]!.parts[0]!,unitText:'one and the next sentence'}]}];
