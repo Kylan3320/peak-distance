@@ -1,5 +1,5 @@
 import type { SourceFragment, SubtitleViews } from '@/shared/protocol';
-import { alignLearningTranslations, buildSegmentedSubtitleViews, parseJson3 } from '@/shared/cues';
+import { alignBlockTranslations, buildSegmentedSubtitleViews, parseJson3 } from '@/shared/cues';
 // MAIN world、document_start 的字幕嗅探脚本。
 //
 // 移植自 yt-dual-subs 的 inject.js（MIT，Gythiro，commit 5657c8a，2026-09-12，
@@ -232,14 +232,14 @@ export default defineContentScript({
       if (!source || source.videoId !== videoIdFromLocation() || source.trackId !== trackId) return;
       const currentSourceUrl = captionUrlFor({ id: trackOfUrl(source.trackId)!.id,
         url: tracker.sourceKey === source.trackId ? tracker.sourceUrl : source.src }, tracker.tokenSourceUrl, location.href)!;
-      let normalized: Cue[] = source.views.cues;
+      let normalized: Cue[] = source.rawCues;
       try {
         const url = new URL(currentSourceUrl);
         url.searchParams.set('tlang', tlangCode(targetTag));
         const translated = parseJson3(await fetchJson3(url.toString(), controller.signal));
-        normalized = alignLearningTranslations(source.views, translated, source.rawCues);
+        normalized = alignBlockTranslations(source.rawCues, translated);
       } catch {
-        // 无可靠的平台整句译文时，隔离世界按当前模式翻译学习项全文。
+        // Empty matches leave each display part available to the regular translation route.
       } finally {
         if (!controller.signal.aborted && source === subtitleSource && source.videoId === videoIdFromLocation()) {
           post('translation', nonce, { videoId: source.videoId, trackId, requestId, cues: normalized });

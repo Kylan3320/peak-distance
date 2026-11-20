@@ -28,7 +28,7 @@ export function cueWords(cues: Cue[], lang?: string): { word: string; count: num
 }
 
 /** 平台译文缓存随表示规则更新；轨道身份与历史收藏不变。 */
-export const DISPLAY_CUE_VERSION = 7;
+export const DISPLAY_CUE_VERSION = 8;
 
 /** JSON3 的词段偏移和换人标记转换到规范化后的字符坐标。 */
 export function parseJson3(json: any): SourceFragment[] {
@@ -323,46 +323,26 @@ function readingViews(blocks: SourceFragment[], fragments: SubtitleFragment[], k
   return { cues, fragments, blocks, blockRanges };
 }
 
-/** 仅复用与学习项一一对应的完整同源事件译文。 */
-export function alignLearningTranslations({ cues, fragments }: SubtitleViews, translated: Cue[], raw: Cue[] = fragments): Cue[] {
+/** Pair platform translations with unique raw events. The player decides
+ * whether a part covers this exact event after display units are known. */
+export function alignBlockTranslations(raw: Cue[], translated: Cue[]): Cue[] {
   const key = (cue: Cue) => `${cue.start}:${cue.dur}`;
-  const byTime = new Map<string, string | undefined>();
+  const byTime = new Map<string,string | undefined>();
   for (const cue of translated) {
-    const time = key(cue);
-    byTime.set(time, byTime.has(time) ? undefined : cue.text);
+    const id = key(cue);
+    byTime.set(id,byTime.has(id) ? undefined : cue.text);
   }
-  const sourceCounts = new Map<string, number>();
-  for (const fragment of raw) {
-    const time = key(fragment);
-    sourceCounts.set(time, (sourceCounts.get(time) ?? 0) + 1);
+  const seen = new Set<string>(), duplicate = new Set<string>();
+  for (const cue of raw) {
+    const id = key(cue);
+    if (seen.has(id)) duplicate.add(id);
+    seen.add(id);
   }
-  return cues.map(cue => {
-    const fragment = fragments[cue.firstFragment]!;
-    if (cue.firstFragment !== cue.lastFragment || cue.firstOffset !== 0 ||
-      cue.lastOffset !== fragment.text.length || fragment.firstEvent !== fragment.lastEvent) return cue;
-    const time = key(fragment);
-    const zh = sourceCounts.get(time) === 1 ? byTime.get(time) : undefined;
-    return zh ? { ...cue, zh } : cue;
+  return raw.map(cue => {
+    const id = key(cue);
+    const zh = !duplicate.has(id) && byTime.get(id);
+    return zh ? {...cue, zh} : cue;
   });
-}
-
-/** 同批中的相同学习句只提交一次，响应回填到每个所属行。 */
-export function buildCueTranslationBatch(cues: Cue[], orderedIndices: Iterable<number>, limit: number) {
-  const items: { id: number; text: string }[] = [];
-  const targets: { index: number; id: number }[] = [];
-  const byText = new Map<string, number>();
-  for (const index of orderedIndices) {
-    const text = cues[index]!.text;
-    let id = byText.get(text);
-    if (id === undefined) {
-      if (items.length >= limit) continue;
-      id = index;
-      byText.set(text, id);
-      items.push({ id, text });
-    }
-    targets.push({ index, id });
-  }
-  return { items, targets };
 }
 
 /** 同一窗口的重叠前缀可视为滚动更新。已有词段时间优先区分再次实读。 */

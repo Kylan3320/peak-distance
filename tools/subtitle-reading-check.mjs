@@ -3,7 +3,7 @@ import { extensionPath as extension } from './extension-path.mjs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { build } from 'esbuild';
-import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { resolve, join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { chromium } from 'playwright-core';
@@ -20,7 +20,7 @@ const json={events:[
   {tStartMs:1000,dDurationMs:1000,segs:[{utf8:'one sentence.'}]},
   {tStartMs:2000,dDurationMs:1000,segs:[{utf8:'the next sentence'}]},
 ]};
-const output=resolve('.upstream/subtitle-reading');await mkdir(output,{recursive:true});
+const output=process.env.PD_SUBTITLE_CHECK_OUTPUT || resolve('.upstream/subtitle-reading');await mkdir(output,{recursive:true});
 
 if(!process.argv.includes('--packaged-only')) {
 // Run the real MAIN entrypoint, with a native request first returning empty and then valid data.
@@ -170,7 +170,7 @@ try {
   ]});
   const translationsFor = anchored => ({events:[
     event(0,2000,combinedTranslation),
-    event(2000,700,'一切变得两极化'),
+    event(2000,700,'变得两极化。'),
     event(3000,1000,'就是因为这个。'),
     ...trailing.flatMap((e,i)=>i===8&&!anchored?[]:[event(e.tStartMs,e.dDurationMs,'练习句 '+(i+1))]),
   ]});
@@ -198,13 +198,13 @@ try {
       u.searchParams.has('tlang')?translationsFor(anchored):
         u.searchParams.get('lang')==='zh-Hans'?{events:[event(3000,1000,'正是因为这个。')]}:sourceJson(anchored))});
   });
-  const learnedTranslations = ['但我我有时觉得我们的社会太二元了。','什么事都非黑即白。'];
-  const denseTranslations = [...learnedTranslations,'一切因此两极化。','这种事到处都有。','人们各选一边。',
-    '这会让对话进行不下去。','有时答案在两者之间。','我们应该为此留出空间。'];
+  const learnedTranslations = ['太二元了','非黑即白'];
+  const denseTranslations = [...learnedTranslations,'两极化','到处皆是','各执一端','对话受阻','也有中间','留点余地'];
   await worker.evaluate(({sentences,learnedTranslations,pendingText,eight,nextShared,denseLines,denseTranslations})=>{
     globalThis.fallbackBatches=[];
     globalThis.denseBatches=[];
     globalThis.gates={};
+    globalThis.requests=[]; globalThis.queries=[];
     const gate=(key)=>{
       const state=globalThis.gates[key]={};
       state.ready=new Promise(resolve=>{state.start=resolve;});
@@ -212,15 +212,16 @@ try {
       state.response=new Promise(resolve=>{state.release=resolve;});
       return state;
     };
-    gate('first');gate('old');gate('denseLast');gate('crossing');
+    gate('first');gate('old');gate('denseLast');gate('crossing');gate('full');
     chrome.runtime.onMessage.addListener(m=>{
+      if(m.type==='translateCues')globalThis.requests.push({videoId:m.videoId,variant:m.variant,mode:m.mode,items:m.items});
       if(m.type==='translateCues'&&m.videoId==='reading01')globalThis.fallbackBatches.push(m.items);
       if(m.type==='translateCues'&&m.videoId==='dense01')globalThis.denseBatches.push(m.items);
     });
     const byText=new Map([
       ...sentences.slice(0,2).map((text,i)=>[text,learnedTranslations[i]]),
       ...eight.map((text,i)=>[text,denseTranslations[i]]),
-      ...nextShared.map((text,i)=>[text,'阅读示例 '+(i+1)+' 已就绪。']),
+      ...nextShared.map((text,i)=>[text,String(i+1)]),
       ['No. No.','不。不。'],['No.','不。'],[pendingText,'OLD EPOCH'],
       ["binary. Everything's",'二元的。一切都是'],['because of that.','因为这个。'],
     ]);
@@ -230,12 +231,21 @@ try {
       const url=new URL(String(input));
       if(url.hostname!=='translate.googleapis.com')return originalFetch(input,options);
       const text=url.searchParams.get('q');
+      globalThis.queries.push(text);
+      if(text===sentences[2] && globalThis.testFullAction){
+        if(globalThis.testFullAction==='hold') {
+          const g=globalThis.gates.full;
+          options.signal.addEventListener('abort',g.abort,{once:true});
+          g.start();await g.response;
+        }
+        if(globalThis.testFullAction==='fail') return new Response('{}',{status:400});
+      }
       const blocked=globalThis.gates[blockedTexts.get(text)];
       if(blocked){
         options.signal.addEventListener('abort',blocked.abort,{once:true});
         blocked.start();await blocked.response;
       }
-      const translated=byText.get(text);
+      const translated=byText.get(text) ?? (text.startsWith('Additional practice sentence number ') ? '额外练习。' : undefined);
       if(!translated)throw new Error('Unexpected fallback text: '+text);
       return new Response(JSON.stringify([[[translated,text]],null,'en']));
     };
@@ -369,10 +379,10 @@ try {
   check('split rows receive separate full-text fallback translations and retain reading state',
     await row(0).locator('.zh').textContent()===learnedTranslations[0]&&await readingPreserved()&&
     await worker.evaluate(sentences=>globalThis.fallbackBatches.some(items=>sentences.slice(0,2).every((text,id)=>items.some(i=>i.id===id&&i.text===text))),sentences));
-  const sharedChinese=(await Promise.all([0,1].map(i=>row(i).locator('.zh').textContent()))).join(' ');
+  const sharedChinese=(await Promise.all([0,1].map(i=>row(i).locator('.zh').textContent()))).join('');
   await expectVisiblePair(0,playerLine,sharedChinese);
-  assert.equal(await row(2).locator('.zh').textContent(),denseTranslations[2]);
-  check('player and list use the same full-sentence translations across source packets',true);
+  assert.equal(await row(2).locator('.zh').textContent(),'变得两极化。就是因为这个。');
+  check('A builds the complete sidebar text from two distinct platform part lines',true);
   const save=row(1).getByRole('button',{name:'收藏句子',exact:true});
   await frame.evaluate(()=>{
     const send=chrome.runtime.sendMessage, tabSend=chrome.tabs.sendMessage;
@@ -497,7 +507,7 @@ try {
     await videoTime()<4.4 && await playerEn.count()===0);
   await page.screenshot({path:resolve(output,'packaged-ap-held.png')});
   await action({type:'blc-sub-control',videoId:state.videoId,action:'seek',timeMs:3200});
-  await expectVisiblePair(2,'because of that.',denseTranslations[2]);
+  await expectVisiblePair(2,'because of that.','就是因为这个。');
   await playerEn.evaluate(el=>{
     const range=document.createRange();range.selectNodeContents(el);
     getSelection().removeAllRanges();getSelection().addRange(range);
@@ -559,10 +569,131 @@ try {
     anchored.trackId!==state.trackId && anchored.cues.slice(0,2).every(c=>c.startMs===0&&c.endMs===2000));
   await action({...rowRef(anchored,0),action:'seek',play:true});
   await page.waitForFunction(()=>{const v=document.querySelector('video');return !v.paused && v.currentTime>.9&&v.currentTime<1.8;});
-  await expectVisiblePair(0,playerLine,sharedChinese);
+  await expectVisiblePair(0,sentences[1],learnedTranslations[1]);
   await waitPause(2);
   check('AP ignores word anchors, pauses at the real block end and rejects the late old translation',
     await videoTime()<2.4 && !(await getState()).cues.some(c=>c.zh==='OLD EPOCH'));
+
+  // Toggle both surfaces through the actual sidepanel, with independent
+  // source-packet lines and a controlled regular whole-sentence response.
+  const fullToggle = workspace.locator('.full-translation');
+  await workspace.locator('[data-tab="words"]').click();
+  assert.equal(await fullToggle.isVisible(),false);
+  await workspace.locator('[data-tab="subs"]').click();
+  await fullToggle.waitFor();
+  assert.deepEqual(await fullToggle.evaluate(button=>{
+    const svg=button.querySelector('svg'), box=button.getBoundingClientRect();
+    return [box.width,box.height,svg.getBoundingClientRect().width,getComputedStyle(svg).strokeWidth,
+      button.getAttribute('aria-pressed'),button.getAttribute('title'),button.hasAttribute('data-playback')];
+  }),[34,34,16,'1.5px','false','显示完整译文',false]);
+  const crossA='变得两极化。就是因为这个。', crossLine='就是因为这个。', crossB=denseTranslations[2];
+  await action({type:'blc-sub-control',videoId:state.videoId,action:'seek',timeMs:3200});
+  await expectVisiblePair(2,'because of that.',crossLine);
+  await row(2).locator('.zh').filter({hasText:crossA}).waitFor();
+  const uiReadback=async()=>({
+    switch:await fullToggle.evaluate(b=>{
+      const css=getComputedStyle(b), svg=b.querySelector('svg'),s=getComputedStyle(svg),r=b.getBoundingClientRect();
+      return {label:b.getAttribute('aria-label'),title:b.title,pressed:b.getAttribute('aria-pressed'),
+        busy:b.getAttribute('aria-busy'),width:r.width,height:r.height,icon:svg.getBoundingClientRect().width,
+        stroke:s.strokeWidth,cap:s.strokeLinecap,foreground:css.color,background:css.backgroundColor,
+        tooltips:[...b.getRootNode().querySelectorAll('span[popover]:popover-open')].map(tip=>tip.textContent),playback:b.hasAttribute('data-playback')};
+    }),
+    row:await row(2).locator('.zh').textContent(), player:await playerZh.textContent(),
+    sidebarStatus:await workspace.locator('.translation-feedback').isVisible()
+      ? await workspace.locator('.translation-feedback').innerText() : '',
+    playerStatus:await page.locator('#blc-subs [data-row] .notice').allTextContents(),time:await videoTime()
+  });
+  const readings={a:await uiReadback()};
+  await workspace.locator('.controls').screenshot({path:resolve(output,'line-toggle-a.png')});
+  const noMove=await videoTime();
+  const box=await fullToggle.boundingBox();
+  await worker.evaluate(()=>globalThis.testFullAction='hold');
+  const previousCtrl=workspace.locator('.controls button:visible:not(.full-translation)').last();
+  await previousCtrl.focus();await previousCtrl.press('Tab');
+  await workspace.locator('span[popover]:popover-open').filter({hasText:'显示完整译文'}).waitFor();
+  await fullToggle.press('Enter');
+  await gate('full','ready');
+  await workspace.getByRole('button',{name:'显示逐行译文',exact:true}).waitFor();
+  assert.equal(await fullToggle.getAttribute('aria-busy'),'true');
+  assert.equal(await fullToggle.getAttribute('aria-pressed'),'true');
+  assert.equal(await row(2).locator('.zh').textContent(),crossA);
+  assert.equal(await playerZh.textContent(),crossLine);
+  readings.waiting=await uiReadback();
+  assert.deepEqual(readings.waiting.switch.tooltips,['显示逐行译文']);
+  assert.ok(readings.waiting.playerStatus.includes('正在翻译…'));
+  await workspace.locator('.panel').screenshot({path:resolve(output,'line-toggle-waiting.png')});
+  await fullToggle.click();
+  await gate('full','aborted');await release('full');
+  await workspace.getByRole('button',{name:'显示完整译文',exact:true}).waitFor();
+  check('waiting B retains A on both surfaces; disabling cancels the pending B request',true);
+  await worker.evaluate(()=>globalThis.testFullAction='fail');
+  await fullToggle.click();
+  await workspace.locator('.translation-feedback').filter({hasText:'完整译文暂不可用'}).waitFor();
+  assert.equal(await fullToggle.getAttribute('aria-pressed'),'true');
+  assert.equal(await row(2).locator('.zh').textContent(),crossA);
+  assert.equal(await playerZh.textContent(),crossLine);
+  await page.locator('#blc-subs [data-row] .notice').filter({hasText:'翻译暂不可用'}).waitFor().catch(async e=>{throw Error('B error surface '+JSON.stringify(await uiReadback()),{cause:e});});
+  readings.failure=await uiReadback();
+  assert.ok(readings.failure.playerStatus.includes('翻译暂不可用，请重试。'));
+  assert.match(readings.failure.sidebarStatus,/完整译文暂不可用/);
+  await workspace.locator('.panel').screenshot({path:resolve(output,'line-toggle-error.png')});
+  check('failed B keeps the existing complete A and shows local recovery on both surfaces',true);
+  await worker.evaluate(()=>globalThis.testFullAction='good');
+  await workspace.locator('.translation-feedback button').click();
+  await row(2).locator('.zh').filter({hasText:new RegExp("^"+crossB+"$")}).waitFor();
+  assert.equal(await row(2).locator('.zh').textContent(),crossB);
+  assert.equal(await playerZh.textContent(),crossLine);
+  assert.match((await getState()).cues[2].translationSource,/逐块字幕.*整句译文.*降级/);
+  const nB=()=>worker.evaluate(()=>globalThis.queries.filter(t=>t==='Everything gets polarized because of that.').length);
+  readings.b=await uiReadback();
+  await workspace.locator('.panel').screenshot({path:resolve(output,'line-toggle-b.png')});
+  await writeFile(resolve(output,'line-toggle.json'),JSON.stringify(readings,null,2));
+  console.log('A/B control and reading evidence:',output);
+  const bCalls=await nB();
+  const verifySavedVariant = async (wanted, label) => {
+    await row(2).getByRole('button',{name:'收藏句子',exact:true}).click();
+    await row(2).getByRole('button',{name:'取消收藏',exact:true}).waitFor();
+    const saved=(await records()).sentences.find(s=>s.text===sentences[2] && s.video.trackId===anchored.trackId);
+    assert.equal(saved?.zh,wanted,label);
+    assert.equal(saved?.translationSource?.includes('降级'),label==='B');
+    await row(2).getByRole('button',{name:'取消收藏',exact:true}).click();
+    await row(2).getByRole('button',{name:'收藏句子',exact:true}).waitFor();
+  };
+  await verifySavedVariant(crossB,'B');
+  await fullToggle.click();await row(2).locator('.zh').filter({hasText:crossA}).waitFor();
+  await verifySavedVariant(crossA,'A');
+  await fullToggle.click();await row(2).locator('.zh').filter({hasText:new RegExp("^"+crossB+"$")}).waitFor();
+  assert.equal(await nB(),bCalls);
+  assert.equal(await playerZh.textContent(),crossLine);
+  assert.deepEqual(await fullToggle.boundingBox(),box);
+  assert.equal(await videoTime(),noMove);
+  check('whole-sentence bookmarks store the selected A join or the independently sourced B full',true);
+  check('regular B keeps part lines, displays independent sourced full, and restores each cached variant without moving playback or the control',true);
+
+  // Exercise the rejection at the provider boundary in an isolated profile.
+  // This fixture deliberately supplies no successful AI translation.
+  await worker.evaluate(async()=>{
+    const fetchRegular=globalThis.fetch;
+    globalThis.invalidAI=[];
+    globalThis.fetch=async(input,options)=>{
+      if(new URL(String(input)).hostname!=='api.deepseek.com')return fetchRegular(input,options);
+      const body=JSON.parse(options.body), {items}=JSON.parse(body.messages.at(-1).content);
+      invalidAI.push(items.map(item=>item.id));
+      const fullOnly=items.map(({id})=>({id,full:'受控错误：缺少分行'}));
+      return Response.json({choices:[{message:{content:JSON.stringify(fullOnly)},finish_reason:'stop'}]});
+    };
+    await chrome.storage.local.set({deepseekApiKey:'isolated-invalid-response-fixture'});
+  });
+  const beforeAI=await getState();
+  assert.ok((await action({type:'pd-video-settings-set',videoId:beforeAI.videoId,generation:beforeAI.generation,
+    change:{mode:'ai'}})).ok);
+  await workspace.locator('.translation-feedback').filter({hasText:'完整译文暂不可用'}).waitFor();
+  await page.locator('#blc-subs [data-row] .notice').filter({hasText:'翻译暂不可用'}).waitFor();
+  assert.equal((await getState()).cues[2].zh,null);
+  assert.equal(await playerZh.count(),0);
+  assert.equal(await worker.evaluate(()=>invalidAI.filter(ids=>ids.includes(2)).length),2);
+  await workspace.locator('.panel').screenshot({path:resolve(output,'line-toggle-invalid-ai.png')});
+  check('AI B full without lines is retried once and rejected on both surfaces without leaking the full or regular results',true);
 
   const dense=await context.newPage();
   await dense.goto('https://www.youtube.com/watch?v=dense01');
@@ -591,7 +722,7 @@ try {
   await waitDense(state=>state.currentIndex===7);
   await dense.locator('#blc-subs [data-row="0"] .zh').waitFor();
   assert.deepEqual(await densePlayer.allTextContents(),[denseLines[0]]);
-  assert.deepEqual(await dense.locator('#blc-subs .zh').allTextContents(),[denseInitial.cues.slice(0,8).map(c=>c.zh).join(' ')]);
+  assert.deepEqual(await dense.locator('#blc-subs .zh').allTextContents(),[denseInitial.cues.slice(0,8).map(c=>c.zh).join('')]);
   check('eight learning rows receive their own translations without a row action or playhead change',
     denseInitial.currentIndex===0&&denseInitial.cues.slice(0,8).every((cue,i)=>
       cue.text===eight[i]&&cue.zh===denseTranslations[i]&&cue.startMs===0&&cue.endMs===30000));
@@ -606,7 +737,7 @@ try {
   await release('crossing');
   const afterCrossing=await waitDense(state=>state.cues.every(cue=>cue.zh));
   check('unsubmitted rows complete after leaving their interval',
-    afterCrossing.currentIndex===lastPair&&afterCrossing.cues[deferred].zh==='阅读示例 13 已就绪。');
+    afterCrossing.currentIndex===lastPair&&afterCrossing.cues[deferred].zh==='13');
 
   const denseRecords=async()=> (await records()).sentences.filter(s=>s.video.videoId==='dense01');
   const saveDirect=(cue,withRange=false)=>control.evaluate(({cue,withRange,state})=>chrome.runtime.sendMessage({
@@ -694,7 +825,14 @@ try {
   assert.ok(!(await denseRecords()).some(s=>s.id===savedB.id));
   check('stale subtitle and summary writes cannot change the new library; saving and removing are idempotent',true);
 
-  const failed=await context.newPage();await failed.goto('https://www.youtube.com/watch?v=emptyonly');
+  // The original tab just used B. Reuse that same tab for a new video.
+  const failed=page;await failed.bringToFront();await failed.goto('https://www.youtube.com/watch?v=emptyonly');
+  await action({type:'pd-panel-show',view:'subs'});
+  const disabledToggle=failed.frameLocator('#pd-floating-panel iframe').locator('.full-translation');
+  await disabledToggle.waitFor();
+  assert.equal(await disabledToggle.getAttribute('aria-pressed'),'false');
+  assert.equal(await disabledToggle.isDisabled(),true);
+  check('navigating from an enabled B video resets A and disables the control while no source exists',true);
   const started=Date.now();
   await failed.locator('#blc-subs .notice').filter({hasText:'字幕响应为空'}).waitFor({timeout:34000});
   check('empty source ends at overall deadline, not first empty response',Date.now()-started>=28000&&Date.now()-started<33500);

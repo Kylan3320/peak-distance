@@ -43,7 +43,9 @@ import {
   type LearningCue,
   type SourceFragment,
 } from '@/shared/protocol';
-import { blockPauseOffsets, blockTextEnd, cueIndexAt, fmtClock, buildCueTranslationBatch, DISPLAY_CUE_VERSION } from '@/shared/cues';
+import { blockPauseOffsets, cueIndexAt, fmtClock, DISPLAY_CUE_VERSION } from '@/shared/cues';
+import { buildSubtitleUnits, joinSubtitleLines, platformLineForPart, type DisplayUnit } from '@/shared/subtitleLines';
+import type { SubtitleTranslationItem, SubtitleTranslationRecord, SubtitleTranslationReply } from '@/shared/messages';
 import { subtitleFontSize } from '@/shared/youtubeWorkspace';
 import { createLookupPopup } from '@/shared/lookupPopup';
 import {
@@ -89,8 +91,9 @@ export default defineContentScript({
     let blockRanges: { from: number; to: number }[] = [];
     let blockCueIndices: number[][] = [];
     let currentBlock = -1;
-    let blockTextEnds: number[] = [];
-    let blockTextVisible = false;
+    let layout: ReturnType<typeof buildSubtitleUnits> = {unitsByBlock: [], partsByCue: []};
+    let currentUnit = -1;
+    const shownBeforeSegmentation = new Map<number, readonly DisplayUnit[]>();
     let sourceRevision = '';
     let revision = '';
     let generation = crypto.randomUUID();
@@ -167,7 +170,29 @@ export default defineContentScript({
     let zhVisible = true;
 
     // 翻译会话（videoId|trackId 域内复用）
-    const translations = new Map<number, string>();
+    const records = { A: new Map<number, SubtitleTranslationRecord>(), B: new Map<number, SubtitleTranslationRecord>() };
+    let variant: 'A' | 'B' = 'A';
+    let platformBlocks: Cue[] = [];
+    function recordAt(index: number) {
+      return records[variant].get(index) ?? records.A.get(index);
+    }
+    function sentenceTranslation(index: number) {
+      const record = recordAt(index);
+      return record?.full ?? (record && joinSubtitleLines(record.lines, targetLangOf()));
+    }
+    function sourceLabel(source: string) {
+      if (source === 'youtube') return 'YouTube · ' + tr('平台翻译');
+      if (source === 'ai') return tr('AI 翻译');
+      return source === 'browser-native' ? tr('浏览器内置翻译') : tr('Google 常规翻译');
+    }
+    function sentenceSource(index: number) {
+      const record = recordAt(index);
+      if (!record) return undefined;
+      const lines = [...new Set(record.lineSources.map(sourceLabel))].join(' / ');
+      return record.fullSource && translationMode === 'regular'
+        ? tr('逐块字幕 + 整句译文（降级）') + ' · ' + lines + ' / ' + sourceLabel(record.fullSource)
+        : lines;
+    }
     let translating = false;
     let settings: Settings = { ...DEFAULT_SETTINGS };
     let settingsReady = false;
@@ -179,7 +204,6 @@ export default defineContentScript({
     let apIndex = -1;
     let apHeld = false;
     let apLastStopped = -1;
-    const translationSources = new Map<number, string>();
     let translationEpoch = 0;
     let fallbackEpoch = 0;
     let fallbackRetryAt = 0;
@@ -273,7 +297,7 @@ export default defineContentScript({
         if (currentIdx >= 0 && cues[currentIdx]) {
           lines.push(`now   ${formatCue(cues[currentIdx]!)}`);
         }
-        lines.push(`zh=${translations.size}/${cues.length} idx=${currentIdx}`);
+        lines.push(`zh=${records[variant].size}/${cues.length} idx=${currentIdx}`);
       } else if (notice) {
         lines.push(`notice: ${notice}`);
       } else if (nocuesReason) {
@@ -295,7 +319,7 @@ export default defineContentScript({
       host.setAttribute('data-blc-cc', ccDiag);
       host.setAttribute('data-blc-seen', String(sawTimedtext));
       host.setAttribute('data-blc-idx', String(currentIdx));
-      host.setAttribute('data-blc-zh', String(translations.size));
+      host.setAttribute('data-blc-zh', String(records[variant].size));
       host.setAttribute('data-blc-bilingual', bilingualOn ? 'on' : 'off');
       host.setAttribute('data-blc-chinese', zhVisible ? 'shown' : 'hidden');
       host.setAttribute('data-blc-notice', notice);
@@ -866,8 +890,9 @@ export default defineContentScript({
       const got = ensureSubsHost();
       if (!got) return;
       const { body } = got;
-      const indices = blockCueIndices[currentBlock] ?? [];
-      const key = generation + '/' + (blockTextVisible ? currentBlock : -1) + '/' + indices.join(',');
+      const unit = layout.unitsByBlock[currentBlock]?.[currentUnit];
+      const indices = [...new Set(unit?.parts.map(ref => ref.cue))];
+      const key = generation + '/' + currentBlock + '/' + currentUnit;
       const bar = body.querySelector<HTMLDivElement>('.bar') ?? document.createElement('div');
       bar.className = 'bar';
       if (bar.dataset.screen !== key) {
@@ -907,7 +932,8 @@ export default defineContentScript({
       }
 
       const block = blocks[currentBlock];
-      if (!block || !blockTextVisible) return;
+      if (!block || !unit) return;
+      if (!revision) shownBeforeSegmentation.set(currentBlock, layout.unitsByBlock[currentBlock]!);
       let row = bar.querySelector<HTMLElement>('[data-row]');
       if (!row) {
         row = document.createElement('div');
@@ -915,22 +941,22 @@ export default defineContentScript({
         const en = document.createElement('div');
         en.className = 'en';
         const lang = baseLang(lastTrackLang) || 'en';
-        const start = blockRanges[currentBlock]?.from ?? 0;
-        const pauses = blockPauseOffsets(block, lang);
+        const start = unit.from;
+        const pauses = blockPauseOffsets(block, lang).map(at => at + (blockRanges[currentBlock]?.from ?? 0) - start);
         let offset = 0;
         for (const i of indices) {
           const cue = cues[i]!;
           const left = Math.max(0, cue.from - start);
-          const right = Math.min(block.text.length, cue.to - start);
-          en.append(block.text.slice(offset,left));
+          const right = Math.min(unit.text.length, cue.to - start);
+          en.append(unit.text.slice(offset,left));
           const part = document.createElement('span');
           part.dataset.cue = String(i);
-          appendSubtitleText(part, block.text.slice(left,right), lang,
+          appendSubtitleText(part, unit.text.slice(left,right), lang,
             new Set(pauses.filter(at => at >= left && at < right).map(at => at - left)));
           en.append(part);
           offset = right;
         }
-        en.append(block.text.slice(offset));
+        en.append(unit.text.slice(offset));
         row.append(en);
         bar.append(row);
       }
@@ -942,16 +968,16 @@ export default defineContentScript({
       });
       const eligible = indices.filter(i => !cues[i]!.segmentationFallback);
       let z = row.querySelector<HTMLElement>('.zh');
-      const texts = showTranslation() ? eligible.map(i => translations.get(i)).filter((v): v is string => !!v) : [];
+      const texts = showTranslation() ? unit.parts.map(ref => recordAt(ref.cue)?.lines[ref.part]).filter((v): v is string => !!v) : [];
       if (texts.length) {
         if (!z) { z = createPlayerTranslation(); row.append(z); }
-        const full = texts.join(' ');
+        const full = joinSubtitleLines(texts, targetLangOf());
         if (z.firstChild!.textContent !== full) z.firstChild!.textContent = full;
       } else if (z) {
         collapsePlayerTranslation?.();
         z.remove();
       }
-      if (showTranslation() && texts.length < eligible.length) {
+      if (showTranslation() && eligible.some(i => !records[variant].has(i))) {
         if (settingsFailed) {
           const error = document.createElement('div'); error.className = 'notice'; setText(error, message('无法连接扩展，请刷新页面')); row.appendChild(error);
           const reload = document.createElement('button'); setText(reload, message('刷新页面')); reload.addEventListener('click', () => location.reload()); row.appendChild(reload);
@@ -962,7 +988,7 @@ export default defineContentScript({
             fallbackRetryAt = 0;
             for (const i of eligible) {
               failedCues.delete(i);
-              if (!translations.has(i)) pendingCues.add(i);
+              if (!records[variant].has(i)) pendingCues.add(i);
             }
             scheduleTranslate(); renderBar();
           }); row.appendChild(retry);
@@ -1032,7 +1058,7 @@ export default defineContentScript({
       const video = videoRef(index);
       const r = await send<{ ok:boolean }>(removeId !== null ? { type:'deleteSentence', id:removeId, vaultId } : {
         type:'saveSentence', vaultId, range: { from: cue.from, to: cue.to },
-        sentence:{ video, text:cue.text, zh:translations.get(index), translationSource:translationSources.get(index),
+        sentence:{ video, text:cue.text, zh:sentenceTranslation(index), translationSource:sentenceSource(index),
           ...(lastTrackLang ? { language: lastTrackLang } : {}),
           endMs:cue.start + cue.dur, title:document.title },
       });
@@ -1295,11 +1321,12 @@ export default defineContentScript({
           } else if (apIndex < 0 && block >= 0 && block !== apLastStopped) apIndex = block;
         }
         const heldCues = apHeld && block < 0 ? blockCueIndices[apLastStopped] : undefined;
-        const idx = pinnedIndex >= 0 ? pinnedIndex : covering?.[0] ??
+        const unit = block >= 0 ? cueIndexAt(layout.unitsByBlock[block] ?? [], t) : -1;
+        const activeCue = layout.unitsByBlock[block]?.[unit]?.parts[0]?.cue;
+        const idx = pinnedIndex >= 0 ? pinnedIndex : activeCue ?? covering?.[0] ??
           (heldCues?.includes(currentIdx) ? currentIdx : heldCues?.[0] ?? -1);
-        const visible = block >= 0 && t < blockTextEnds[block]!;
-        if (idx !== currentIdx || block !== currentBlock || visible !== blockTextVisible) {
-          blockTextVisible = visible;
+        if (idx !== currentIdx || block !== currentBlock || unit !== currentUnit) {
+          currentUnit = unit;
           currentIdx = idx;
           currentBlock = block;
           if (renderImmediately) renderBar(); else queueRender();
@@ -1331,15 +1358,16 @@ export default defineContentScript({
     }
 
     function clearTranslationResults(): void {
-      translations.clear(); translationSources.clear();
+      records.A.clear(); records.B.clear(); platformBlocks = [];
       failedCues.clear();
     }
 
     function resetSubtitleView(nextBlocks: SourceFragment[], nextSource: string, lang = '') {
       generation = crypto.randomUUID();
       blocks = nextBlocks; sourceRevision = nextSource; revision = '';
-      blockTextEnds = blocks.map(block => blockTextEnd(block, lang));
-      blockTextVisible = false;
+      shownBeforeSegmentation.clear();
+      layout = buildSubtitleUnits(blocks, [], [], lang, targetLangOf());
+      currentUnit = -1;
       cues = []; blockRanges = []; blockCueIndices = [];
       currentIdx = currentBlock = pinnedIndex = -1; rowSeekTime = null;
       closeSelectionActions?.();
@@ -1348,9 +1376,10 @@ export default defineContentScript({
       stopTranslation(); platformState = 'idle'; clearTranslationResults();
     }
 
-    function bindLearningCues(next: LearningCue[], ranges: typeof blockRanges) {
+    function bindLearningCues(next: LearningCue[], ranges: typeof blockRanges, lang: string) {
       cues = next;
       blockRanges = ranges;
+      layout = buildSubtitleUnits(blocks, ranges, next, lang, targetLangOf(), shownBeforeSegmentation);
       let first = 0;
       blockCueIndices = ranges.map(range => {
         while (first < cues.length && cues[first]!.to <= range.from) first++;
@@ -1360,18 +1389,24 @@ export default defineContentScript({
       });
     }
 
-    async function updateVideoSession(patch: { mode?: 'regular' | 'ai'; autoPause?: boolean } = {}): Promise<void> {
+    async function updateVideoSession(patch: { mode?: 'regular' | 'ai'; autoPause?: boolean; fullTranslation?: boolean } = {}): Promise<void> {
       if (modeBusy || !currentVideoId) return;
       modeBusy = true;
       const videoId = currentVideoId;
       if (patch.mode) stopTranslation();
       ensureSwitchHost();
-      const r = await send<{ ok:boolean; mode:'regular' | 'ai'; autoPause:boolean }>({ type:'subtitleMode', videoId, ...patch });
+      const r = await send<{ ok:boolean; mode:'regular' | 'ai'; autoPause:boolean; fullTranslation?:boolean }>({ type:'subtitleMode', videoId, ...patch });
       if (videoId !== currentVideoId) return;
       modeBusy = false;
       if (!r?.ok) { settingsFailed = true; modeReady = false; renderBar(); return; }
       if (translationMode !== r.mode) {
         stopTranslation(); clearTranslationResults(); platformState = 'idle';
+      }
+      const nextVariant = r.fullTranslation ? 'B' : 'A';
+      if (nextVariant !== variant) {
+        stopTranslation();
+        failedCues.clear();
+        variant = nextVariant;
       }
       translationMode = r.mode; autoPause = r.autoPause; modeReady = true; settingsFailed = false;
       if (!autoPause) apIndex = -1;
@@ -1390,6 +1425,7 @@ export default defineContentScript({
       settings = next; settingsReady = true;
       const targetChanged = previousTarget !== targetLangOf();
       if (targetChanged) {
+        layout = buildSubtitleUnits(blocks, blockRanges, cues, lastTrackLang, targetLangOf(), shownBeforeSegmentation);
         stopTranslation(); clearTranslationResults(); platformState = 'idle';
       }
       setDisplayLanguage(settings.displayLanguage,browser.i18n.getUILanguage());
@@ -1414,7 +1450,7 @@ export default defineContentScript({
       void send<{ok: boolean; cues?: Cue[]}>({ type: 'captionCache', key }).then(cached => {
         if (epoch !== translationEpoch) return;
         if (cached?.cues?.length) {
-          applyPlatformCues(cached.cues, targetLang);
+          applyPlatformCues(cached.cues);
           platformState = 'done'; scheduleTranslate(); return;
         }
         platformRequest = { id: crypto.randomUUID(), cacheKey: key, targetLang };
@@ -1426,23 +1462,14 @@ export default defineContentScript({
       });
     }
 
-    function applyPlatformCues(translated: Cue[], targetLang: string): void {
-      const sourceLabel = `YouTube · ${langDisplayName(targetLang)} · ${tr('平台翻译')}`;
-      cues.forEach((cue, id) => {
-        const result = translated[id];
-        const zh = result?.text === cue.text && result.start === cue.start && result.dur === cue.dur ? result.zh : undefined;
-        if (zh && !cue.segmentationFallback) {
-          translations.set(id, zh); pendingCues.delete(id);
-          translationSources.set(id, sourceLabel);
-        }
-      });
-      queueRender();
+    function applyPlatformCues(translated: Cue[]) {
+      platformBlocks = translated;
     }
 
     function scheduleTranslate(): void {
       if (pendingTrack || !settingsReady || !modeReady || modeBusy || !translationDemand() || !lastTrackId) return;
       for (const i of visibleSubtitleIndices()) {
-        if (cues[i] && !cues[i].segmentationFallback && !translations.has(i) && !failedCues.has(i)) pendingCues.add(i);
+        if (cues[i] && !cues[i].segmentationFallback && !records[variant].has(i) && !failedCues.has(i)) pendingCues.add(i);
       }
       if (queuedBlock !== currentBlock) {
         queuedBlock = currentBlock;
@@ -1450,7 +1477,7 @@ export default defineContentScript({
         if (covered?.length) {
           const end = Math.min(cues.length, covered.at(-1)! + 5);
           for (let i = Math.max(0, covered[0]! - 1); i < end; i++) {
-            if (!cues[i]!.segmentationFallback && !translations.has(i) && !failedCues.has(i)) pendingCues.add(i);
+            if (!cues[i]!.segmentationFallback && !records[variant].has(i) && !failedCues.has(i)) pendingCues.add(i);
           }
         }
       }
@@ -1459,15 +1486,26 @@ export default defineContentScript({
         if (platformState === 'idle') requestPlatform();
         return;
       }
-      const ordered = new Set([currentIdx, ...visibleSubtitleIndices(), ...pendingCues].filter(i => pendingCues.has(i)));
-      const { items, targets } = buildCueTranslationBatch(cues, ordered, 8);
-      const ids = new Set(items.map(item => item.id));
+      const ordered = new Set([currentIdx, ...(blockCueIndices[currentBlock] ?? []), ...visibleSubtitleIndices(), ...pendingCues]);
+      const items: SubtitleTranslationItem[] = [];
+      for (const id of ordered) {
+        if (!pendingCues.has(id)) continue;
+        const cue = cues[id]!;
+        const parts = layout.partsByCue[id] ?? [];
+        if (!parts.length) { failedCues.add(id); pendingCues.delete(id); continue; }
+        items.push({id, text: cue.text, from: cue.from, to: cue.to, parts: parts.map(part => {
+          const platformText = translationMode === 'regular' ? platformLineForPart(part, blocks, platformBlocks) : undefined;
+          return platformText ? {...part, platformText} : part;
+        })});
+        if (items.length === 8) break;
+      }
+      if (!items.length) return;
       translating = true;
       queueRender();
       const epoch = fallbackEpoch;
       requestId = crypto.randomUUID();
-      void send<import('@/lib/regularTranslation').RegularCueReply>({
-        type: 'translateCues', mode: translationMode, requestId, videoId: currentVideoId, trackId: lastTrackId,
+      void send<SubtitleTranslationReply>({
+        type: 'translateCues', mode: translationMode, variant, revision, requestId, videoId: currentVideoId, trackId: lastTrackId,
         sourceLang: lastTrackLang || undefined, targetLang: targetLangOf(),
         items,
       }).then(r => {
@@ -1479,17 +1517,15 @@ export default defineContentScript({
           fallbackRetryAt = failure?.error === 'extension-context-invalidated' ? Infinity
             : Math.max(Date.now() + 1_000, failure?.retryAt ?? Date.now() + 5_000);
         } else fallbackRetryAt = 0;
-        const results = new Map(r?.ok ? r.translations.filter(result => ids.has(result.id) && result.text).map(result => [result.id, result]) : []);
-        for (const target of targets) {
-          const translated = results.get(target.id);
-          if (deferred.has(target.id)) continue;
-          pendingCues.delete(target.index);
+        const results = new Map(r?.ok ? r.translations.map(result => [result.id, result] as const) : []);
+        for (const {id} of items) {
+          if (deferred.has(id)) continue;
+          pendingCues.delete(id);
+          const translated = results.get(id);
           if (translated) {
-            translations.set(target.index, translated.text);
-            failedCues.delete(target.index);
-            translationSources.set(target.index, translationMode === 'ai' ? tr('AI 翻译')
-              : translated.source === 'browser-native' ? tr('浏览器内置翻译') : tr('Google 常规翻译'));
-          } else failedCues.add(target.index);
+            records[variant].set(id, translated);
+            failedCues.delete(id);
+          } else failedCues.add(id);
         }
         queueRender();
         scheduleTranslate();
@@ -1580,6 +1616,9 @@ export default defineContentScript({
         }
         if (m.type === 'blc-sub-get') {
           const v = getVideo();
+          const relevant = [...(blockCueIndices[currentBlock] ?? []), ...visibleSubtitleIndices()];
+          const waiting = relevant.some(i => pendingCues.has(i));
+          const failed = relevant.some(i => failedCues.has(i));
           const state: SubViewState = {
             type: 'blc-sub-state',
             videoId: currentVideoId,
@@ -1594,11 +1633,16 @@ export default defineContentScript({
               startMs: c.start,
               endMs: c.start + c.dur,
               text: c.text,
-              zh: translations.get(i) ?? null,
+              zh: sentenceTranslation(i) ?? null,
+              translationSource: sentenceSource(i),
               joinBefore: i && c.from > cues[i - 1]!.to ? ' ' : '',
               from: c.from,
               to: c.to,
             })),
+            fullTranslation: variant === 'B',
+            translationBusy: translationDemand() && waiting && fallbackRetryAt <= Date.now(),
+            translationFailed: failed || (fallbackRetryAt > Date.now() && waiting),
+            degradedFull: variant === 'B' && translationMode === 'regular',
             chineseVisible: showTranslation(),
             currentIndex: currentIdx,
             playing: !!v && !v.paused,
@@ -1612,6 +1656,17 @@ export default defineContentScript({
           if (c.videoId !== currentVideoId || c.videoId !== videoIdFromLocation() || (c.generation && c.generation !== generation)) {
             sendResponse({ ok: false, error: 'video-mismatch' });
             return true;
+          }
+          if (c.action === 'fullTranslation') {
+            if (!modeReady || modeBusy || !cues.length || typeof c.enabled !== 'boolean') {
+              sendResponse({ok:false}); return true;
+            }
+            void updateVideoSession({fullTranslation:c.enabled}).then(() => sendResponse({ok:!settingsFailed}));
+            return true;
+          }
+          if (c.action === 'retryTranslation') {
+            stopTranslation(); failedCues.clear(); scheduleTranslate(); queueRender();
+            sendResponse({ok:true}); return true;
           }
           const v = getVideo();
           if (!v) {
@@ -1681,6 +1736,9 @@ export default defineContentScript({
       const t = (msg as { type?: string })?.type;
       if (t === 'vocab-changed') { void refreshSurfaceStatus(); }
       if (t === 'settings-changed') void refreshSettings();
+      if (t === 'ai-service-changed' && translationMode === 'ai') {
+        stopTranslation(); clearTranslationResults(); scheduleTranslate(); queueRender();
+      }
     });
 
     // ---- 站内导航：清旧状态、重新发起 -------------------------------------------
@@ -1697,14 +1755,15 @@ export default defineContentScript({
       // 换视频：旧选区候选立即失效（读取侧另有身份校验兜底）
       void send({ type: 'selectionCandidateSet', candidate: null });
       platformState = 'idle';
-      translationMode = settings.translationMode;
+      translationMode = settings.translationMode; variant = 'A';
       currentVideoId = to;
       modeReady = false; modeBusy = false; autoPause = false; apIndex = -1; apHeld = false; apLastStopped = -1;
       floatingPanel.hide(); translationPopup.close(); selectionPill.reset();
       void updateVideoSession();
       navSeq++;
       cues = [];
-      blocks = []; blockRanges = []; blockCueIndices = []; blockTextEnds = []; blockTextVisible = false; currentBlock = -1; sourceRevision = revision = ''; generation = crypto.randomUUID();
+      shownBeforeSegmentation.clear();
+      blocks = []; blockRanges = []; blockCueIndices = []; layout = {unitsByBlock:[],partsByCue:[]}; currentUnit = -1; currentBlock = -1; sourceRevision = revision = ''; generation = crypto.randomUUID();
       pinnedIndex = -1; rowSeekTime = null;
       lastTrack = '';
       lastTrackLang = '';
@@ -1793,7 +1852,7 @@ export default defineContentScript({
           if (platformTimer) clearTimeout(platformTimer);
           platformRequest = null; platformState = 'done';
           const translated = Array.isArray(d.cues) ? d.cues : [];
-          applyPlatformCues(translated, request.targetLang);
+          applyPlatformCues(translated);
           if (translated.some(c => c.zh)) void send({ type: 'captionCache', key: request.cacheKey, cues: translated });
           scheduleTranslate();
           return;
@@ -1819,7 +1878,7 @@ export default defineContentScript({
             generation = crypto.randomUUID();
             closeSelectionActions?.(); popup.close();
             stopTranslation(); platformState = 'idle'; clearTranslationResults();
-            bindLearningCues(d.cues, d.blockRanges);
+            bindLearningCues(d.cues, d.blockRanges, lang);
             revision = d.revision;
           }
           clearAcquisitionTimer();

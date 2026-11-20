@@ -1,5 +1,5 @@
 import { applyAppearance } from './appearance';
-import { uiIcon } from './uiControls';
+import { iconButton, uiIcon } from './uiControls';
 import { t as tr, localize, onDisplayLanguageChange , message, setText, setLocalizedAttribute, type UiText } from './i18n';
 import { brandTokens, brandControls } from './brand';
 import type { Cue } from './protocol';
@@ -24,6 +24,11 @@ export interface WorkspaceState {
   savedCount: number;
   notice: string;
   chinese: boolean;
+  fullTranslation?: boolean;
+  translationBusy?: boolean;
+  translationFailed?: boolean;
+  degradedFull?: boolean;
+  translationSources?: Map<number,string>;
   /** 当前轨道语言（词次分词与查词边界用；缺省按英文兼容） */
   trackLang?: string;
 }
@@ -65,6 +70,12 @@ const css = `
   .word-details .occurrence {min-width:0;max-width:100%;padding:2px 4px;border:0;background:transparent;text-align:start;overflow-wrap:anywhere}
   .word-details .occurrence:hover {background:var(--pd-selected)}
   ${readingIconStyles}
+  .controls[hidden],.translation-feedback[hidden] {display:none}
+  .full-translation {margin-inline-start:auto;position:relative}
+  .translation-feedback {display:flex;align-items:center;gap:4px;min-inline-size:0}
+  .translation-feedback span {white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .translation-feedback button {flex:none}
+  .translation-feedback,.translation-source {font-size:12px;color:var(--pd-muted)}
   .save-error {color:var(--pd-danger);font-size:12px;flex-basis:100%}
   ::selection {background:var(--pd-selected);color:var(--pd-ink)}
 `;
@@ -72,6 +83,8 @@ const css = `
 export function createYoutubeWorkspace(actions: {
   onViewportChange?: () => void;
   retrySubtitles?: () => void;
+  fullTranslation: (enabled:boolean) => Promise<void>;
+  retryTranslation: () => void;
   bindWords: (host: HTMLElement) => () => void;
   words: (parent: HTMLDivElement, text: string) => void;
   control: (action: 'prev' | 'next' | 'replay') => void;
@@ -102,6 +115,7 @@ export function createYoutubeWorkspace(actions: {
   let lastStatuses: Map<string, string> | null = null;
   let lastTranslations: Map<number, string> | undefined;
   let lastChinese: boolean | undefined;
+  let lastDegraded = false;
   let lastSavedSentences: SavedSentence[] | undefined;
   let lastCurrent = -1;
   let lastIdentity = '';
@@ -185,6 +199,23 @@ export function createYoutubeWorkspace(actions: {
     selectionHeld=false; follow=true; userScrollUntil=0; highlight(true);
   });
   back.hidden = true;
+  const toggle = iconButton('paragraph', message('显示完整译文'));
+  toggle.classList.add('full-translation');
+  controls.append(toggle);
+  let switching = false;
+  toggle.addEventListener('click', async () => {
+    if (switching || !state?.cues.length) return;
+    switching = true;
+    try { await actions.fullTranslation(!state.fullTranslation); }
+    finally { switching = false; }
+  });
+  const feedback = document.createElement('div');
+  feedback.className = 'translation-feedback';
+  feedback.setAttribute('role','status');
+  const failureLabel = document.createElement('span');
+  feedback.append(failureLabel);
+  const retryLines = button(feedback,message('重试'),()=>actions.retryTranslation());
+  controls.insertBefore(feedback,toggle);
   const recovery = document.createElement('div');
   recovery.hidden = true;
   const explanation = document.createElement('span');
@@ -230,6 +261,19 @@ export function createYoutubeWorkspace(actions: {
     if (!state) return;
     head.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     controls.hidden = tab !== 'subs';
+    toggle.disabled = !state.cues.length;
+    const toggleLabel = message(state.fullTranslation ? '显示逐行译文' : '显示完整译文');
+    setLocalizedAttribute(toggle,'aria-label',toggleLabel);
+    setLocalizedAttribute(toggle,'title',toggleLabel);
+    toggle.setAttribute('aria-pressed', String(!!state.fullTranslation));
+    toggle.setAttribute('aria-busy', String(!!state.translationBusy));
+    feedback.hidden = !state.chinese || (!state.translationFailed && !state.translationBusy);
+    retryLines.hidden = !state.translationFailed;
+    const feedbackText = state.translationFailed
+      ? message(state.fullTranslation ? '部分完整译文暂不可用' : '翻译暂不可用')
+      : message('正在翻译…');
+    setText(failureLabel,feedbackText);
+
     const count=String(state.savedCount ?? 0);
     if(savedCount.textContent!==count)savedCount.textContent=count;
     const contentChanged=lastIdentity!==identity()||!lastCues||(lastCues!==state.cues&&(lastCues.length!==state.cues.length||lastCues.some((cue,i)=>{const next=state.cues[i]!;return cue.start!==next.start||cue.dur!==next.dur||cue.text!==next.text;})));
@@ -299,6 +343,16 @@ export function createYoutubeWorkspace(actions: {
       const zh = row.querySelector<HTMLElement>('.zh')!; const value = state.translations.get(Number(row.dataset.cue)) ?? '';
       if (zh.textContent !== value) zh.textContent = value; zh.hidden = !state.chinese || !value;
     });
+    if (tab === 'subs' && (rebuild || state.degradedFull || lastDegraded)) {
+      for (const row of body.querySelectorAll<HTMLElement>('.row')) {
+        const source = state.degradedFull && state.chinese && state.translationSources?.get(Number(row.dataset.cue));
+        let label = row.querySelector<HTMLElement>('.translation-source');
+        if (!source) { label?.remove(); continue; }
+        if (!label) { label = document.createElement('small'); label.className = 'translation-source'; row.querySelector('.zh')!.after(label); }
+        if (label.textContent !== source) label.textContent = source;
+      }
+    }
+    lastDegraded = !!state.degradedFull;
     if (tab === 'subs') {
       if (rebuild || lastSavedSentences !== state.sentences) saveButtons.forEach((b,i)=>{const key=cueId(i);if(confirmedSaves.get(key)===storedSaved(i))confirmedSaves.delete(key);updateSaveButton(i,b);});
       lastSavedSentences = state.sentences;

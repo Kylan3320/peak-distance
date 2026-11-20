@@ -1,3 +1,5 @@
+import { tsImport } from 'tsx/esm/api';
+const { subtitleItem } = await tsImport('./subtitle-line-fixture.ts',import.meta.url);
 // Real MV3 storage, UI and background; controlled provider responses and permission decisions.
 import { extensionPath as extension } from './extension-path.mjs';
 import { chromium } from 'playwright-core';
@@ -22,7 +24,7 @@ try {
     globalThis.fetch=async(url,init)=>{
       const body=JSON.parse(init.body);const protocol=String(url).includes('/messages')?'anthropic':String(url).includes(':generateContent')||String(url).includes(':streamGenerateContent')?'gemini':'openai';
       globalThis.__requests.push({url:String(url),body,headers:init.headers});
-      const text=JSON.stringify(body).includes('JSON 数组')?'["译文"]':'释义：陪伴\n语境：用于当前原句';
+      const text=JSON.stringify(body).includes('JSON 数组')?'[{"id":9,"lines":["译文"]}]':'释义：陪伴\n语境：用于当前原句';
       if(body.stream||String(url).includes(':streamGenerateContent')){
         const payload=protocol==='anthropic'?{type:'content_block_delta',delta:{type:'text_delta',text:'受控回答'}}:protocol==='gemini'?{candidates:[{content:{parts:[{text:'受控回答'}]},finishReason:'STOP'}]}:{choices:[{delta:{content:'受控回答'}}]};
         return new Response('data: '+JSON.stringify(payload)+'\n\n'+(protocol==='anthropic'?'data: {"type":"message_stop"}\n\n':protocol==='openai'?'data: [DONE]\n\n':''),{headers:{'content-type':'text/event-stream'}});
@@ -105,7 +107,7 @@ try {
       state.active===provider&&!!state.profiles[provider].baseUrl&&!!state.profiles[provider].model&&!!state.profiles[provider].apiKey);
     const explanation=await send({type:'explainContext',snapshot:snap,requestId:provider});
     check(`${provider} 解释使用对应服务与来源`,explanation.ok&&explanation.provider===provider&&explanation.model===(state?.profiles[provider]?.model??'deepseek-flash'));
-    const translated=await send({type:'translateCues',mode:'ai',videoId:'fixture',trackId:'en',items:[{id:9,text:'Stay with me.'}],requestId:provider+'-translation'});
+    const translated=await send({type:'translateCues',mode:'ai',videoId:'fixture',trackId:'en',variant:'A',revision:'fixture-v1',sourceLang:'en',targetLang:'zh-Hans',items:[subtitleItem('Stay with me.',9)],requestId:provider+'-translation'});
     check(`${provider} AI 翻译保留字幕 ID`,translated.ok&&translated.translations[0]?.id===9);
     await page.locator('#views [data-view="chat"]').click();
     await page.locator('#chat-input').fill('hello '+provider);await page.locator('#chat-send').click();

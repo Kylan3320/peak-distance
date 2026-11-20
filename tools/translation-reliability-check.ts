@@ -1,10 +1,11 @@
+import { subtitleItem } from './subtitle-line-fixture';
 // Real translation/cache code with controlled HTTP, clock, and browser session storage.
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { build } from 'esbuild';
 import type { RegularTranslationResult, TranslationLangs } from '../lib/regularTranslation';
 
-const bundle = (await build({stdin:{contents:"export * from './lib/regularTranslation'; export { cacheGet, cachePut } from './lib/onlineCache'; export { translateSentences } from './lib/aiClient'; export { defaultAiProfile } from './shared/aiConfig'; export { lookupOnline } from './lib/lookupService'; export { DEFAULT_SETTINGS } from './shared/settings';",resolveDir:process.cwd()},bundle:true,write:false,platform:'browser',format:'iife',globalName:'Api'})).outputFiles[0]!.text;
+const bundle = (await build({stdin:{contents:"export * from './lib/regularTranslation'; export {translateSubtitleBatch} from './lib/subtitleLineTranslation'; export { cacheGet, cachePut } from './lib/onlineCache'; export { translateSentences } from './lib/aiClient'; export { defaultAiProfile } from './shared/aiConfig'; export { lookupOnline } from './lib/lookupService'; export { DEFAULT_SETTINGS } from './shared/settings';",resolveDir:process.cwd()},bundle:true,write:false,platform:'browser',format:'iife',globalName:'Api'})).outputFiles[0]!.text;
 const session:Record<string,unknown>={}, local:Record<string,unknown>={};
 let now=1_000_000, calls=0;
 let delayedSessionWrite: Promise<void> | undefined;
@@ -34,12 +35,13 @@ function fresh() {
 }
 function reset() { for(const values of [session,local])for(const k of Object.keys(values))delete values[k];calls=0;return fresh(); }
 const success=()=>Response.json([[['有效译文']],null,'en']);
-const items=Array.from({length:6},(_,id)=>({id:10+id,text:`Uncached sentence ${id}`}));
+const items=Array.from({length:6},(_,id)=>subtitleItem(`Uncached sentence ${id}`,10+id));
 const langs={source:'en',target:'zh-Hans'};
+const scope={...langs,variant:'A',videoId:'fixture',trackId:'en',revision:'fixture-v1'};
 const signal=()=>new AbortController().signal;
 let api=reset();
 respond=async()=>new Response('',{status:429,headers:{'retry-after':'120'}});
-const failed=await api.translateRegularCues(items,signal(),langs);
+const failed=await api.translateSubtitleBatch(scope,items,signal());
 assert.equal(failed.ok,false);assert.equal(failed.error,'restricted');assert.equal(failed.httpStatus,429);
 assert.equal(failed.retryAt,now+120_000);assert.equal(calls,1);
 await new Promise(done=>setTimeout(done,0));
@@ -66,17 +68,17 @@ now+=60_000;await Promise.all(['D','E'].map(text=>api.translateRegularText(text,
 console.log('PASS concurrent cache misses and expired-channel probes send only one request before observing a new 429');
 
 api=reset();respond=async()=>calls===1?success():new Response('',{status:429});
-const partial=await api.translateRegularCues(items,signal(),langs);
-assert.equal(partial.ok,true);assert.equal(partial.translations[0].source,'google-gtx');assert.equal(partial.translations.length,1);assert.equal(partial.translations[0].id,10);
+const partial=await api.translateSubtitleBatch(scope,items,signal());
+assert.equal(partial.ok,true);assert.equal(partial.translations[0].lineSources[0],'google-gtx');assert.equal(partial.translations.length,1);assert.equal(partial.translations[0].id,10);
 assert.equal(partial.failure.httpStatus,429);assert.equal(calls,2);
-const cacheOnly=await api.translateRegularCues([items[0]],signal(),langs);assert.equal(cacheOnly.ok,true);assert.equal(calls,2);
+const cacheOnly=await api.translateSubtitleBatch(scope,[items[0]],signal());assert.equal(cacheOnly.ok,true);assert.equal(calls,2);
 console.log('PASS partial success keeps exact cue IDs, carries restriction and stops remaining requests');
 
 api=reset();respond=async()=>new Response('Invalid JSON',{status:200});
-const invalid=await api.translateRegularCues(items.slice(0,2),signal(),langs);
+const invalid=await api.translateSubtitleBatch(scope,items.slice(0,2),signal());
 assert.equal(invalid.ok,false);assert.equal(invalid.error,'bad-response');assert.equal(calls,2);
 api=reset();respond=async()=>new Response('',{status:503});
-const unavailable=await api.translateRegularCues(items,signal(),langs);
+const unavailable=await api.translateSubtitleBatch(scope,items,signal());
 assert.equal(unavailable.ok,false);assert.equal(unavailable.error,'http');assert.equal(unavailable.httpStatus,503);assert.equal(calls,1);
 console.log('PASS invalid/empty batches cannot report success; 503 stops the batch and remains distinct from access restriction');
 
@@ -176,11 +178,57 @@ nativeReply=undefined;
 console.log('PASS cancellation during a native check prevents online fallback; Google fallback shares work without sharing consumer cancellation');
 
 api=reset();const aiConfig={...api.defaultAiProfile('deepseek'),provider:'deepseek',apiKey:'offline-test-only'};
-respond=async()=>Response.json({choices:[{message:{content:'["", " ", null]'},finish_reason:'stop'}]});
-const aiEmpty=await api.translateSentences(aiConfig,['one','two','three']);
-assert.equal(aiEmpty.ok,false);assert.equal(aiEmpty.error,'bad-response');assert.equal(calls,1);
-respond=async()=>Response.json({choices:[{message:{content:'["", "", "三"]'},finish_reason:'stop'}]});
-const aiPartial=await api.translateSentences(aiConfig,['one','two','three']);
-assert.equal(aiPartial.ok,true);assert.equal(aiPartial.translations.length,1);assert.equal(aiPartial.translations[0].id,2);
-const aiExtra=await api.translateSentences(aiConfig,['one']);assert.equal(aiExtra.ok,false);
-console.log('PASS AI subtitles also reject all-empty or out-of-input-only results while preserving partial cue IDs; no real AI service used');
+const one = [subtitleItem('one',19)];
+const valid = [{id:19,lines:['一']}];
+let lastRequest: any;
+const output = (body: unknown) => {
+  respond = async (_,init) => {
+    lastRequest = JSON.parse(String(init?.body));
+    return Response.json({choices:[{message:{content:typeof body === 'string' ? body : JSON.stringify(body)},finish_reason:'stop'}]});
+  };
+};
+for (const invalid of [
+  'not JSON', [], [{id:20,lines:['一']}], [...valid,...valid], [{id:19,lines:[]}], [{id:19,lines:['一','二']}],
+  [{id:19,lines:[' ']}], [{id:19,lines:['⟦1⟧译文']}], [{id:19,lines:['{"full":"译文"}']}],
+  [{id:19,lines:['{}']}], [{id:19,lines:['<part>一</part>']}], [{id:19,lines:['字'.repeat(33)]}], [{id:19,full:'一'}], [{id:19,full:'一',lines:['一']}],
+]) {
+  output(invalid);
+  const before:number=calls;
+  const r=await api.translateSentences(aiConfig,one,'A',langs);
+  assert.equal(r.ok,false);assert.equal(r.error,'bad-response');assert.equal(calls-before,2);
+}
+output([{id:19,lines:['一'],full:'完整'}]);
+assert.equal((await api.translateSentences(aiConfig,one,'B',langs)).ok,false);
+output(valid);const aiA=await api.translateSubtitleBatch(scope,one,signal(),aiConfig);
+assert.ok(aiA.ok);assert.equal('full' in aiA.translations[0],false);
+output([{id:19,full:'完整意思',lines:['简述']}]);
+const count=calls;const aiB=await api.translateSubtitleBatch({...scope,variant:'B'},one,signal(),aiConfig);
+assert.equal(calls,count+1);assert.equal(aiB.translations[0].full,'完整意思');
+assert.equal(aiB.translations[0].lines[0],'简述');assert.match(lastRequest.messages[0].content,/仅从这份 full 改写/);
+assert.deepEqual(Object.keys(JSON.parse(lastRequest.messages[1].content).items[0]),['id','text','parts']);
+await api.translateSubtitleBatch({...scope,variant:'B'},one,signal(),aiConfig);assert.equal(calls,count+1);
+const revised=[{...one[0],parts:[{...one[0]!.parts[0]!,dur:3999}]}];
+await api.translateSubtitleBatch({...scope,variant:'B'},revised,signal(),aiConfig);assert.equal(calls,count+2);
+const changedUnit=[{...one[0],parts:[{...one[0]!.parts[0]!,unitText:'one and the next sentence'}]}];
+await api.translateSubtitleBatch({...scope,variant:'B'},changedUnit,signal(),aiConfig);
+assert.equal(calls,count+3);
+assert.equal('unitText' in JSON.parse(lastRequest.messages[1].content).items[0].parts[0],false);
+console.log('PASS AI A/B schema, ID set, line budgets and format retry; one B normal request carries full-first rewrite instructions; timed boundaries isolate caches');
+
+api=reset();const pair=subtitleItem('All set.',4);pair.parts=[{...pair.parts[0]!,text:'All',to:pair.from+3,budget:6},{...pair.parts[0]!,text:'set.',from:pair.from+4,budget:6,unitIndex:1}];
+const requests:string[]=[];
+respond=async url=>{const q=url.searchParams.get('q')!;requests.push(q);return Response.json([[[q==='All'?'都':q==='set.'?'好了。':'一切就绪。']],null,'en']);};
+const a=await api.translateSubtitleBatch(scope,[pair],signal());
+const b=await api.translateSubtitleBatch({...scope,variant:'B'},[pair],signal());
+assert.ok(a.ok && b.ok);assert.deepEqual(Array.from(a.translations[0].lines),['都','好了。']);assert.equal('full' in a.translations[0],false);
+assert.equal(b.translations[0].full,'一切就绪。');assert.deepEqual(requests,['All','set.','All set.']);
+assert.equal(b.translations[0].fullSource,'google-gtx');
+console.log('PASS regular B reuses exact part results and obtains a distinct full through the regular provider');
+
+api=reset();
+let attempts=0;
+respond=async()=>Response.json([[[attempts++ ? '短' : '超'.repeat(33)]],null,'en']);
+assert.equal((await api.translateSubtitleBatch(scope,one,signal())).ok,false);
+assert.equal((await api.translateSubtitleBatch(scope,one,signal())).translations[0].lines[0],'短');
+assert.equal(attempts,2);
+console.log('PASS an over-budget ordinary line remains retryable and never enters the provider cache');

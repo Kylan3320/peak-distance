@@ -1,13 +1,91 @@
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import {
-  alignLearningTranslations, blockPauseOffsets, blockTextEnd, buildCueTranslationBatch,
+  alignBlockTranslations, blockPauseOffsets, blockTextEnd,
   buildSegmentedSubtitleViews, buildSubtitleViews, cueIndexAt, fmtClock, normalizeAsrCues, parseJson3,
 } from '../shared/cues';
 import type { SourceFragment } from '../shared/protocol';
+import { buildSubtitleUnits, joinSubtitleLines, lineLength, platformLineForPart, readingBudget } from '../shared/subtitleLines';
 import { matchSentenceBookmarks, sentenceId, type SavedSentence, type VideoRef } from '../shared/vocab';
 import { parseSentenceDocument, serializeSentenceRecord } from '../lib/vault/format';
 import { sentenceToVaultRecord } from '../lib/vault/records';
+
+async function subtitleUnitChecks(check: (name:string, pass:boolean) => void) {
+  const json = {events:[{tStartMs:1000,dDurationMs:5000,segs:[
+    {utf8:'We',tOffsetMs:200}, {utf8:' learn.'}, {utf8:' They',tOffsetMs:2800}, {utf8:' stay.'},
+  ]}]};
+  const raw = parseJson3(json);
+  const views = buildSubtitleViews(raw,'manual','en');
+  const build = (v: typeof views) => buildSubtitleUnits(v.blocks,v.blockRanges,v.cues,'en','zh-Hans');
+  const {unitsByBlock,partsByCue} = build(views);
+  const first = unitsByBlock[0]!;
+  check('首单元和跨句切点均取首词实测时间；边界前一毫秒仍是前一单元',
+    first.length === 2 && first[0]!.text === 'We learn.' && first[1]!.text === 'They stay.' &&
+    first[0]!.start === 1200 && first[1]!.start === 3800 && first[1]!.dur === 2200 &&
+    cueIndexAt(first,1199) === -1 && cueIndexAt(first,3799) === 0 && cueIndexAt(first,3800) === 1);
+  check('学习句的 part 绑定规范原文范围、单元、时长和行预算',
+    partsByCue.every((parts,i) => parts.length === 1 && parts[0]!.text === views.cues[i]!.text &&
+      parts[0]!.from === views.cues[i]!.from && parts[0]!.unitIndex === i && parts[0]!.budget === readingBudget(first[i]!.dur,'zh')));
+  const provisional = buildSubtitleUnits(raw,[],[],'en','zh');
+  check('未断句首屏遵守首词真实时间且无译文归属',
+    provisional.partsByCue.length === 0 && provisional.unitsByBlock[0]![0]!.start === 1200);
+  const timed = alignBlockTranslations(raw,[{...raw[0]!,text:'我们学习。他们留下。'}]);
+  check('精确匹配的平台源块译文不能塞进时间子段',
+    !platformLineForPart(partsByCue[0]![0]!,raw,timed));
+
+  const unanchored = buildSubtitleViews([{...raw[0]!,anchors:undefined}],'manual','en');
+  const unsplit = build(unanchored);
+  check('没有词时的块即使跨句也保留整条，同屏两句均分一份预算',
+    unsplit.unitsByBlock[0]!.length === 1 && unsplit.unitsByBlock[0]![0]!.start === 1000 &&
+    unsplit.unitsByBlock[0]![0]!.parts.length === 2 &&
+    unsplit.partsByCue.every(parts => parts[0]!.budget === 16 && parts[0]!.unitText === raw[0]!.text) &&
+    !platformLineForPart(unsplit.partsByCue[0]![0]!,unanchored.blocks,timed));
+  const oneSentence = buildSubtitleViews([{...raw[0]!,text:'One full sentence.',anchors:undefined}],'manual','en');
+  for (const offset of [10,11]) {
+    const quoted = build(buildSubtitleViews([{...raw[0]!,text:'She said. “Leave now.”',anchors:[{offset,time:3000}]}],'manual','en'));
+    check('开引号与实测首词同屏，不产生只有引号的翻译 part',
+      quoted.unitsByBlock[0]![1]?.text === '“Leave now.”' && quoted.unitsByBlock[0]![1]!.start === 3000 &&
+      quoted.partsByCue.every(parts=>parts.length===1));
+  }
+  const wholeResponse = alignBlockTranslations(oneSentence.blocks,[{...raw[0]!,text:'一句译文。'}]);
+  check('整个 part 独占原块且平台唯一对应时直接复用',
+    platformLineForPart(build(oneSentence).partsByCue[0]![0]!,oneSentence.blocks,wholeResponse) === '一句译文。');
+
+  const make = (text:string,start:number,dur:number): SourceFragment => ({text,start,dur,lastOff:start});
+  const superseded = build(buildSubtitleViews([make('The train',0,1000),make('is here.',0,2000)],'manual','en'));
+  check('被同起点源块覆盖的无显示时间文字不从学习句译文请求静默丢失',
+    superseded.partsByCue[0]!.map(p=>p.text).join(' ') === 'The train is here.' &&
+    superseded.partsByCue[0]![0]!.dur === 0 && superseded.partsByCue[0]![0]!.budget === 0);
+  const pendingBlocks = [make('Intro.',0,1000), {...make('we learn they stay',1000,4000),anchors:[{offset:9,time:3000}]}];
+  const early = buildSubtitleUnits(pendingBlocks,[],[],'en','zh');
+  const ready = await buildSegmentedSubtitleViews(pendingBlocks,'asr','en',async () => ['We learn. They stay.']);
+  const frozen = buildSubtitleUnits(ready.blocks,ready.blockRanges,ready.cues,'en','zh',new Map([[1,early.unitsByBlock[1]!]]));
+  check('已曝光的临时原文单元补齐语义归属但不回切，未曝光块可采用新的学习句切点',
+    early.unitsByBlock[1]!.length === 1 && build(ready).unitsByBlock[1]!.length === 2 &&
+    frozen.unitsByBlock[1]!.length === 1 && frozen.unitsByBlock[1]![0]!.start === 1000 &&
+    frozen.unitsByBlock[1]![0]!.from === ready.blockRanges[1]!.from &&
+    frozen.unitsByBlock[1]![0]!.parts.length === 2 && frozen.partsByCue[2]![0]!.text === 'they stay');
+  const rolling = buildSubtitleViews([make('We learn',0,5000),make('We learn languages.',2000,4000)],'asr','en');
+  const rolled = build(rolling);
+  const parts = rolled.partsByCue[0]!;
+  check('滚动前缀只译一次；较长块可以复用旧行并显示新增 part',
+    parts.map(p=>p.text).join(' ') === 'We learn languages.' && parts.length === 2 &&
+    JSON.stringify(rolled.unitsByBlock.map(units=>units[0]!.parts.map(p=>p.part))) === '[[0],[0,1]]' &&
+    parts[0]!.start === 0 && parts[0]!.dur === 2000 && parts[1]!.start === 2000 &&
+    parts[0]!.budget === 16 && parts[1]!.budget === 16);
+  for (const anchor of [{offset:11,time:3800},{offset:10,time:99000},{offset:10,time:1500}]) {
+    // Only the actual word start (offset 10) at a valid readable onset can cut.
+    const block = {...raw[0]!,anchors:[anchor]};
+    const result = build(buildSubtitleViews([block],'manual','en'));
+    check('词中、越界或不能满足最短停留时间的锚点不产生切屏',
+      result.unitsByBlock[0]!.length === 1);
+  }
+  check('规范化字素、预算上限及目标语言连接',
+    lineLength('我 👩‍💻 e\u0301!','zh') === 4 && readingBudget(2000,'zh-Hant') === 18 &&
+    readingBudget(4000,'zh-Hans') === 32 && readingBudget(2000,'de') === 36 &&
+    readingBudget(4000,'en') === 72 && joinSubtitleLines(['一','二'],'zh') === '一二' &&
+    joinSubtitleLines(['first','second'],'en') === 'first second');
+}
 
 export async function subtitleSentenceChecks(check: (name: string, pass: boolean) => void): Promise<void> {
   const make = (texts: string[], starts = texts.map((_, i) => i * 1000)): SourceFragment[] =>
@@ -184,18 +262,15 @@ export async function subtitleSentenceChecks(check: (name: string, pass: boolean
   const exact = make(['一。二！', '三句开头', '在这里。', '四。'], [0, 2500, 3600, 4300]);
   exact[0]!.dur = 2000;
   exact[1]!.dur = 2000;
-  const translated = alignLearningTranslations(views, exact);
-  check('仅完整一对一的平台字幕可复用，跨片段句子交给整句翻译',
-    same(translated.map(c => c.zh), [undefined, undefined, undefined, '四。']));
-  check('仅有时间重叠、缺少或重复源事件译文时整项回退',
-    !alignLearningTranslations(views, [{ ...exact[3]!, start: 4310 }])[3]?.zh &&
-    !alignLearningTranslations(views, [exact[1]!])[2]?.zh &&
-    !alignLearningTranslations(views, [...exact, exact[2]!])[2]?.zh);
-  const repeatedCues = [...views.cues, views.cues[2]!];
-  const batch = buildCueTranslationBatch(repeatedCues, [2, 0, 1, 3, 4], 2);
-  check('同一份学习句候选按当前句优先，同文复用整句结果',
-    same(batch.items.map(i => i.text), [views.cues[2]!.text, 'One.']) &&
-    same(batch.targets, [{index:2,id:2}, {index:0,id:0}, {index:4,id:2}]));
+  const translated = alignBlockTranslations(views.blocks, exact);
+  check('平台译文先按原始来源配对，保留同块的完整响应',
+    same(translated.map(c => c.zh), ['一。二！','三句开头','在这里。','四。']));
+  check('时间相交、缺译、重复源块或重复平台块均不可唯一匹配',
+    !alignBlockTranslations(views.blocks, [{...exact[3]!,start:4310}])[3]?.zh &&
+    !alignBlockTranslations(views.blocks, exact.slice(0,1))[2]?.zh &&
+    !alignBlockTranslations([...views.blocks,views.blocks[2]!],exact)[2]?.zh &&
+    !alignBlockTranslations(views.blocks,[...exact,exact[2]!])[2]?.zh);
+  await subtitleUnitChecks(check);
   const video: VideoRef = { videoId: 'test', trackId: 'https://www.youtube.com/api/timedtext?v=test&lang=en',
     trackKind: 'manual', trackLang: 'en', startMs: 0 };
   const duplicate = buildSubtitleViews(make(['No. No.']), 'manual', 'en').cues;

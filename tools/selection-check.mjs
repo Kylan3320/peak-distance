@@ -56,6 +56,7 @@ await browser.route('https://example.com/other', r => r.fulfill({ contentType: '
 await browser.route('https://x.com/example/status/9999', r => r.fulfill({ contentType: 'text/html', body: X_HTML }));
 const sw = browser.serviceWorkers()[0] || await browser.waitForEvent('serviceworker');
 const extId = new URL(sw.url()).host;
+await sw.evaluate(()=>chrome.storage.local.set({displayLanguage:'zh-Hans'}));
 await sw.evaluate(() => {
   globalThis.__llm = [];
   const original = globalThis.fetch;
@@ -113,7 +114,7 @@ check('A1 单词分类：查词+添加到对话（无翻译）', await page.wait
   const root = document.getElementById('blc-lookup-pill')?.shadowRoot;
   return root && root.querySelector('#lookup')?.hidden === false && root.querySelector('#translate')?.hidden === true && root.querySelector('#chat')?.hidden === false;
 }, null, { timeout: 4000 }).then(() => true, () => false));
-check('A1 图标可访问名称', await page.evaluate(() => document.getElementById('blc-lookup-pill')?.shadowRoot?.querySelector('#chat')?.getAttribute('aria-label') === '添加到对话'));
+check('A1 图标可访问名称', await page.evaluate(() => document.getElementById('blc-lookup-pill')?.shadowRoot?.querySelector('#chat')?.getAttribute('aria-label') === '加入对话'));
 
 // A2 查词用有效表达（learnin → learning），词卡标题即查询表达
 await page.click('#lookup');
@@ -121,7 +122,7 @@ await page.waitForSelector('#blc-lookup-popup .expr');
 check('A2 查词有效表达：learnin → learning', await page.evaluate(() => document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.expr')?.textContent.startsWith('learning')));
 await page.evaluate(() => {
   const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-  [...card.querySelectorAll('button')].find((b) => b.textContent === '关闭')?.click();
+  card.querySelector('button.close')?.click();
 });
 await page.waitForFunction(() => !document.getElementById('blc-lookup-popup'));
 
@@ -205,7 +206,7 @@ check('X1 X 推文词内补全：Seriousl → Seriously', await xpage.waitForFun
   null, { timeout: 5000 }).then(() => true, () => false));
 await xpage.evaluate(() => {
   const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-  [...card.querySelectorAll('button')].find((b) => b.textContent === '关闭')?.click();
+  card.querySelector('button.close')?.click();
 });
 await xpage.waitForFunction(() => !document.getElementById('blc-lookup-popup'));
 
@@ -299,9 +300,10 @@ await panel.click('#chat-attachments summary');
 await attachViaMenu('page');
 await panel.waitForFunction(() => document.getElementById('chat-attachment-summary')?.textContent === 'Selection Article', null, { timeout: 5000 });
 stateA = await chatState();
-check('A7 附加页面：div 正文可识别为已加载正文', stateA.chat?.snapshots?.length === 2 &&
-  stateA.chat.snapshots[1].label === '已加载正文' &&
-  stateA.chat.snapshots[1].blocks.length >= 5, JSON.stringify(stateA.chat?.snapshots?.map(s => [s.version, s.label, s.blocks.length])));
+check('A7 附加页面：div 正文可识别为已加载正文', stateA.chat?.snapshots?.length === 1 &&
+  stateA.chat.snapshots[0].version === stateA.chat.activeSnapshotVersion &&
+  stateA.chat.snapshots[0].label === '已加载正文' &&
+  stateA.chat.snapshots[0].blocks.length >= 5, JSON.stringify(stateA.chat?.snapshots?.map(s => [s.version, s.label, s.blocks.length])));
 
 // A8 重复附加不叠加
 await selectText('#p2', takeAt, takeAt + 8);
@@ -310,8 +312,13 @@ await page.evaluate(() => { document.getSelection().removeAllRanges(); document.
 await attachViaMenu('selection');
 await panel.waitForTimeout(400);
 stateA = await chatState();
-check('A8 重复附加同一选区不叠加版本', stateA.chat?.snapshots?.length === 3 &&
-  stateA.chat.snapshots[2].label === '词句与原句', JSON.stringify(stateA.chat?.snapshots?.map(s => [s.version, s.label])));
+const previousVersion = stateA.chat.activeSnapshotVersion;
+await attachViaMenu('selection');
+stateA = await chatState();
+check('A8 重复附加同一选区不叠加版本', stateA.chat?.snapshots?.length === 1 &&
+  stateA.chat.activeSnapshotVersion === previousVersion &&
+  stateA.chat.snapshots[0].version === previousVersion &&
+  stateA.chat.snapshots[0].label === '词句与原句' && stateA.chat.snapshots[0].blocks[0].text === 'Take off', JSON.stringify(stateA.chat?.snapshots?.map(s => [s.version, s.label])));
 
 // A9 连续 A→B：替换当前材料与焦点
 const wellAt = p2Text.indexOf('Well-known');
@@ -321,9 +328,11 @@ await page.evaluate(() => { document.getSelection().removeAllRanges(); document.
 await attachViaMenu('selection');
 await panel.waitForFunction(() => document.getElementById('chat-attachment-summary')?.textContent === 'Well-known', null, { timeout: 5000 });
 stateA = await chatState();
-check('A9 连续附加替换焦点（历史快照保留）', stateA.chat?.snapshots?.length === 4 &&
-  stateA.chat.snapshots[3].blocks[0].text === 'Well-known' &&
-  stateA.chat.snapshots[0].blocks[0].text === 'Take off', JSON.stringify(stateA.chat?.snapshots?.map(s => [s.version, s.blocks[0].text])));
+check('A9 连续附加替换未发送的材料与焦点', stateA.chat?.snapshots?.length === 1 &&
+  stateA.chat.activeSnapshotVersion !== previousVersion &&
+  stateA.chat.snapshots[0].version === stateA.chat.activeSnapshotVersion &&
+  stateA.chat.snapshots[0].blocks[0].text === 'Well-known' &&
+  stateA.chat.pendingQuote?.blockIds?.join() === 'p1', JSON.stringify(stateA.chat?.snapshots?.map(s => [s.version, s.blocks[0].text])));
 
 // A10 × 移除材料保留问题
 await panel.click('#chat-attachment-remove');
@@ -348,7 +357,7 @@ await mountPanel(); // 导航销毁了 iframe；临时编辑与材料经 storage
 await attachViaMenu('selection');
 await panel.waitForFunction(() => !document.getElementById('chat-meta-error')?.hidden, null, { timeout: 5000 });
 const staleMsg = await panel.evaluate(() => document.getElementById('chat-meta-error')?.textContent);
-check('A12 导航后附加选区给出明确失效原因', (staleMsg ?? '').includes('不一致'), staleMsg);
+check('A12 导航后附加选区给出明确失效原因', staleMsg === '页面已变，请重新选择文字。', staleMsg);
 await panel.waitForTimeout(3500);
 check('A12 失败信息保留到下一次操作（不自动消失）', await panel.evaluate((m) => !document.getElementById('chat-meta-error')?.hidden && document.getElementById('chat-meta-error')?.textContent === m, staleMsg));
 
@@ -404,7 +413,7 @@ await yt.evaluate(() => {
         else if (msg.type === 'listEntries') return { ok: true, entries: [] };
         else if (msg.type === 'vocabIndex') return { ok: true, items: [] };
         else if (msg.type === 'captionCache') return { ok: true, cues: [] };
-        else if (msg.type === 'translateCues') return { ok: true, translations: msg.items.map((i) => ({ id: i.id, text: `译${i.id}` })) };
+        else if (msg.type === 'translateCues') return { ok: true, translations: msg.items.map((i) => ({ id: i.id, lines: i.parts.map(() => `译${i.id}`), lineSources:i.parts.map(() => "google-gtx"), ...(msg.variant === "B" && {full:`整句${i.id}`,fullSource:"google-gtx"}) })) };
         else return { ok: true };
       },
       onMessage: { addListener: (fn) => window.__listeners.push(fn) },
@@ -426,10 +435,13 @@ const ytNonce = await yt.evaluate(() => window.__cfgNonce);
 const postMsg = (data) => yt.evaluate((d) => window.postMessage(d, '*'), { source: 'blc-inject', videoId: 'testvid1', nonce: ytNonce, seen: 2, ...data });
 const rawCues = ['the sounds of silence', 'one went home', 'they finally decided to give it all up today']
   .map((text,i) => ({start:[0,5000,9000][i], dur:3000, lastOff:0, text}));
+const anchoredSentence = 'We test words, then learn more.';
+rawCues.push({text:anchoredSentence, start:12000, dur:5000, lastOff:15000, speakerBreaks:[0],
+  anchors:[{offset:anchoredSentence.indexOf('then'),time:15000}]});
 const { buildSubtitleViews } = await import('../shared/cues.ts');
 await postMsg({type:'cues', trackKind:'manual', trackLang:'en', trackId:'https://t/tt-en',
   revision:'selection-fixture', ...buildSubtitleViews(rawCues,'manual','en')});
-await yt.waitForFunction(() => document.getElementById('blc-debug')?.getAttribute('data-blc-count') === '3');
+await yt.waitForFunction(() => document.getElementById('blc-debug')?.getAttribute('data-blc-count') === '4');
 await yt.evaluate(() => { document.querySelector('video').currentTime = 5.5; });
 await yt.waitForFunction(() => document.getElementById('blc-subs')?.shadowRoot?.querySelector('.en')?.textContent === 'one went home');
 
@@ -481,7 +493,7 @@ check('B1 播放器单词选区：查词+添加到对话（无翻译）', await 
   const root = document.getElementById('pd-phrase-actions')?.shadowRoot;
   return root && root.querySelector('#lookup').hidden === false && root.querySelector('#translate').hidden === true && root.querySelector('#chat').hidden === false;
 }, null, { timeout: 4000 }).then(() => true, () => false));
-check('B1 添加到对话可访问名称', (await barButtons())?.chatLabel === '添加到对话');
+check('B1 添加到对话可访问名称', (await barButtons())?.chatLabel === '加入对话');
 await yt.waitForFunction(() => window.__candidates.length >= 1, null, { timeout: 4000 });
 check('B1 候选固定：视频轨道+字幕项+时间', await yt.evaluate(() => {
   const c = window.__candidates.at(-1);
@@ -505,7 +517,7 @@ await yt.waitForFunction(() => document.getElementById('blc-lookup-popup'));
 check('B3 短语残缺补齐：one we → one went', await yt.evaluate(() => document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.expr')?.textContent === 'one went'));
 await yt.evaluate(() => {
   const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-  [...card.querySelectorAll('button')].find((b) => b.textContent === '关闭')?.click();
+  card.querySelector('button.close')?.click();
 });
 
 // B3b 翻译使用实际选中的文字。
@@ -532,7 +544,7 @@ await yt.waitForSelector('#pd-phrase-actions');
 await yt.locator('#pd-phrase-actions').getByRole('button', { name: '翻译', exact: true }).click();
 await yt.waitForSelector('#pd-translation #original');
 check('B4b 翻译保留字幕句段选区',
-  await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'they finally decided to give it all today'.slice(2,33)),
+  await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent === 'they finally decided to give it all up today'.slice(2,33).trim()),
   await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#original')?.textContent));
 await yt.evaluate(() => document.getElementById('pd-translation')?.shadowRoot?.querySelector('#close')?.click());
 await yt.waitForFunction(() => !document.getElementById('pd-translation'));
@@ -542,7 +554,7 @@ await yt.evaluate(() => { document.querySelector('video').currentTime = 5.5; });
 await yt.waitForFunction(() => document.getElementById('blc-subs')?.shadowRoot?.querySelector('.en')?.textContent === 'one went home');
 await barSelect(0, 8); // one wen → one went
 await yt.waitForSelector('#pd-phrase-actions');
-await yt.locator('#pd-phrase-actions').getByRole('button', { name: '添加到对话' }).click();
+await yt.locator('#pd-phrase-actions').getByRole('button', { name: '加入对话', exact: true }).click();
 await yt.waitForFunction(() => window.__chat.length >= 1, null, { timeout: 5000 });
 const ytAttach = await yt.evaluate(() => {
   const m = window.__chat.at(-1);
@@ -600,7 +612,7 @@ check('B7 页面正文单词：查词+添加到对话（无翻译）', await yt.
   const root = document.getElementById('blc-lookup-pill')?.shadowRoot;
   return root && root.querySelector('#lookup')?.hidden === false && root.querySelector('#translate')?.hidden === true && root.querySelector('#chat')?.hidden === false;
 }, null, { timeout: 4000 }).then(() => true, () => false));
-check('B7 添加到对话可访问名称', (await ytPillButtons())?.chatLabel === '添加到对话');
+check('B7 添加到对话可访问名称', (await ytPillButtons())?.chatLabel === '加入对话');
 await yt.waitForFunction(() => window.__candidates.some((c) => c?.text === 'practice'), null, { timeout: 4000 });
 check('B7 页面正文候选：article 源 + 当前页面地址', await yt.evaluate(() => {
   const c = window.__candidates.filter((x) => x?.text === 'practice').at(-1);
@@ -620,7 +632,7 @@ check('B8 页面正文短语残缺补齐：patien → patient', await yt.waitFor
   null, { timeout: 5000 }).then(() => true, () => false));
 await yt.evaluate(() => {
   const card = document.getElementById('blc-lookup-popup')?.shadowRoot?.querySelector('.card');
-  [...card.querySelectorAll('button')].find((b) => b.textContent === '关闭')?.click();
+  card.querySelector('button.close')?.click();
 });
 
 // B9 页面正文句段：无查词，翻译+添加到对话
@@ -633,7 +645,7 @@ check('B9 页面正文句段：翻译+添加到对话（无查词）', await yt.
 // B10 页面正文添加到对话：article 源 + 「词句与原句」材料（焦点表达+原句背景）
 await pageSelect('#desc', practiceAt, practiceAt + 8);
 await yt.waitForSelector('#blc-lookup-pill');
-await yt.locator('#blc-lookup-pill').getByRole('button', { name: '添加到对话' }).click();
+await yt.locator('#blc-lookup-pill').getByRole('button', { name: '加入对话', exact: true }).click();
 await yt.waitForFunction(() => window.__chat.some((m) => m?.source?.sourceType === 'article'), null, { timeout: 5000 });
 const bodyAttach = await yt.evaluate(() => {
   const m = window.__chat.filter((x) => x?.source?.sourceType === 'article').at(-1);
@@ -654,6 +666,15 @@ check('B10 页面正文附加：article 源+词句与原句+焦点表达', bodyA
 await yt.evaluate(() => { document.getSelection().removeAllRanges(); document.dispatchEvent(new Event('selectionchange')); });
 await yt.waitForFunction(() => !document.getElementById('blc-lookup-pill'), null, { timeout: 4000 });
 
+// Select a word in the second timed unit; its material still owns the entire learning sentence.
+await yt.evaluate(() => { document.querySelector('video').currentTime = 15.1; });
+await yt.locator('#blc-subs .en').filter({hasText:/^then learn more\.$/}).waitFor();
+await barSelect(5,10);
+await yt.waitForFunction(() => window.__candidates.at(-1)?.text === 'learn');
+const anchoredCandidate = await yt.evaluate(() => window.__candidates.at(-1));
+check('B11 带词锚的后半屏查词归属完整学习句及源块时间',
+  anchoredCandidate.expression === 'learn' && anchoredCandidate.cue?.text === anchoredSentence &&
+  anchoredCandidate.cue?.startMs === 12000 && anchoredCandidate.cue?.endMs === 17000);
 check('B 零 LLM', (await llmCount()) === 0);
 
 // ============================== C. 真实 YouTube 侧栏列表（可选） ==============================
@@ -743,13 +764,14 @@ const popupAfterReload = await page.waitForSelector('#blc-lookup-popup .expr', {
 check('D 扩展重载后旧页查词路径完整执行', popupAfterReload);
 // 词卡内关闭（closePopup → cancelOnline）与卡外点击（外关监听 + 浮动面板
 // notify 上报）都是事件期扩展调用路径，孤儿状态下逐一走过
-await page.click('#blc-lookup-popup .act.ghost', { timeout: 3000 }).catch(() => {});
-await selectText('#p1', learnAt, learnAt + 7);
-await page.waitForSelector('#blc-lookup-pill', { timeout: 5000 }).catch(() => {});
-await page.click('#lookup').catch(() => {});
-await page.waitForSelector('#blc-lookup-popup .expr', { timeout: 5000 }).catch(() => {});
-await page.mouse.click(8, 420); // 卡外空白处：外关监听 + notify 上报
-await page.waitForTimeout(600);
+await page.click('#blc-lookup-popup button.close', { timeout: 3000 });
+await page.waitForFunction(() => !document.getElementById('blc-lookup-popup'));
+const englishAt = p1Text.indexOf('English');
+await selectText('#p1', englishAt, englishAt + 'English'.length);
+await page.click('#blc-lookup-pill #lookup', {timeout:5000});
+await page.locator('#blc-lookup-popup .expr').filter({hasText:'English'}).waitFor({timeout:5000});
+await page.mouse.click(8, 420);
+await page.waitForFunction(() => !document.getElementById('blc-lookup-popup'), null, {timeout:5000});
 check('D 扩展重载后旧页无 Extension context invalidated 报错',
   orphanErrors.filter((e) => e.includes('Extension context invalidated')).length === 0,
   orphanErrors.join(' | ').slice(0, 400));

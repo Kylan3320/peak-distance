@@ -1094,7 +1094,7 @@ export async function subtitleAskAi(subs: SubViewState, cue: SubtitleCueView, fo
     label: '当前轨道完整字幕',
     blocks: subs.cues.map((c, i) => ({
       id: `p${i + 1}`,
-      text: c.text,
+      text: c.id === cue.id && cue.zh ? `${c.text}\n${cue.zh}` : c.text,
       startMs: c.startMs,
       endMs: c.endMs,
     })),

@@ -1,3 +1,4 @@
+import { translateSubtitleBatch, validSubtitleItems } from '@/lib/subtitleLineTranslation';
 import { lookupOnline, type LookupRequestContext } from '@/lib/lookupService';
 import { listKnowledgeState, isKnowledgeWritePending, saveAnswerKnowledge, updateKnowledge, deleteKnowledge, translationKnowledgeState } from '@/lib/db';
 import { handlePanelMessage, openPanel, startNativePanel, initPanelLifecycle } from '@/lib/panelService';
@@ -8,7 +9,7 @@ import { selectionError } from '@/shared/panel';
 import { startSelectionQuery, saveSelectionQuery, cancelSelectionQuery, detachSelectionScope, queryAiText } from '@/lib/translationLearning';
 import { selectionSource, translationIdentity } from '@/shared/knowledge';
 import type { SelectionSnapshot } from '@/shared/panel';
-import { translateRegularCues, translationCacheKey } from '@/lib/regularTranslation';
+import { translationCacheKey } from '@/lib/regularTranslation';
 import { ensureLanguageDocument, requestNativeTranslation } from '@/lib/nativeTranslation';
 import { isTranslationService } from '@/shared/translationService';
 import { cached, cacheGet, cachePut, trimCache, clearQueryCache } from '@/lib/onlineCache';
@@ -36,7 +37,7 @@ import {
   setEntryNote,
   setStatus,
 } from '@/lib/db';
-import { lookupExpression, translateSentences } from '@/lib/aiClient';
+import { lookupExpression } from '@/lib/aiClient';
 import { getAiConfig } from '@/lib/aiTransport';
 import { aiCacheScope, isAiProvider, validateAiProfile } from '@/shared/aiConfig';
 import { handleChatRequest, initChatService, stopWindowChats, closeLibraryWorkspace } from '@/lib/chatService';
@@ -79,7 +80,6 @@ import type {
 const MAX_EXPRESSION = 300;
 const MAX_SENTENCE = 2000;
 const MAX_TITLE = 300;
-const MAX_TRANSLATE_BATCH = 8;
 
 function bad(error: string, detail?: string): BgcError {
   return { ok: false, error, detail };
@@ -311,11 +311,13 @@ async function handle(
       if (typeof sender.tab?.id !== 'number' || typeof m.videoId !== 'string') return bad('bad-payload');
       if (m.mode !== undefined && !['regular', 'ai'].includes(m.mode)) return bad('bad-payload');
       if (m.autoPause !== undefined && typeof m.autoPause !== 'boolean') return bad('bad-payload');
+      if (m.fullTranslation !== undefined && typeof m.fullTranslation !== 'boolean') return bad('bad-payload');
       const key = `video-session:${sender.tab.id}`;
-      const stored = (await browser.storage.session.get(key))[key] as { videoId:string; mode:'regular' | 'ai'; autoPause:boolean } | undefined;
-      const state = stored?.videoId === m.videoId ? stored : { videoId: m.videoId, mode: (await getSettings()).translationMode, autoPause: false };
+      const stored = (await browser.storage.session.get(key))[key] as { videoId:string; mode:'regular' | 'ai'; autoPause:boolean; fullTranslation?:boolean } | undefined;
+      const state = stored?.videoId === m.videoId ? stored : { videoId: m.videoId, mode: (await getSettings()).translationMode, autoPause: false, fullTranslation: false };
       if (m.mode !== undefined) state.mode = m.mode;
       if (m.autoPause !== undefined) state.autoPause = m.autoPause;
+      if (m.fullTranslation !== undefined) state.fullTranslation = m.fullTranslation;
       await browser.storage.session.set({ [key]: state });
       return { ok: true, ...state };
     }
@@ -564,62 +566,22 @@ async function handle(
       return { ok: true };
     }
     case 'translateCues': {
-      if (typeof m.videoId !== 'string' || !m.videoId) return bad('bad-payload', 'videoId');
-      if (typeof m.trackId !== 'string' || !m.trackId) return bad('bad-payload', 'trackId');
-      if (
-        !Array.isArray(m.items) ||
-        !m.items.length ||
-        m.items.length > MAX_TRANSLATE_BATCH
-      ) {
-        return bad('bad-payload', 'items');
+      if (typeof m.videoId !== 'string' || !m.videoId || typeof m.trackId !== 'string' || !m.trackId ||
+          typeof m.requestId !== 'string' || !m.requestId || typeof m.revision !== 'string' || !m.revision ||
+          (m.variant !== 'A' && m.variant !== 'B') || (m.mode !== 'regular' && m.mode !== 'ai') || !validSubtitleItems(m.items)) {
+        return bad('bad-payload','subtitle-contract');
       }
-      const items: { id: number; text: string }[] = [];
-      for (const it of m.items) {
-        const x = it as { id?: unknown; text?: unknown };
-        if (typeof x.id !== 'number' || !Number.isInteger(x.id) || x.id < 0) {
-          return bad('bad-payload', 'id');
-        }
-        if (typeof x.text !== 'string' || !x.text.trim()) {
-          return bad('bad-payload', 'text');
-        }
-        items.push({ id: x.id, text: x.text });
-      }
-      const sourceLang = parseLangField(m.sourceLang);
-      const targetLang = parseLangField(m.targetLang);
-      if (sourceLang === null || targetLang === null) return bad('bad-payload', 'lang');
-      const langScope = sourceLang && targetLang ? `${sourceLang}|${targetLang}` : 'en-zh';
+      const source = parseLangField(m.sourceLang), target = parseLangField(m.targetLang);
+      if (!source || !target) return bad('bad-payload','lang');
       const controller = new AbortController();
       const requestKey = `${sender.tab?.id ?? sender.url}|${m.requestId}`;
       onlineRequests.set(requestKey, controller);
       try {
-        const mode = m.mode;
-        if (mode !== 'regular' && mode !== 'ai') return bad('bad-payload', 'mode');
-        if (mode === 'ai') {
-          const config = await getAiConfig();
-          if (!config.apiKey) return bad('no-key');
-          if (validateAiProfile(config)) return bad('invalid-config');
-          const scope = aiCacheScope(config);
-          const textKey = (text: string) => JSON.stringify(['ai-subtitle-translation', 2, scope, langScope, text]);
-          const translations: { id: number; text: string }[] = [];
-          const missing: typeof items = [];
-          for (const item of items) {
-            const hit = await cacheGet<string>(textKey(item.text));
-            if (hit) translations.push({ id: item.id, text: hit }); else missing.push(item);
-          }
-          if (missing.length) {
-            // Earlier cache entries could attach a short array to the wrong input positions.
-            const key = JSON.stringify(['translation-batch-v3', scope, langScope, missing.map(i => i.text)]);
-            const r = await cached(key, signal => translateSentences(config, missing.map(i => i.text), signal, { source: sourceLang ?? 'en', target: targetLang ?? 'zh-Hans' }), controller.signal);
-            if (!r.ok && !translations.length) return r;
-            if (r.ok) for (const t of r.translations) {
-              const item = missing[t.id];
-              if (item && t.text) { translations.push({ id: item.id, text: t.text }); await cachePut(textKey(item.text), t.text); }
-            }
-          }
-          return translations.length ? { ok: true, translations } : bad('bad-response');
-        }
-        const cueLangs = { source: sourceLang ?? 'auto', target: targetLang ?? (await getSettings()).defaultComprehensionLang };
-        return await translateRegularCues(items, controller.signal, cueLangs);
+        const config = m.mode === 'ai' ? await getAiConfig() : undefined;
+        if (config && !config.apiKey) return bad('no-key');
+        if (config && validateAiProfile(config)) return bad('invalid-config');
+        return await translateSubtitleBatch({videoId:m.videoId, trackId:m.trackId, revision:m.revision,
+          variant:m.variant, source, target},m.items,controller.signal,config);
       } finally { if (onlineRequests.get(requestKey) === controller) onlineRequests.delete(requestKey); }
     }
     // ---- M11 学习库 -------------------------------------------------------------

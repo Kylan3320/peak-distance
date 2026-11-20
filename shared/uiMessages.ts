@@ -1,5 +1,9 @@
 /** Product copy only. Source keys stay stable across wording changes and saved material labels. */
 export const UI_MESSAGES: Record<string, readonly [string, string, string, string, string]> = {
+  '显示完整译文': ['显示完整译文','顯示完整譯文','Show full translation','Vollständige Übersetzung anzeigen','Afficher la traduction intégrale'],
+  '部分完整译文暂不可用': ['部分完整译文暂不可用','部分完整譯文暫不可用','Some full translations are unavailable','Einige vollständige Übersetzungen sind nicht verfügbar','Certaines traductions intégrales sont indisponibles'],
+  '显示逐行译文': ['显示逐行译文','顯示逐行譯文','Show line translations','Zeilenübersetzungen anzeigen','Afficher la traduction par ligne'],
+  '逐块字幕 + 整句译文（降级）': ['逐块字幕 + 整句译文（降级）','逐塊字幕 + 整句譯文（降級）','Separate line and sentence translations (fallback)','Separate Zeilen- und Satzübersetzung (Ersatzmodus)','Traductions séparées par ligne et par phrase (mode de repli)'],
   '整页翻译': ['整页翻译','整頁翻譯','Full-page translation','Seitenübersetzung','Traduction de page'],
   '网页快捷键': ['网页快捷键','網頁快速鍵','Page shortcut','Seitenkürzel','Raccourci de page'],
   '更改快捷键': ['更改快捷键','更改快速鍵','Change shortcut','Tastenkürzel ändern','Modifier le raccourci'],

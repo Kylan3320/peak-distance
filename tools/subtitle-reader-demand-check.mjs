@@ -19,7 +19,7 @@ try {
     chrome.runtime.connect = () => {
       let receive;
       return {onMessage:{addListener:f=>{receive=f;}},onDisconnect:{addListener(){}},disconnect(){},
-        postMessage:({text})=>{sentences.push(text); queueMicrotask(()=>receive({ok:true,source:'browser-native',text:'T '+text}));}};
+        postMessage:({text})=>{sentences.push(text); queueMicrotask(()=>receive({ok:true,source:'browser-native',text:text.replace(/^Sentence number (\d+)\.$/,(_,n)=>'第'+n+'句').replace('Bonjour tout le monde.','大家好。')}));}};
     };
   });
   const source = Array.from({length:70},(_,i)=>({
@@ -60,13 +60,13 @@ try {
   await command({type:'pd-panel-show',view:'subs'});
   const reader=page.frameLocator('#pd-floating-panel iframe').locator('#blc-learning-panel');
   const row=n=>reader.locator(`[data-cue="${n}"]`);
-  await row(0).locator('.zh').filter({hasText:'T Sentence number 0.'}).waitFor();
+  await row(0).locator('.zh').filter({hasText:'第0句'}).waitFor();
   const cc=page.locator('.ytp-subtitles-button');
   assert.equal(await cc.getAttribute('aria-pressed'),'false');
   assert.equal(await toggle.getAttribute('aria-pressed'),'false');
   assert.equal(await page.locator('#blc-subs').count(),0);
   await toggle.click();
-  await page.locator('#blc-subs .zh').filter({hasText:'T Sentence number 0.'}).waitFor();
+  await page.locator('#blc-subs .zh').filter({hasText:'第0句'}).waitFor();
   await toggle.click();
   await page.locator('#blc-subs').waitFor({state:'detached'});
   assert.equal(await cc.getAttribute('aria-pressed'),'false');
@@ -74,7 +74,7 @@ try {
   await reader.locator('.body').hover();
   await page.mouse.wheel(0,2600);
   await row(45).evaluate(el=>el.scrollIntoView({block:'center'}));
-  await row(45).locator('.zh').filter({hasText:'T Sentence number 45.'}).waitFor();
+  await row(45).locator('.zh').filter({hasText:'第45句'}).waitFor();
   assert.equal(await page.locator('video').evaluate(v=>v.paused&&v.currentTime===0),true);
   const cancellations=await page.evaluate(()=>bridge.filter(t=>t==='source-cancel').length);
   await command({type:'pd-panel-hide'});
@@ -85,7 +85,7 @@ try {
   await reader.locator('.body').hover();
   await page.mouse.wheel(0,-600);
   await row(22).evaluate(el=>el.scrollIntoView({block:'center'}));
-  await row(22).locator('.zh').filter({hasText:'T Sentence number 22.'}).waitFor();
+  await row(22).locator('.zh').filter({hasText:'第22句'}).waitFor();
   assert.equal(await page.evaluate(()=>ccClicks),clicks);
   const received=await worker.evaluate(()=>sentences);
   assert.equal(received.filter(s=>s==='Sentence number 0.').length,1);
@@ -100,7 +100,7 @@ try {
   await page.waitForFunction(()=>document.querySelector('.ytp-subtitles-button').getAttribute('aria-pressed')==='true');
   assert.deepEqual((await command({type:'blc-sub-get'})).cues,[]);
   releaseNewTrack();
-  await row(0).locator('.zh').filter({hasText:'T Bonjour tout le monde.'}).waitFor();
+  await row(0).locator('.zh').filter({hasText:'大家好。'}).waitFor();
   assert.equal(await cc.getAttribute('aria-pressed'),'false');
   assert.equal((await command({type:'blc-sub-get'})).trackLang,'fr');
   console.log('PASS cold reader acquires subtitles, restores native CC, shares results, translates visible rows while paused, and releases demand on close');

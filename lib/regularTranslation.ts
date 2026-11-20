@@ -24,19 +24,24 @@ export function queryTranslation(text: string, source: string, target: string, s
   return routeTranslation(text, {source, target}, signal, fresh);
 }
 
-function routeTranslation(text: string, langs: TranslationLangs, signal?: AbortSignal, fresh = false, subtitle = false) {
+function routeTranslation(text: string, langs: TranslationLangs, signal?: AbortSignal, fresh = false, subtitle?: {key:string; accepts:(text:string)=>boolean}) {
   const source = !langs.source || langs.source === 'und' ? 'auto' : langs.source;
   const target = langs.target;
   const key = (service: TranslationService) => subtitle
-    ? JSON.stringify(['subtitle-translation', service, `${source}|${target}`, text])
+    ? JSON.stringify(['subtitle-lines-v1', 'provider-text', service, subtitle.key, source, target, text])
     : translationCacheKey(text, source, target, service);
   return cached<RegularTranslationResult>(key('browser-native'), async requestSignal => {
     if (!text.trim()) return {ok:false, source:'google-gtx', error:'empty'};
     const native = await requestNativeTranslation(text, {source, target}, requestSignal);
     requestSignal.throwIfAborted();
-    if (native.ok || native.error === 'aborted' || native.error === 'extension-context-invalidated') return native;
+    // Reject an unusable provider result before the coalescer caches success.
+    const checked = (result: RegularTranslationResult): RegularTranslationResult =>
+      result.ok && subtitle && !subtitle.accepts(result.text)
+        ? {ok:false, source:result.source, error:'bad-response', detail:'subtitle-format-or-budget'}
+        : result;
+    if (native.ok || native.error === 'aborted' || native.error === 'extension-context-invalidated') return checked(native);
     const google = await translateRegularText(text, requestSignal, {source:native.detectedLang ?? source, target});
-    return native.detectedLang ? {...google, detectedLang:native.detectedLang} : google;
+    return checked(native.detectedLang ? {...google, detectedLang:native.detectedLang} : google);
   }, signal, fresh, {key:key('google-gtx'), used:result => result.source === 'google-gtx'});
 }
 
@@ -153,34 +158,8 @@ async function requestGoogle(input: string, sl: string, tl: string, signal?: Abo
   }
 }
 
-/** Keep cue IDs and partial results, but never call an empty failed batch successful. */
-export type RegularCueReply = (
-  | TranslationFailure
-  | { ok:true; translations:{id:number;text:string;source:TranslationService}[]; failure?:TranslationFailure }
-) & { deferred?: number[] };
-
-export async function translateRegularCues(
-  items: {id:number; text:string}[], signal: AbortSignal, langs: TranslationLangs,
-): Promise<RegularCueReply> {
-  const translations: {id:number; text:string; source:TranslationService}[] = [];
-  let failure: TranslationFailure | undefined;
-  let deferred: number[] | undefined;
-  for (const [index,item] of items.entries()) {
-    if (signal.aborted) {
-      failure = {ok:false, source:'google-gtx', error:'aborted'};
-      deferred = items.slice(index).map(item => item.id);
-      break;
-    }
-    const r = await routeTranslation(item.text, langs, signal, false, true);
-    if (r.ok) translations.push({id:item.id, text:r.text, source:r.source});
-    else {
-      failure = r;
-      if (r.error === 'restricted' || r.error === 'network' || r.error === 'aborted' || r.error === 'extension-context-invalidated' || (r.httpStatus ?? 0) >= 500) {
-        deferred = items.slice(index).map(item => item.id);
-        break;
-      }
-    }
-  }
-  const outcome = !translations.length && failure ? failure : {ok:true as const, translations, ...(failure ? {failure} : {})};
-  return deferred ? { ...outcome, deferred } : outcome;
+/** Subtitle service calls have their own session cache, scoped to the exact timed input. */
+export function querySubtitleText(text: string, langs: TranslationLangs, signal: AbortSignal, identity: string,
+  accepts: (text:string)=>boolean) {
+  return routeTranslation(text, langs, signal, false, {key:identity, accepts});
 }

@@ -1,3 +1,4 @@
+import { subtitleItem } from './subtitle-line-fixture';
 import { cached } from '../lib/onlineCache';
 import './current-content-learning-check';
 import { lookupDictionarySource } from '../lib/onlineDictionary';
@@ -680,8 +681,8 @@ console.log('M6 对齐、缓存与来源边界');
     globalThis.fetch = async () => new Response('<div class="entry-body"><div class="entry-body__el"><span class="headword">take</span><div class="def-block"><span class="trans dtrans">拿</span></div></div></div>', { status: 200 });
     const partial = await lookupDictionarySource('take off', 'cambridge');
     check('take 普通词条不能冒充 take off', !partial.ok && partial.error === 'not-found');
-    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '["一", "", "三"]' }, finish_reason: 'stop' }] });
-    const ai = await translateSentences({...defaultAiProfile('deepseek'),provider:'deepseek',apiKey:'test-only-key'}, ['one', 'two', 'three']);
+    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '[{"id":0,"lines":["一"]},{"id":1,"lines":[""]},{"id":2,"lines":["三"]}]' }, finish_reason: 'stop' }] });
+    const ai = await translateSentences({...defaultAiProfile('deepseek'),provider:'deepseek',apiKey:'test-only-key'}, ['one','two','three'].map(subtitleItem), 'A', {source:'en',target:'zh-Hans'});
     check('AI 译文空项不移动后续字幕 ID', ai.ok && ai.translations.length === 2 && ai.translations[1]?.id === 2);
   } finally { globalThis.fetch = originalFetch; }
 }

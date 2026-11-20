@@ -712,7 +712,7 @@ let subsLibraryAt=0;
 let subsLibraryRequest: { tabId: number; videoId: string; vaultId: string | null } | null = null;
 const SUBS_LIBRARY_INTERVAL_MS=5000;
 let subsSignatureCached='';
-const subsSignature=(s:SubViewState)=>JSON.stringify([s.videoId,s.trackId,s.generation,s.cues,s.currentIndex,s.notice,s.chineseVisible!==false]);
+const subsSignature=(s:SubViewState)=>JSON.stringify([s.videoId,s.trackId,s.generation,s.cues,s.currentIndex,s.notice,s.chineseVisible!==false,s.fullTranslation,s.translationBusy,s.translationFailed,s.degradedFull]);
 function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['cues'];statuses:WorkspaceState['statuses'];sentences:WorkspaceState['sentences']}):WorkspaceState{
   const cues=library?.cues??(cachedVideo&&cachedVideo.generation===state.generation&&cachedVideo.cues.length===state.cues.length
     ?cachedVideo.cues
@@ -725,6 +725,10 @@ function rebuildCachedVideo(state:SubViewState,library?:{cues?:WorkspaceState['c
     sentenceVaultId:videoCollection?.videoId===state.videoId ? videoCollection.vaultId : undefined,
     savedCount:videoCollection?.videoId===state.videoId
       ? videoCollection.entries.length+videoCollection.sentences.length+videoCollection.knowledge.length : 0,
+    fullTranslation: !!state.fullTranslation, translationBusy: !!state.translationBusy,
+    translationFailed: !!state.translationFailed, degradedFull: !!state.degradedFull,
+    translationSources: stableWorkspaceMap(cachedVideo?.translationSources,
+      new Map(state.cues.filter(c=>c.translationSource).map(c=>[c.id,c.translationSource!]))),
     notice:state.notice,chinese:state.chineseVisible!==false};
 }
 let reader: {tabId:number; port:ReturnType<typeof browser.tabs.connect>; signature:string} | null = null;
@@ -764,6 +768,8 @@ function syncReader() {
 const videoWorkspace=createYoutubeWorkspace({
   onViewportChange:syncReader,
   retrySubtitles:()=>void control('retrySubtitles'),
+  fullTranslation:enabled=>control('fullTranslation', undefined, enabled),
+  retryTranslation:()=>void control('retryTranslation'),
   bindWords:host=>{
     const events=host.shadowRoot!;
     let selectedAt=0;
@@ -1091,7 +1097,7 @@ async function pollSubs():Promise<void> {
 }
 setInterval(()=>void pollSubs(),1000);
 browser.tabs.onActivated.addListener(()=>void pollSubs());
-async function control(action:'seek'|'togglePlay'|'replay'|'next'|'prev'|'retrySubtitles',timeMs?:number):Promise<void>{if(subsTabId!==null&&subsState?.videoId){await tabSend(subsTabId,{type:'blc-sub-control',videoId:subsState.videoId,action,timeMs,generation:subsState.generation});await pollSubs();}}
+async function control(action:'seek'|'togglePlay'|'replay'|'next'|'prev'|'retrySubtitles'|'fullTranslation'|'retryTranslation',timeMs?:number,enabled?:boolean):Promise<void>{if(subsTabId!==null&&subsState?.videoId){await tabSend(subsTabId,{type:'blc-sub-control',videoId:subsState.videoId,action,timeMs,enabled,generation:subsState.generation});await pollSubs();}}
 
 // 快捷键：输入框 / 编辑区 / 弹窗内不截获
 document.addEventListener('keydown', (e) => {

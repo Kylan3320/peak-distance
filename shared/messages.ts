@@ -1,3 +1,5 @@
+import type { SubtitlePart } from './subtitleLines';
+import type { TranslationService } from './translationService';
 import type { DictionarySource } from '@/lib/onlineDictionary';
 import type { Settings } from './settings';
 import type { PillVisibilityChoice, PillVisibilityUndo } from './selectionVisibility';
@@ -80,7 +82,7 @@ export type BgcRequest =
   | { type: 'clearQueryCache' }
   | { type: 'prepareNativeTranslation' }
   | { type: 'cancelOnline'; requestId: string }
-  | { type: 'subtitleMode'; videoId: string; mode?: 'regular' | 'ai'; autoPause?: boolean }
+  | { type: 'subtitleMode'; videoId: string; mode?: 'regular' | 'ai'; autoPause?: boolean; fullTranslation?: boolean }
   | { type: 'saveSentence'; sentence: Omit<import('./vocab').SavedSentence, 'id' | 'createdAt'>; range?: import('./vocab').SentenceRange; vaultId?: string | null }
   | { type: 'listSentences' }
   | { type: 'listKnowledge' }
@@ -116,12 +118,14 @@ export type BgcRequest =
   | {
       type: 'translateCues';
       mode: 'regular' | 'ai';
-      requestId?: string;
+      variant: SubtitleVariant;
+      revision: string;
+      requestId: string;
       videoId: string;
       trackId: string;
-      sourceLang?: LanguageTag; // 原文轨道语言
-      targetLang?: LanguageTag; // 译文语言
-      items: { id: number; text: string }[];
+      sourceLang: LanguageTag; // 原文轨道语言
+      targetLang: LanguageTag; // 译文语言
+      items: SubtitleTranslationItem[];
     }
   // ---- M11 学习库（页面侧选目录/授权后通知 background；文件操作在 lib/vault） ----
   | { type: 'vaultConnect' } // 页面 pickVaultDirectoryInPage 成功后调用（也用于重新授权）
@@ -149,10 +153,37 @@ export type LookupResult =
   | { ok: true; definition: string; note: string; forms?: string[]; provider?: import('./aiConfig').AiProvider; model?: string }
   | { ok: false; error: LookupErrorCode; detail?: string };
 
-/** 字幕批量翻译结果：translations 按输入 id 对齐，只含成功行。 */
-export type TranslateSentencesResult =
-  | { ok: true; translations: { id: number; text: string }[] }
-  | { ok: false; error: LookupErrorCode; detail?: string };
+export type SubtitleVariant = 'A' | 'B';
+export type SubtitleTranslationSource = TranslationService | 'youtube' | 'ai';
+
+export interface SubtitleTranslationItem {
+  id: number;
+  text: string;
+  from: number;
+  to: number;
+  parts: (SubtitlePart & {platformText?: string})[];
+}
+
+export interface SubtitleTranslationRecord {
+  id: number;
+  lines: string[];
+  lineSources: SubtitleTranslationSource[];
+  full?: string;
+  fullSource?: SubtitleTranslationSource;
+}
+
+export interface SubtitleTranslationFailure {
+  ok: false;
+  error: string;
+  detail?: string;
+  httpStatus?: number;
+  retryAt?: number;
+}
+
+export type SubtitleTranslationReply = (
+  | SubtitleTranslationFailure
+  | {ok: true; translations: SubtitleTranslationRecord[]; failure?: SubtitleTranslationFailure}
+) & {deferred?: number[]};
 
 export interface ContextView {
   id: number;
@@ -243,6 +274,7 @@ export interface SubtitleCueView {
   endMs: number;
   text: string;
   zh: string | null;
+  translationSource?: string;
   joinBefore: string;
   from: number;
   to: number;
@@ -276,7 +308,8 @@ export interface SubControlMessage {
   type: 'blc-sub-control';
   videoId: string;
   generation?: string;
-  action: 'seek' | 'togglePlay' | 'replay' | 'next' | 'prev' | 'retrySubtitles';
+  action: 'seek' | 'togglePlay' | 'replay' | 'next' | 'prev' | 'retrySubtitles' | 'fullTranslation' | 'retryTranslation';
+  enabled?: boolean;
   timeMs?: number;
 }
 
@@ -314,6 +347,10 @@ export interface SubtitleReaderDemand {
 }
 
 export interface SubViewState {
+  fullTranslation?: boolean;
+  translationBusy?: boolean;
+  translationFailed?: boolean;
+  degradedFull?: boolean;
   chineseVisible?: boolean;
   /** M11：当前译文语言（原文轨道 → 理解语言）；缺省视为中文（迁移前兼容） */
   translationLang?: LanguageTag;

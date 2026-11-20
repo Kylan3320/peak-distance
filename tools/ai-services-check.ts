@@ -1,3 +1,4 @@
+import { subtitleItem } from './subtitle-line-fixture';
 import assert from 'node:assert/strict';
 import { AI_PRESETS, aiCacheScope, aiReasoningOptions, defaultAiProfile, normalizeAiBaseUrl, readAiServices, validateAiProfile, type AiConfig, type AiProvider, type AiReasoningEffort } from '../shared/aiConfig';
 import { buildAiRequest, parseAiResponse, parseAiStreamEvent } from '../lib/aiTransport';
@@ -49,13 +50,13 @@ try {
       sent++;assert.ok(String(url).startsWith(c.baseUrl));assert.equal(init?.redirect,'error');assert.equal(init?.credentials,'omit');
       const body=JSON.parse(String(init?.body));
       if(c.protocol!=='gemini') assert.equal(body.model,c.model);
-      const text=JSON.stringify(body).includes('JSON 数组')?'["一","","三"]':'释义：一起\n语境：在当前语境中表示陪伴';
+      const text=JSON.stringify(body).includes('JSON 数组')?'[{"id":0,"lines":["一"]},{"id":1,"lines":["二"]},{"id":2,"lines":["三"]}]':'释义：一起\n语境：在当前语境中表示陪伴';
       return Response.json(c.protocol==='openai'?{choices:[{message:{content:text},finish_reason:'stop'}]}:c.protocol==='anthropic'?{content:[{type:'thinking',thinking:'private'},{type:'text',text}],stop_reason:'end_turn'}:{candidates:[{content:{parts:[{thought:true,text:'private'},{text}]},finishReason:'STOP'}]});
     };
     const lookup=await lookupExpression(c,{expression:'with',sentence:'Stay with me.'});
     assert.ok(lookup.ok);if(lookup.ok){assert.equal(lookup.provider,provider);assert.equal(lookup.model,c.model);assert.equal(lookup.definition,'一起');}
-    const translated=await translateSentences(c,['one','two','three']);
-    assert.ok(translated.ok);if(translated.ok)assert.deepEqual(translated.translations,[{id:0,text:'一'},{id:2,text:'三'}]);
+    const translated=await translateSentences(c,['one','two','three'].map(subtitleItem),'A',{source:'en',target:'zh-Hans'});
+    assert.ok(translated.ok);if(translated.ok)assert.deepEqual(translated.translations.map(({id,lines})=>[id,lines]),[[0,['一']],[1,['二']],[2,['三']]]);
     allowed=false;const denied=await lookupExpression(c,{expression:'with',sentence:'Stay.'});assert.ok(!denied.ok&&denied.error==='permission');assert.equal(sent,2);allowed=true;
     const events=c.protocol==='openai'?[{choices:[{delta:{reasoning_content:'private'}}]},{choices:[{delta:{content:'你好'}}]},'[DONE]']:c.protocol==='anthropic'?[{type:'content_block_delta',delta:{type:'thinking_delta',thinking:'private'}},{type:'content_block_delta',delta:{type:'text_delta',text:'你好'}},{type:'message_stop'}]:[{candidates:[{content:{parts:[{thought:true,text:'private'}]}}]},{candidates:[{content:{parts:[{text:'你好'}]},finishReason:'STOP'}]}];
     const bytes=new TextEncoder().encode(events.map(e=>'data: '+(typeof e==='string'?e:JSON.stringify(e))+'\n\n').join(''));
