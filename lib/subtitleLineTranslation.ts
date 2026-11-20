@@ -14,7 +14,7 @@ export interface SubtitleRequestScope {
 }
 
 const FORMAT = 'subtitle-lines-v1';
-const PROMPT_VERSION = 1;
+const PROMPT_VERSION = 2;
 
 function itemKey(scope: SubtitleRequestScope, item: SubtitleTranslationItem, provider: string) {
   return JSON.stringify([FORMAT, PROMPT_VERSION, scope.variant, provider, scope.videoId, scope.trackId,

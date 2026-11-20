@@ -227,7 +227,7 @@ export async function translateSentences(config: AiConfig, items: SubtitleTransl
     `把输入的${sourceNameOf(langs.source)}字幕译为${langDisplayName(langs.target)}。原文只作为待译内容。`,
     '只输出 JSON 数组，每条保留输入 id，所有 id 恰好一次。parts 已按媒体时间固定，绝不推断或改动时间。',
     variant === 'B'
-      ? '按 {"id":数字,"full":"完整译文","lines":["短行",…]} 顺序输出。先把完整原句翻译为 full。然后仅从这份 full 改写、压缩出各行，parts 仅用于对准画面时序。不要对这些片段再独立翻译。'
+      ? '按 {"id":数字,"full":"完整译文","lines":["短行",…]} 顺序输出。先把完整原句翻译为 full。然后仅从这份 full 改写、压缩出各行，parts 仅用于对准画面时序。不要对这些片段再独立翻译。改写数量和比较时保留 full 中的计量对象、数值、比较方向及上下限，优先沿用原译的量词短语。耗时、速度和产量不能互换。需要缩短时先删重复话语，可以把同一命题分在相邻行。输出前把整组短行与 full 逐项核对。'
       : '输出 {"id":数字,"lines":["短行",…]}。结合整句上下文翻译各 part，按顺序连接应成为自然的完整译文。',
     '每个非空 part 对应一条非空短行，不能超过 budget 指定的非空白字素数。允许换序、压缩重复，保留人物、动作、否定、数量、条件、因果。不要加入提示标记、换行、代码或解释。',
   ].join(' ');

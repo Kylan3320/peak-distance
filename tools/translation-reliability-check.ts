@@ -205,6 +205,7 @@ output([{id:19,full:'完整意思',lines:['简述']}]);
 const count=calls;const aiB=await api.translateSubtitleBatch({...scope,variant:'B'},one,signal(),aiConfig);
 assert.equal(aiB.aiRequests,1);assert.equal(calls,count+1);assert.equal(aiB.translations[0].full,'完整意思');
 assert.equal(aiB.translations[0].lines[0],'简述');assert.match(lastRequest.messages[0].content,/仅从这份 full 改写/);
+assert.match(lastRequest.messages[0].content,/计量对象、数值、比较方向及上下限/);
 assert.deepEqual(Object.keys(JSON.parse(lastRequest.messages[1].content).items[0]),['id','text','parts']);
 const warmB=await api.translateSubtitleBatch({...scope,variant:'B'},one,signal(),aiConfig);assert.equal(warmB.aiRequests,0);assert.equal(calls,count+1);
 const revised=[{...one[0],parts:[{...one[0]!.parts[0]!,dur:3999}]}];

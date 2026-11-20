@@ -80,10 +80,10 @@ try {
   const waitForOrdinary=()=>page.waitForFunction(async key=>!!(await chrome.storage.local.get('query-cache-v2'))['query-cache-v2']?.[key],ordinaryKey);
   const single={...aiRequest,items:aiRequest.items.slice(0,1)};
   await page.waitForFunction(async()=>Object.keys((await chrome.storage.session.get('online-cache-v1'))['online-cache-v1']??{})
-    .filter(key=>key.startsWith('["subtitle-lines-v1",1,')).length===2);
+    .filter(key=>key.startsWith('["subtitle-lines-v1",2,')).length===2);
   const session=await readSession();
   assert.deepEqual(Object.keys(await readLocal()),[ordinaryKey]);
-  assert.ok(Object.entries(session).filter(([key])=>key.startsWith('["subtitle-lines-v1",1,'))
+  assert.ok(Object.entries(session).filter(([key])=>key.startsWith('["subtitle-lines-v1",2,'))
     .every(([,record])=>record.expiresAt===undefined));
 
   const cdp=await context.newCDPSession(page);
