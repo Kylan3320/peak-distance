@@ -27,6 +27,14 @@ try {
     globalThis.aiCalls = 0;
     globalThis.fetch = async url => {
       const address = String(url);
+      if (lookupMode === 'dictionary' && address.includes('cambridge')) {
+        const response = new Response('<div class="entry-body"><div class="entry-body__el"><span class="headword">steady</span><span class="ipa">ˈsted.i</span><div class="def-block"><span class="trans dtrans">稳定的</span></div></div></div>');
+        Object.defineProperty(response, 'url', { value: address });
+        return response;
+      }
+      if (lookupMode === 'dictionary' && address.includes('youdao')) {
+        return Response.json({ec:{word:[{'return-phrase':{l:{i:'steady'}},trs:[{tr:[{l:{i:['adj. 平稳的']}}]}]}]}});
+      }
       if (address.includes('youdao')) return new Response('{}', { status: lookupMode === 'dictionary-failure' ? 429 : 200 });
       if (address.includes('cambridge')) return new Response('<html></html>', { status: lookupMode === 'dictionary-failure' ? 429 : 200 });
       if (address.includes('translate.googleapis.com')) return Response.json([[['受控免费译文']]]);
@@ -95,11 +103,53 @@ try {
   await openWord('fitunconfigured');
   await card.getByText('受控 AI 释义', { exact: false }).waitFor();
   console.log('PASS cached free translation does not bypass newly configured AI fallback');
+
+  await worker.evaluate(async () => {
+    globalThis.lookupMode = 'dictionary';
+    await chrome.storage.local.set({panelMode:'floating',primaryDictionary:'cambridge'});
+  });
+  const initialAiCalls = await worker.evaluate(() => aiCalls);
+  await openWord('steady');
+  const dictionary = card.locator('#blc-dictionary-trigger');
+  const menu = card.locator('#blc-dictionary-menu');
+  await card.getByText('稳定的', {exact:true}).waitFor();
+  assert.equal(await dictionary.innerText(), '剑桥英汉');
+  assert.equal(await dictionary.evaluate(node=>getComputedStyle(node).borderTopWidth), '0px');
+  await dictionary.click();
+  assert.equal(await menu.locator('[value=default]').getAttribute('aria-pressed'), 'true');
+  assert.match(await menu.getByRole('link',{name:'词典原页'}).getAttribute('href'),/dictionary\.cambridge\.org/);
+  await menu.getByRole('button',{name:'有道'}).click();
+  await card.getByText('平稳的',{exact:false}).waitFor();
+  assert.equal(await dictionary.innerText(),'有道');
+  assert.equal(await worker.evaluate(() => aiCalls),initialAiCalls);
+  assert.equal(await card.locator('#blc-explanation').isVisible(),false);
+  assert.equal(await card.locator('.actions > button').count(),4);
+  await card.getByRole('button',{name:'解释原句',exact:true}).click();
+  const explanation=card.locator('#blc-explanation');
+  await explanation.getByText('保持健康的能力',{exact:false}).waitFor();
+  assert.equal(await explanation.evaluate(node=>node.previousElementSibling.matches('.ctx')),true);
+  await card.getByRole('button',{name:'收起原句解释'}).click();
+  await card.getByRole('button',{name:'查看原句解释'}).press('Enter');
+  await explanation.waitFor();
+  assert.equal(await worker.evaluate(() => aiCalls),initialAiCalls+1);
+  await card.getByRole('button',{name:'带原句提问'}).click();
+  const chat=page.frameLocator('#pd-floating-panel iframe');
+  await chat.locator('#chat-attachment-summary').filter({hasText:'steady'}).waitFor();
+  await chat.locator('#chat-input').evaluate(node=>{
+    if(document.activeElement!==node) throw new Error('Input did not receive focus');
+  });
+  assert.equal(await worker.evaluate(() => aiCalls),initialAiCalls+1);
+  assert.equal(await chat.locator('#chat-list .msg').count(),0);
+  console.log('PASS compact dictionary menu, one-click explanation alongside the sentence, and one-click attach with focus and no send');
+
+  await openWord('steady');
+  await card.getByText('稳定的',{exact:true}).waitFor();
   assert.deepEqual(errors, []);
   await control.evaluate(() => { setTimeout(() => chrome.runtime.reload(), 0); });
   // Runtime reload invalidates an already-open card. Waiting for that boundary is intentional.
   await page.waitForTimeout(250);
-  await card.locator('select').selectOption('cambridge');
+  await dictionary.click();
+  await menu.getByRole('button',{name:'剑桥英汉'}).click();
   await card.getByText('扩展已更新，请刷新当前网页', { exact: true }).waitFor();
   assert.equal(await card.getByRole('button', { name: '重试', exact: true }).count(), 0);
   assert.deepEqual(errors, []);

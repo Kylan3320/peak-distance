@@ -376,7 +376,9 @@ export async function attachSelectionCandidate(candidate: SelectionCandidate, op
     noteSourceTab(r);
     if (typeof opts.tabId === 'number') chatTabId = opts.tabId;
     chatSegmentIndex = 0;
+    pendingAskFocus = true;
     await acceptRecord(r.chat);
+    deps?.switchView('chat');
     return true;
   }
   if (op === operation) inlineError(message('附加失败，材料未改变'));
@@ -1066,7 +1068,7 @@ async function clearConversation(): Promise<void> {
 
 // ---- 字幕列表「问 AI」入口 ---------------------------------------------------------
 
-export async function subtitleAskAi(subs: SubViewState, cue: SubtitleCueView): Promise<void> {
+export async function subtitleAskAi(subs: SubViewState, cue: SubtitleCueView, focus?: { expression: string; definition: string | null; tabId: number }): Promise<void> {
   if (!subs.videoId || !subs.trackId) return;
   const source: SourceDescriptor = {
     sourceType: 'youtube',
@@ -1080,6 +1082,14 @@ export async function subtitleAskAi(subs: SubViewState, cue: SubtitleCueView): P
       trackLang: subs.trackLang,
     },
   };
+  if (focus) {
+    await attachSelectionCandidate({
+      at: Date.now(), pageUrl: source.url, text: focus.expression, kind: 'word', expression: focus.expression,
+      lang: subs.trackLang, source, cue: { index: cue.id, text: cue.text, startMs: cue.startMs, endMs: cue.endMs },
+      ...(focus.definition ? { definition: focus.definition } : {}),
+    }, {tabId:focus.tabId});
+    return;
+  }
   const material: MaterialPayload = {
     label: '当前轨道完整字幕',
     blocks: subs.cues.map((c, i) => ({

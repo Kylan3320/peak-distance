@@ -971,9 +971,9 @@ async function validateRow(ref: SubtitleRowRef) {
   if (!snapshot || !(await sendRowAction(snapshot.tabId, ref, { action: 'validate' }))?.ok) return null;
   return rowSnapshot(ref);
 }
-async function askFromRow(ref: SubtitleRowRef) {
+async function askFromRow(ref: SubtitleRowRef, focus?: { expression: string; definition: string | null }) {
   const row = await validateRow(ref);
-  if (row) await subtitleAskAi(row.state, row.cue);
+  if (row) await subtitleAskAi(row.state, row.cue, focus && {...focus, tabId:row.tabId});
 }
 async function openPanelWord(word: string, ref: SubtitleRowRef, anchor: HTMLElement, compact: boolean) {
   const row = rowSnapshot(ref);
@@ -985,7 +985,7 @@ async function openPanelWord(word: string, ref: SubtitleRowRef, anchor: HTMLElem
   const resume = () => void sendRowAction(tabId, ref, { action: 'resumeLookup', token });
   if (!(await sendRowAction(tabId, ref, { action: 'pauseLookup', token }))?.ok) return;
   if (!anchor.isConnected || !rowSnapshot(ref)) { resume(); return; }
-  lookupPopup.open({snapshot:{source:'video',expression:word,sentence:cue.text,title:state.title,lang:state.trackLang||undefined,video:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang,startMs:cue.startMs}},anchor,compact,subLine:'YouTube · '+fmtClock(cue.startMs),onContinueAsk:()=>void askFromRow(ref),onClose:resume});
+  lookupPopup.open({snapshot:{source:'video',expression:word,sentence:cue.text,title:state.title,lang:state.trackLang||undefined,video:{videoId:state.videoId,trackId:state.trackId,trackKind:state.trackKind==='asr'?'asr':'manual',trackLang:state.trackLang,startMs:cue.startMs}},anchor,compact,subLine:'YouTube · '+fmtClock(cue.startMs),onContinueAsk:ctx=>void askFromRow(ref,{expression:ctx.snapshot.expression, definition:ctx.definition}),onClose:resume});
   const card=lookupPopup.host()?.shadowRoot?.querySelector('.card');card?.addEventListener('pointerenter',()=>clearTimeout(closeTimer));card?.addEventListener('pointerleave',()=>{closeTimer=setTimeout(()=>{if(lookupPopup.isCompact()){lookupPopup.close();hoveredWord=null;}},220);});
 }
 async function videoAction(ref: SubtitleRowRef, operation: SubtitleRowOperation) {

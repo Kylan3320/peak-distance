@@ -7,6 +7,7 @@ const paths = {
   words: '<path d="M4 20 10 4h4l6 16M7 14h10"/>',
   sentences: '<path d="M4 6h16M4 12h16M4 18h11"/>',
   ask: '<path d="M21 11a8 8 0 0 1-8 8H8l-5 3V11a9 9 0 0 1 18 0ZM9 8a3 3 0 0 1 6 0c0 2-3 2-3 4M12 15h.01"/>',
+  explain: '<path d="M4 8h8M4 12h8M4 16h13M18 3l1 2.8L22 7l-3 1.1-1 2.9-1-2.9L14 7l3-1.2 1-2.8z"/>',
 } as const;
 
 export type ReadingIcon = keyof typeof paths | Parameters<typeof uiIcon>[0];

@@ -105,6 +105,19 @@ try {
   assert.equal((await command({type:'blc-sub-get'})).trackLang,'fr');
   console.log('PASS cold reader acquires subtitles, restores native CC, shares results, translates visible rows while paused, and releases demand on close');
 
+  const frame=page.frameLocator('#pd-floating-panel iframe');
+  await row(0).locator('.w').filter({hasText:'Bonjour'}).click();
+  await frame.getByRole('button',{name:'带原句提问'}).click();
+  await frame.locator('#chat-attachment-summary').filter({hasText:'Bonjour'}).waitFor();
+  assert.equal(await frame.locator('#chat-attachment-summary').innerText(),'Bonjour');
+  await frame.locator('#chat-input').evaluate(node=>{
+    if(document.activeElement!==node) throw new Error('Input did not receive focus');
+  });
+  await frame.locator('#chat-attachment-chip').click();
+  const detail=frame.locator('#chat-attachment-detail');
+  assert.ok((await detail.innerText()).includes('Bonjour tout le monde.'));
+  console.log('PASS subtitle word card attaches the word as focus and only its original sentence as context');
+
   let finishBrazilian;
   const brazilianResponse = new Promise(resolve => { finishBrazilian = resolve; });
   await context.route(/\/api\/timedtext\?v=tracks01&/, async route => {

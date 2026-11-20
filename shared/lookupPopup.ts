@@ -26,6 +26,7 @@ import {
 } from '@/shared/vocab';
 import { entryKeyOf } from './languages';
 import { readingIcon, readingIconStyles, animateBookmark } from './readingIcons';
+import { choiceMenu, uiIcon } from './uiControls';
 
 export const POPUP_ID = 'blc-lookup-popup';
 
@@ -76,6 +77,7 @@ interface PinnedState {
   definition: string | null;
   result?: LearningResult;
   explanation?: ContextExplanation;
+  showExplanation?: boolean;
   source?: DictionarySource;
   lookupRequest?: string;
   aiRequest?: string;
@@ -187,20 +189,28 @@ export function createLookupPopup(opts: {
         .link-btn {cursor:pointer;color:var(--pd-blue);font:13px/1.5 system-ui;border:0;background:transparent;border-radius:6px;padding:6px 8px;min-height:32px}
         .link-btn:hover {background:var(--pd-selected)}
         .row { margin-top: 12px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
-        .sources {padding-top:12px;border-top:1px solid var(--pd-line);margin-bottom:4px}
-        .sources select {border-color:transparent;background:transparent;padding-left:7px}
+        .dictionary-line {display:flex;align-items:center;flex-wrap:wrap;gap:0 8px;color:var(--pd-muted);font-size:12px}
+        #blc-dictionary-trigger {width:auto;gap:5px;margin-inline-start:-5px;padding:4px 5px}
+        #blc-dictionary-trigger svg {width:12px;height:12px}
+        #blc-dictionary-trigger[aria-expanded=true],#blc-explain[aria-expanded=true] {background:var(--pd-hover);color:var(--pd-ink)}
+        #blc-dictionary-menu {inline-size:max-content;min-inline-size:0;position-area:block-end span-inline-end;justify-self:start}
+        #blc-dictionary-menu:popover-open {display:grid}
+        #blc-dictionary-menu :is(button,a) {display:flex;align-items:center;justify-content:space-between;gap:12px;width:auto;min-height:var(--pd-control-size);padding:6px 10px;border-radius:5px;text-decoration:none;color:var(--pd-ink)}
+        #blc-dictionary-menu :is(button,a):hover {background:var(--pd-hover)}
+        #blc-dictionary-menu button[aria-pressed=true] {background:var(--pd-selected);color:var(--pd-blue)}
+        #blc-dictionary-menu svg {order:1}
+        #blc-dictionary-menu a svg {width:13px;height:13px;fill:none;stroke:var(--pd-muted);stroke-width:var(--pd-icon-stroke);stroke-linecap:round;stroke-linejoin:round}
+        #blc-dictionary-menu hr {margin:4px;border:0;border-top:1px solid var(--pd-line)}
+        #blc-explanation {margin-top:10px;padding:9px 12px 10px;border-radius:6px;background:var(--pd-nav);font-size:13px}
+        #blc-explanation[hidden] {display:none}
+        #blc-explanation .def-label {margin:0 0 4px}
+        .card:not(.compact) .actions {border-top:1px solid var(--pd-line);padding-top:8px}
         .actions .close {margin-left:auto}
-        .sources a {display:inline-flex;align-items:center;gap:4px;min-height:34px;padding:4px 7px;border-radius:6px;color:var(--pd-muted);font:13px/1.5 system-ui;text-decoration:none}
-        .sources a:hover {background:var(--pd-selected);color:var(--pd-blue)}
-        .sources a svg {width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
         button.act {box-sizing:border-box;cursor:pointer;padding:7px 8px;border:1px solid transparent;min-height:36px;border-radius:7px;font:13px/1.5 system-ui}
         button:disabled {opacity:.6;cursor:default}
         ${readingIconStyles}
         button.ghost { background: transparent; color: var(--pd-ink); border-color:var(--pd-line); }
         button.ghost:hover { background: var(--pd-selected); }
-        select {cursor:pointer;max-width:100%;min-height:34px;padding:6px 10px;border:1px solid var(--pd-line);border-radius:6px;font:13px/1.5 system-ui;background:var(--pd-surface)}
-        select:hover {border-color:var(--pd-muted)}
-        option {background:var(--pd-surface);color:var(--pd-ink)}
         .feedback { font-size: 12px; margin-top: 8px; }
         .feedback:empty {display:none}
         .feedback.err { color:var(--pd-danger); }
@@ -268,6 +278,9 @@ export function createLookupPopup(opts: {
     const body = card.querySelector<HTMLDivElement>('.lookup-content')!;
     const footer = card.querySelector<HTMLDivElement>('.lookup-footer')!;
     const p = pinned;
+    const root = card.getRootNode() as ShadowRoot;
+    const focused = root.activeElement?.id;
+    const hasSentence = !!p.snapshot.sentence.trim();
     card.classList.toggle('compact', !!p.compact);
     body.textContent = '';
     footer.textContent = '';
@@ -282,6 +295,7 @@ export function createLookupPopup(opts: {
     ctx.className = 'ctx';
     setText(ctx, p.snapshot.sentence || message('（无上下文）'));
     body.appendChild(ctx);
+    if (!p.compact && hasSentence) body.appendChild(renderExplanation(p));
 
     if (p.subLine) {
       const sub = document.createElement('div');
@@ -293,7 +307,7 @@ export function createLookupPopup(opts: {
     // 释义区
     const defBox = document.createElement('div');
     defBox.className = 'def-box';
-    renderDefinition(defBox, footer);
+    renderDefinition(defBox, p);
     body.appendChild(defBox);
     const media = card.querySelector<HTMLDivElement>('.lookup-media')!;
     const audioUrl = !p.compact && p.result?.kind === 'dictionary' ? p.result.entry.audioUrl : undefined;
@@ -323,12 +337,35 @@ export function createLookupPopup(opts: {
     save.addEventListener('click', () => void toggleSave());
     if (!p.sourceMissing) row.append(save);
 
+    if (!p.compact && hasSentence) {
+      const explain = document.createElement('button');
+      explain.type = 'button';
+      explain.id = 'blc-explain';
+      explain.className = 'act reading-icon';
+      explain.innerHTML = readingIcon('explain');
+      explain.setAttribute('aria-controls', 'blc-explanation');
+      explain.setAttribute('aria-expanded', String(!!p.showExplanation));
+      explain.setAttribute('aria-busy', String(!!p.aiRequest));
+      explain.setAttribute('aria-disabled', String(!!p.aiRequest));
+      const label = message(p.aiRequest ? '正在解释语境…' : p.explanation && !p.aiError
+        ? p.showExplanation ? '收起原句解释' : '查看原句解释' : '解释语境');
+      setLocalizedAttribute(explain, 'title', label);
+      setLocalizedAttribute(explain, 'aria-label', label);
+      explain.onclick = () => {
+        if (p.aiRequest) return;
+        if (!p.explanation || p.aiError) { void explainContext(); return; }
+        p.showExplanation = !p.showExplanation;
+        renderPopup();
+      };
+      row.append(explain);
+    }
     if (!p.compact && typeof p.onContinueAsk === 'function') {
       const ask = document.createElement('button');
       ask.className = 'act reading-icon';
       ask.innerHTML = readingIcon('ask');
-      setLocalizedAttribute(ask, 'title', message('继续问'));
-      setLocalizedAttribute(ask, 'aria-label', message('继续问'));
+      const label = message(hasSentence ? '带原句提问' : '继续问');
+      setLocalizedAttribute(ask, 'title', label);
+      setLocalizedAttribute(ask, 'aria-label', label);
       ask.addEventListener('click', () => {
         if (!pinned) return;
         p.onContinueAsk!({
@@ -357,18 +394,74 @@ export function createLookupPopup(opts: {
     footer.appendChild(fb);
     if (p.saveError) setFeedback(false, message(saved ? '删除失败，重试' : '保存失败，请重试'));
     applyDragPos(card);
+    if (focused === 'blc-explain' || focused === 'blc-dictionary-trigger') root.getElementById(focused)?.focus({preventScroll:true});
   }
 
-  function renderDefinition(box: HTMLDivElement, footer: HTMLDivElement): void {
-    if (!pinned) return;
-    const p = pinned;
+  function renderExplanation(p: PinnedState): HTMLElement {
+    const section = document.createElement('section');
+    section.id = 'blc-explanation';
+    section.hidden = !p.showExplanation;
+    const heading = document.createElement('h2'); heading.className = 'def-label';
+    setText(heading, message('AI 语境解释 · 当前原句'));
+    const result = document.createElement('p'); result.className = 'def-text'; result.setAttribute('role', 'status');
+    setText(result, p.aiRequest ? message('正在解释语境…') : p.aiError
+      ? message(AI_ERROR_LABEL[p.aiError] ?? '解释失败，请重试') : p.explanation?.text ?? '');
+    section.append(heading, result);
+    if (p.aiError === 'no-key') {
+      const settings = document.createElement('button'); settings.type = 'button'; settings.className = 'link-btn';
+      setText(settings, message('打开设置填写 API key'));
+      settings.onclick = () => void send({type:'openSettings', ai:true});
+      section.append(settings);
+    }
+    return section;
+  }
+
+  function dictionaryLine(p: PinnedState): HTMLElement {
+    const entry = p.result?.kind === 'dictionary' ? p.result.entry : undefined;
+    const labels = { cambridge: message('剑桥英汉'), youdao: message('有道') };
+    const { wrap, trigger, menu } = choiceMenu<DictionarySource | 'default'>('expand', message('切换词典'), [
+      {value:'default', label:message('按默认顺序')},
+      {value:'cambridge', label:labels.cambridge},
+      {value:'youdao', label:labels.youdao},
+    ], p.source ?? 'default', choice => void requestLookup(choice === 'default' ? undefined : choice));
+    trigger.id = 'blc-dictionary-trigger'; menu.id = 'blc-dictionary-menu';
+    trigger.setAttribute('aria-controls', menu.id);
+    trigger.setAttribute('aria-expanded', 'false');
+    menu.addEventListener('toggle', () => trigger.setAttribute('aria-expanded', String(menu.matches(':popover-open'))));
+    const caption = document.createElement('span');
+    setText(caption, entry ? labels[entry.source] : message('词典'));
+    if (entry) setLocalizedAttribute(trigger, 'aria-label', message('切换词典，当前来源：{source}', {source:labels[entry.source]}));
+    trigger.prepend(caption);
+
+    const appendLink = (label: UiText, href: string) => {
+      const link = document.createElement('a'); link.href = href; link.target = '_blank'; link.rel = 'noopener';
+      setText(link, label);
+      const icon = document.createElement('span'); icon.innerHTML = uiIcon('external');
+      link.append(icon.firstChild!);
+      menu.append(link);
+    };
+    menu.append(document.createElement('hr'));
+    const expression = p.snapshot.expression;
+    const source = entry?.source ?? p.source ?? 'youdao';
+    appendLink(message('查看原文'), entry?.url || (source === 'youdao'
+      ? `https://dict.youdao.com/w/${encodeURIComponent(expression)}/`
+      : `https://dictionary.cambridge.org/dictionary/english-chinese-simplified/${encodeURIComponent(expression.replace(/\s+/g, '-'))}`));
+    appendLink(message('牛津原站'), `https://www.oxfordlearnersdictionaries.com/definition/english/${encodeURIComponent(expression.replace(/\s+/g, '-'))}`);
+    const line = document.createElement('div'); line.className = 'dictionary-line'; line.append(wrap);
+    if (entry) {
+      const detail = [entry.headword === p.snapshot.expression ? '' : entry.headword, entry.phonetic ? `/${entry.phonetic}/` : ''].filter(Boolean).join(' ');
+      if (detail) { const label = document.createElement('span'); label.textContent = detail; line.append(label); }
+    }
+    return line;
+  }
+
+  function renderDefinition(box: HTMLDivElement, p: PinnedState): void {
     const text = (value: string | UiText, cls = 'def-text') => {
-      const n = document.createElement('p'); n.className = cls; setText(n,value); target.appendChild(n); return n;
+      const n = document.createElement('p'); n.className = cls; setText(n,value); box.appendChild(n); return n;
     };
     const button = (label: string | UiText, action: () => void) => {
-      const b = document.createElement('button'); b.className = 'link-btn'; setText(b,label); b.addEventListener('click', action); target.appendChild(b); return b;
+      const b = document.createElement('button'); b.className = 'link-btn'; setText(b,label); b.addEventListener('click', action); box.appendChild(b); return b;
     };
-    let target: HTMLElement = box;
     if (p.degraded) text(message({
       'dictionary-failure': '词典暂不可用，当前显示免费译文',
       'ai-failed': 'AI 释义失败，当前显示免费译文',
@@ -384,9 +477,9 @@ export function createLookupPopup(opts: {
       button(message('展开详情'), () => { p.compact = false; renderPopup(); });
       return;
     }
+    box.appendChild(dictionaryLine(p));
     if (p.result?.kind === 'dictionary') {
       const entry = p.result.entry;
-      text(message('{source} · {word}{phonetic}',{source:message(entry.source==='youdao'?'有道':'剑桥英汉'),word:entry.headword,phonetic:entry.phonetic?` /${entry.phonetic}/`:''}), 'def-label');
       const renderSense = (index: number, parent: HTMLElement) => {
         const sense = entry.senses[index]!;
         const line = document.createElement('div'); line.className = 'sense';
@@ -414,27 +507,6 @@ export function createLookupPopup(opts: {
       text(message(LOOKUP_ERROR_LABEL[p.lookupError] ?? '暂时无法查询'), 'def-state');
       if (p.lookupError !== 'extension-context-invalidated') button(message('重试'), () => void requestLookup(p.source));
     } else text(message('正在查询释义…（此时也可保存）'), 'def-state');
-    const row = document.createElement('div'); row.className = 'row sources';
-    const choose = document.createElement('select'); setLocalizedAttribute(choose, 'aria-label', message('词典'));
-    for (const [value, label] of [['', message('首选词典')], ['youdao', message('有道')], ['cambridge', message('剑桥英汉')]] as const) { const opt = document.createElement('option'); opt.value = value; setText(opt,label); choose.appendChild(opt); }
-    choose.value = p.source ?? ''; choose.addEventListener('change', () => void requestLookup(choose.value as DictionarySource || undefined)); row.appendChild(choose);
-    const source = p.result?.kind === 'dictionary' ? p.result.entry.source : p.source ?? 'youdao';
-    const link = document.createElement('a'); setText(link, message('查看原文')); link.target = '_blank'; link.rel = 'noopener';
-    link.href = p.result?.kind === 'dictionary' ? p.result.entry.url : source === 'youdao' ? `https://dict.youdao.com/w/${encodeURIComponent(p.snapshot.expression)}/` : `https://dictionary.cambridge.org/dictionary/english-chinese-simplified/${encodeURIComponent(p.snapshot.expression.replace(/\s+/g, '-'))}`;
-    row.appendChild(link);
-    const oxford = document.createElement('a'); setText(oxford, message('牛津原站')); oxford.href = `https://www.oxfordlearnersdictionaries.com/definition/english/${encodeURIComponent(p.snapshot.expression.replace(/\s+/g, '-'))}`; oxford.target = '_blank'; oxford.rel = 'noopener'; row.appendChild(oxford);
-    for (const sourceLink of [link, oxford]) {
-      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      icon.setAttribute('viewBox', '0 0 16 16'); icon.setAttribute('aria-hidden', 'true');
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', 'M6 3H3v10h10v-3M9 3h4v4M7 9l6-6');
-      icon.appendChild(path); sourceLink.appendChild(icon);
-    }
-    footer.appendChild(row);
-    target = footer;
-    const ai = button(p.aiRequest ? message('正在解释语境…') : message('解释语境'), () => void explainContext()); ai.disabled = !!p.aiRequest;
-    if (p.explanation) { text(message('AI 语境解释 · 当前原句'), 'def-label'); text(p.explanation.text); }
-    if (p.aiError) { text(message(AI_ERROR_LABEL[p.aiError] ?? '解释失败，请重试'), 'def-state'); if (p.aiError === 'no-key') button(message('打开设置填写 API key'), () => void send({ type: 'openSettings', ai: true })); }
   }
 
   // ---- 与 background 的交互 ---------------------------------------------------
@@ -461,7 +533,7 @@ export function createLookupPopup(opts: {
           : isDuplicateContext(context, entry.key, snap.url, snap.sentence);
       });
       p.savedContextId = saved?.id ?? null;
-      if (saved?.explanation) p.explanation = saved.explanation;
+      p.explanation ??= saved?.explanation;
       if (saved) void backfill(p);
     }
     renderPopup();
@@ -501,7 +573,7 @@ export function createLookupPopup(opts: {
   async function explainContext(): Promise<void> {
     if (!pinned || pinned.aiRequest) return;
     const p = pinned;
-    p.aiRequest = `lookup-${Date.now()}-${++requestCounter}`; p.aiError = undefined;
+    p.aiRequest = `lookup-${Date.now()}-${++requestCounter}`; p.aiError = undefined; p.showExplanation = true;
     renderPopup();
     const r = await send<LookupResult>({ type: 'explainContext', snapshot: p.snapshot, requestId: p.aiRequest });
     p.aiRequest = undefined;
@@ -595,7 +667,7 @@ export function createLookupPopup(opts: {
 
   document.addEventListener('keydown', (e) => {
     const root = document.getElementById(POPUP_ID)?.shadowRoot;
-    if (e.key === 'Escape' && root && !root.querySelector('.ui-action-menu:popover-open,select:open')) {
+    if (e.key === 'Escape' && root && !root.querySelector('.ui-action-menu:popover-open')) {
       e.preventDefault();
       e.stopImmediatePropagation();
       closePopup();
