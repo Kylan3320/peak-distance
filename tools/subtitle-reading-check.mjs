@@ -18,7 +18,7 @@ const json={events:[
   {tStartMs:0,dDurationMs:800,segs:[{utf8:'This'}]},
   {tStartMs:200,dDurationMs:800,segs:[{utf8:'This is'}]},
   {tStartMs:1000,dDurationMs:1000,segs:[{utf8:'one sentence.'}]},
-  {tStartMs:2000,dDurationMs:1000,segs:[{utf8:'The next sentence.'}]},
+  {tStartMs:2000,dDurationMs:1000,segs:[{utf8:'the next sentence'}]},
 ]};
 const output=resolve('.upstream/subtitle-reading');await mkdir(output,{recursive:true});
 
@@ -26,10 +26,14 @@ if(!process.argv.includes('--packaged-only')) {
 // Run the real MAIN entrypoint, with a native request first returning empty and then valid data.
 const inject = await compile("import './entrypoints/youtube-inject.content';");
 const messages=[], requests=[], listeners=[];let now=0;
-const scope={crypto,TextEncoder,URL,AbortController,AbortSignal,Response,Map,Set,console,location:{href:'https://www.youtube.com/watch?v=reading01'},performance:{now:()=>++now,getEntriesByType:()=>[]},document:{getElementById:()=>null},setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>1,XMLHttpRequest:class{open(){}send(){}},defineContentScript:c=>c.main(),__listeners:listeners};
+let boundaryPort;
+const scope={crypto,MessageChannel,TextEncoder,URL,AbortController,AbortSignal,Response,Map,Set,console,location:{href:'https://www.youtube.com/watch?v=reading01'},performance:{now:()=>++now,getEntriesByType:()=>[]},document:{getElementById:()=>null},setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>1,XMLHttpRequest:class{open(){}send(){}},defineContentScript:c=>c.main(),__listeners:listeners};
 scope.window=scope;
 scope.addEventListener=(type,fn)=>{if(type==='message')listeners.push(fn);};
-scope.postMessage=data=>messages.push(data);
+scope.postMessage=(data,origin,ports)=>{
+  messages.push(data);
+  if(data.type==='subtitle-boundaries') boundaryPort=ports[0];
+};
 scope.fetch=async url=>{const u=new URL(String(url));requests.push(u.searchParams.get('phase'));return new Response(u.searchParams.get('phase')==='empty'?'':JSON.stringify(json));};
 const sandbox=vm.createContext(scope);
 vm.runInContext('globalThis.emit=data=>__listeners.forEach(fn=>fn({source:window,data}));',sandbox);
@@ -42,6 +46,12 @@ check('empty response is observed without producing cues',messages.some(x=>x.typ
 const before=requests.length;await scope.fetch(source('empty'));await settle();
 check('repeated failed URL is not fetched again by extension',requests.length===before+1);
 await scope.fetch(source('valid'));await settle();
+const blocksIndex=messages.findIndex(m=>m.type==='blocks');
+check('raw blocks keep their real times while the semantic worker is still waiting for a reply',
+  blocksIndex>=0 && !!boundaryPort && !messages.some(m=>m.type==='cues') &&
+  JSON.stringify(messages[blocksIndex].blocks.map(b=>[b.start,b.text]))===
+  JSON.stringify([[0,'This'],[200,'This is'],[1000,'one sentence.'],[2000,'the next sentence']]));
+boundaryPort.postMessage(['The next sentence.']);boundaryPort.close();await settle();
 const produced=messages.find(x=>x.type==='cues');
 check('later valid native source recovers in the same acquisition',produced?.cues.length===2&&produced.cues[0].text==='This is one sentence.');
 check('MAIN preserves normalized short fragments and explicit group mapping',produced.fragments.length===3&&produced.fragments[0].text==='This is'&&JSON.stringify(produced.cues.map(c=>[c.firstFragment,c.lastFragment]))==='[[0,1],[2,2]]');
@@ -254,8 +264,8 @@ try {
     [sentences[0],0,2000],[sentences[1],0,2000],[sentences[2],2000,4000],
   ]);
   check('packaged acquisition recovers into split and cross-fragment sentences',true);
-  assert.deepEqual(await playerEn.allTextContents(),[sentences[0]]);
-  check('a shared interval shows only the current sentence while its translation is pending',
+  assert.deepEqual(await playerEn.allTextContents(),[playerLine]);
+  check('the source block shows both complete source ranges while the shared translation is pending',
     !(await playerZh.allTextContents()).includes(combinedTranslation));
   const playerWord = playerEn.locator('.w').filter({hasText:/^society$/});
   const playerCard = page.locator('#blc-lookup-popup');
@@ -359,7 +369,8 @@ try {
   check('split rows receive separate full-text fallback translations and retain reading state',
     await row(0).locator('.zh').textContent()===learnedTranslations[0]&&await readingPreserved()&&
     await worker.evaluate(sentences=>globalThis.fallbackBatches.some(items=>sentences.slice(0,2).every((text,id)=>items.some(i=>i.id===id&&i.text===text))),sentences));
-  await expectVisiblePair(0,sentences[0],await row(0).locator('.zh').textContent());
+  const sharedChinese=(await Promise.all([0,1].map(i=>row(i).locator('.zh').textContent()))).join(' ');
+  await expectVisiblePair(0,playerLine,sharedChinese);
   assert.equal(await row(2).locator('.zh').textContent(),denseTranslations[2]);
   check('player and list use the same full-sentence translations across source packets',true);
   const save=row(1).getByRole('button',{name:'收藏句子',exact:true});
@@ -425,12 +436,13 @@ try {
   await button('下一句').click();await expectIndex(1);
   await button('下一句').click();await expectIndex(2);
   await button('上一句').click();await expectIndex(1);
-  await expectVisiblePair(1,sentences[1],await row(1).locator('.zh').textContent());
+  await expectVisiblePair(0,playerLine,sharedChinese);
+  assert.equal(await page.evaluate(()=>document.querySelector('video').currentTime),0);
   await page.evaluate(()=>{document.querySelector('video').currentTime=.1;});
   await expectIndex(0);
   await page.evaluate(()=>{document.querySelector('video').currentTime=1.8;});
-  await expectIndex(1);
-  await expectVisiblePair(1,sentences[1],learnedTranslations[1]);
+  await expectIndex(0);
+  await expectVisiblePair(0,playerLine,sharedChinese);
   await page.evaluate(()=>{document.querySelector('video').currentTime=.1;});
   await expectIndex(0);
   check('opening the list, selecting a sibling and seeking back reuse each translated sentence',
@@ -438,7 +450,10 @@ try {
 
   const videoTime=()=>page.evaluate(()=>document.querySelector('video').currentTime);
   const play=()=>page.evaluate(()=>document.querySelector('video').play());
-  const waitPause=min=>page.waitForFunction(min=>{const v=document.querySelector('video');return v.paused&&v.currentTime>=min;},min);
+  const waitPause=async min=>{
+    try { await page.waitForFunction(min=>{const v=document.querySelector('video');return v.paused&&v.currentTime>=min;},min); }
+    catch(error) { const info=await page.evaluate(()=>{const v=document.querySelector('video');return {t:v.currentTime,paused:v.paused,seek:v.seeking,en:document.querySelector('#blc-subs')?.shadowRoot?.querySelector('.en')?.textContent};}); throw Error('AP >= '+min+' failed '+JSON.stringify(info),{cause:error}); }
+  };
   await frame.locator('#open-settings').click();
   await frame.locator('#video-settings:not([hidden])').waitFor();
   assert.equal(await frame.locator('#video-auto-pause').isChecked(),false);
@@ -462,19 +477,27 @@ try {
   await control.evaluate(id=>chrome.tabs.sendMessage(id,{type:'pd-panel-show',view:'subs'},{frameId:0}),tabId);
   await button('下一句').click();await expectIndex(1);
   await button('重播').click();await waitPause(2);
-  check('AP pauses once at the shared interval end and holds its explicitly selected row and playable interval',
-    await videoTime()<2.4&&await playerEn.textContent()===sentences[1]&&(await getState()).currentIndex===1);
-  await play();await page.waitForFunction(()=>!document.querySelector('video').paused&&document.querySelector('video').currentTime>2.3);
+  check('AP stops once at the shared source block end, with English following the new block',
+    await videoTime()<2.4 && await playerEn.textContent()==='Everything gets polarized');
+  await button('重播').click();
+  await page.waitForFunction(()=>{const v=document.querySelector('video');return !v.paused && v.currentTime>=2 && v.currentTime<2.4;});
   const beforeTheme=await getState();
   await control.evaluate(()=>chrome.storage.local.set({appearanceTheme:'minimal'}));
   await floatingTheme('minimal');
   check('changing appearance leaves playback active and retains the subtitle generation',
     !await page.evaluate(()=>document.querySelector('video').paused)&&(await getState()).generation===beforeTheme.generation);
-  await waitPause(4);
-  check('AP continues into the cross-fragment sentence and holds the entire visible sentence',
-    await videoTime()<4.4&&await playerEn.textContent()===sentences[2]&&
-    await playerZh.textContent()===denseTranslations[2]&&(await getState()).currentIndex===2);
+  await waitPause(2.7);
+  check('the first source block inside a longer sentence pauses in its real gap',
+    await videoTime()<3 && await playerEn.count()===0);
+  await button('重播').click();
+  await page.waitForFunction(()=>{const v=document.querySelector('video');return !v.paused && v.currentTime>=2 && v.currentTime<2.65;});
+  await waitPause(2.7);
+  await play();await waitPause(4);
+  check('the second source block of the same sentence pauses once at its own end',
+    await videoTime()<4.4 && await playerEn.count()===0);
   await page.screenshot({path:resolve(output,'packaged-ap-held.png')});
+  await action({type:'blc-sub-control',videoId:state.videoId,action:'seek',timeMs:3200});
+  await expectVisiblePair(2,'because of that.',denseTranslations[2]);
   await playerEn.evaluate(el=>{
     const range=document.createRange();range.selectNodeContents(el);
     getSelection().removeAllRanges();getSelection().addRange(range);
@@ -487,7 +510,7 @@ try {
   },tabId);
   await page.locator('#pd-phrase-actions #translate').click();
   await page.locator('#pd-translation #copy:not([disabled])').waitFor();
-  assert.equal(await page.locator('#pd-translation #result').textContent(),denseTranslations[2]);
+  assert.equal(await page.locator('#pd-translation #result').textContent(),'因为这个。');
   assert.equal(await page.locator('#pd-translation #from').inputValue(),'en');
   await page.locator('#pd-translation #close').click();
   await page.evaluate(()=>getSelection().removeAllRanges());
@@ -532,15 +555,14 @@ try {
   check('all three saved categories remain available across track change and subtitles off; removing a sentence updates the total',true);
   check('late old-row save is rejected after a track change',!(await action({...rowRef(state,0),action:'save'})).ok&&
     (await records()).sentences.length===0);
-  check('anchored track has the same text with two separately playable intervals',
-    anchored.trackId!==state.trackId&&anchored.cues[0].endMs===850&&anchored.cues[1].startMs===850&&anchored.cues[1].endMs===2000);
-  await action({...rowRef(anchored,0),action:'seek',play:true});await waitPause(.85);
-  check('AP honors the next word anchor while holding the active sentence',
-    await videoTime()<1.1&&(await getState()).currentIndex===0&&await playerEn.textContent()===sentences[0]);
-  await play();await waitPause(2);
-  check('AP advances to the next anchored sentence and rejects the old translation result',
-    await videoTime()<2.4&&(await getState()).currentIndex===1&&
-    !(await getState()).cues.some(c=>c.zh==='OLD EPOCH'));
+  check('a source block with a word anchor keeps the same sentence ranges and block time',
+    anchored.trackId!==state.trackId && anchored.cues.slice(0,2).every(c=>c.startMs===0&&c.endMs===2000));
+  await action({...rowRef(anchored,0),action:'seek',play:true});
+  await page.waitForFunction(()=>{const v=document.querySelector('video');return !v.paused && v.currentTime>.9&&v.currentTime<1.8;});
+  await expectVisiblePair(0,playerLine,sharedChinese);
+  await waitPause(2);
+  check('AP ignores word anchors, pauses at the real block end and rejects the late old translation',
+    await videoTime()<2.4 && !(await getState()).cues.some(c=>c.zh==='OLD EPOCH'));
 
   const dense=await context.newPage();
   await dense.goto('https://www.youtube.com/watch?v=dense01');
@@ -558,7 +580,7 @@ try {
     assert.fail('Timed out waiting for dense subtitle state');
   };
   await gate('denseLast','ready');
-  assert.deepEqual(await densePlayer.allTextContents(),[eight[0]]);
+  assert.deepEqual(await densePlayer.allTextContents(),[denseLines[0]]);
   check('the active sentence is requested first and no combined fragment is sent',
     await worker.evaluate(({first,fragment})=>globalThis.denseBatches[0]?.[0].text===first&&
       globalThis.denseBatches.every(items=>items.every(item=>item.text!==fragment)),{first:eight[0],fragment:denseLines[0]}));
@@ -566,9 +588,10 @@ try {
   const denseInitial=await waitDense(state=>state.cues.slice(0,12).every(cue=>cue.zh));
   await control.evaluate(({tabId,ref})=>chrome.tabs.sendMessage(tabId,{type:'pd-video-action',...ref,action:'seek'}),
     {tabId:denseTab,ref:rowRef(denseInitial,7)});
-  await dense.locator('#blc-subs [data-row="7"] .zh').waitFor();
-  assert.deepEqual(await densePlayer.allTextContents(),[eight[7]]);
-  assert.deepEqual(await dense.locator('#blc-subs .zh').allTextContents(),[denseInitial.cues[7].zh]);
+  await waitDense(state=>state.currentIndex===7);
+  await dense.locator('#blc-subs [data-row="0"] .zh').waitFor();
+  assert.deepEqual(await densePlayer.allTextContents(),[denseLines[0]]);
+  assert.deepEqual(await dense.locator('#blc-subs .zh').allTextContents(),[denseInitial.cues.slice(0,8).map(c=>c.zh).join(' ')]);
   check('eight learning rows receive their own translations without a row action or playhead change',
     denseInitial.currentIndex===0&&denseInitial.cues.slice(0,8).every((cue,i)=>
       cue.text===eight[i]&&cue.zh===denseTranslations[i]&&cue.startMs===0&&cue.endMs===30000));

@@ -1,7 +1,7 @@
 import { segmentWords } from './tokenize';
 
 /** Lay out long clauses without changing the source text, selection offsets or translation unit. */
-export function appendSubtitleText(parent: HTMLElement, text: string, language: string) {
+export function appendSubtitleText(parent: HTMLElement, text: string, language: string, pauseOffsets?: ReadonlySet<number>) {
   const words = segmentWords(text, language);
   let previousEnd = 0;
   let lineStart = 0;
@@ -15,6 +15,7 @@ export function appendSubtitleText(parent: HTMLElement, text: string, language: 
     }
     const element = document.createElement('span');
     element.className = 'w';
+    if (pauseOffsets?.has(word.start)) element.dataset.pause = '';
     element.tabIndex = 0;
     element.setAttribute('role', 'button');
     element.style.userSelect = 'text';

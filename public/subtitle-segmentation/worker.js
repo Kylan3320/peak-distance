@@ -3,12 +3,33 @@ importScripts('sherpa-onnx-wasm-web.js');
 var module = {};
 importScripts('sherpa-onnx-punctuation.js');
 
+// Several hundred unpunctuated words in one call make this model insert
+// periods even between a subject and its verb. Give each emitted span context
+// on both sides; a window boundary by itself never supplies punctuation.
+function predictWithContext(predictor, source) {
+  const span = 32;
+  const context = 24;
+  if (source.length <= span + 2 * context) return predictor.addPunct(source.join(' '));
+  const output = [];
+  const bare = word => word.toLowerCase().replace(/[.,!?;:]+$/u, '');
+  for (let from = 0; from < source.length; from += span) {
+    const to = Math.min(from + span, source.length);
+    const left = Math.max(0, from - context);
+    const right = Math.min(source.length, to + context);
+    const prediction = predictor.addPunct(source.slice(left, right).join(' ')).trim().split(/\s+/u);
+    if (prediction.length !== right - left ||
+        !prediction.every((word, i) => bare(word) === bare(source[left + i]))) return '';
+    output.push(...prediction.slice(from - left, to - left));
+  }
+  return output.join(' ');
+}
+
 // Long streams can suppress a sentence boundary which the same model hears
 // with local text context. Revisit only exceptionally long predictions, using
 // the already loaded model. A window edge is never promoted to a boundary.
 function punctuate(predictor, text) {
-  const prediction = predictor.addPunct(text);
   const source = text.trim().split(/\s+/u);
+  const prediction = predictWithContext(predictor, source);
   const words = prediction.trim().split(/\s+/u);
   if (source.length !== words.length) return prediction;
   const bare = word => word.toLowerCase().replace(/[.,!?;:]+$/u, '');
@@ -16,7 +37,7 @@ function punctuate(predictor, text) {
   for (let end = 1; end <= words.length; end++) {
     if (end < words.length && !/[.!?]$/u.test(words[end - 1])) continue;
     if (end - start > 42 && end - start < source.length) {
-      const local = predictor.addPunct(source.slice(start, end).join(' ')).trim().split(/\s+/u);
+      const local = predictWithContext(predictor, source.slice(start, end)).trim().split(/\s+/u);
       if (local.length === end - start && local.every((word, i) => bare(word) === bare(source[start + i]))) {
         for (let i = 3; i + 4 < local.length; i++) {
           if (!/[.!?]$/u.test(local[i - 1])) continue;

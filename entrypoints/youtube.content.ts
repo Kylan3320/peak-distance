@@ -17,7 +17,7 @@ import type { Settings } from '@/shared/settings';
 //
 // 职责（M0 嗅探链路之上）：
 //   1. 与 MAIN world 嗅探脚本互通，展示可用轨道并提交选轨意图；
-//   2. 用 video.currentTime 定位当前句渲染双语字幕栏（ASR 滚动合并），
+//   2. 用 video.currentTime 定位源轨块，按原文范围读取对应学习句译文，
 //      暂停 / 拖动 / 倍速后按时间重新定位；
 //   3. 常规中文优先轨道 / 平台 / Google；显式 AI 按当前窗口小批量请求。
 //      字幕 ID 对齐，显示开关保留缓存；换视频 / 换轨 / 隐藏时取消旧任务。
@@ -41,11 +41,9 @@ import {
   type Cue,
   type InjectMessage,
   type LearningCue,
-  type PlaybackInterval,
+  type SourceFragment,
 } from '@/shared/protocol';
-import { cueIndexAt, fmtClock, buildCueTranslationBatch, DISPLAY_CUE_VERSION } from '@/shared/cues';
-import { subtitleScreenTimes } from '@/shared/subtitlePlayback';
-import { playerPages, translatedPages, pageTranslationInput, type SubtitlePage } from '@/shared/subtitlePages';
+import { blockPauseOffsets, blockTextEnd, cueIndexAt, fmtClock, buildCueTranslationBatch, DISPLAY_CUE_VERSION } from '@/shared/cues';
 import { subtitleFontSize } from '@/shared/youtubeWorkspace';
 import { createLookupPopup } from '@/shared/lookupPopup';
 import {
@@ -86,13 +84,14 @@ export default defineContentScript({
     let currentVideoId = videoIdFromLocation();
     let nonce = 0;
     let navSeq = 0;
-    // 播放器与侧栏以相同学习项为单位；AP 按可定位的播放区间暂停。
     let cues: LearningCue[] = [];
-    let intervals: PlaybackInterval[] = [];
-    let screenTimes: ReturnType<typeof subtitleScreenTimes> = [];
-    let pages: SubtitlePage[][] = [];
-    let currentPage = 0;
-    const pageTranslations = new Map<number,string[]>();
+    let blocks: SourceFragment[] = [];
+    let blockRanges: { from: number; to: number }[] = [];
+    let blockCueIndices: number[][] = [];
+    let currentBlock = -1;
+    let blockTextEnds: number[] = [];
+    let blockTextVisible = false;
+    let sourceRevision = '';
     let revision = '';
     let generation = crypto.randomUUID();
     let pinnedIndex = -1;
@@ -147,7 +146,7 @@ export default defineContentScript({
         } else {
           cancelSourceAcquisition();
         }
-        if (source && (bilingualOn || !cues.length || pendingTrack)) ensureCaptionsOn(20);
+        if (source && (bilingualOn || !blocks.length || pendingTrack)) ensureCaptionsOn(20);
         if (!source) restoreNativeCaptions();
       }
       const translate = translationDemand();
@@ -179,7 +178,6 @@ export default defineContentScript({
     let autoPause = false;
     let apIndex = -1;
     let apHeld = false;
-    let apDisplayIndex = -1;
     let apLastStopped = -1;
     const translationSources = new Map<number, string>();
     let translationEpoch = 0;
@@ -191,7 +189,7 @@ export default defineContentScript({
     let platformTimer: ReturnType<typeof setTimeout> | null = null;
     const failedCues = new Set<number>();
     const pendingCues = new Set<number>();
-    let queuedInterval = -1;
+    let queuedBlock = -1;
 
     // 当前句
     let currentIdx = -1;
@@ -350,9 +348,10 @@ export default defineContentScript({
         if (!video || e.target !== video) return;
         if (rowSeekTime !== video.currentTime) { pinnedIndex = -1; rowSeekTime = null; }
         pausedByUsVideo = null; apHeld = false; apIndex = -1; apLastStopped = -1;
+        tick(true);
       }, true);
       document.addEventListener('seeked', e => {
-        if (e.target === getVideo()) rowSeekTime = null;
+        if (e.target === getVideo()) { rowSeekTime = null; tick(true); }
       }, true);
       document.addEventListener('keydown', e => {
         if (e.key === ' ' || e.key.toLowerCase() === 'k') pausedByUsVideo = null;
@@ -391,10 +390,10 @@ export default defineContentScript({
 
     function armAcquisitionTimer(): void {
       // 覆盖整个首屏获取，包括 MAIN 未响应；自动恢复不能延长这份预算。
-      if ((!cues.length || pendingTrack) && !acquisitionTimer) {
+      if ((!blocks.length || pendingTrack) && !acquisitionTimer) {
         acquisitionTimer = setTimeout(() => {
           acquisitionTimer = null;
-          if (cues.length && !pendingTrack) return;
+          if (blocks.length && !pendingTrack) return;
           failAcquisition(nocuesReason && nocuesReason !== 'no-timedtext-seen' ? nocuesReason : 'acquisition-timeout');
         }, 30000);
       }
@@ -444,7 +443,7 @@ export default defineContentScript({
     }
 
     function ensureCaptionsOn(retries: number, videoId = currentVideoId): void {
-      if (videoId !== currentVideoId || !acquiringForView || (!bilingualOn && cues.length && !pendingTrack) || isShortsPage()) return;
+      if (videoId !== currentVideoId || !acquiringForView || (!bilingualOn && blocks.length && !pendingTrack) || isShortsPage()) return;
       const player = document.getElementById('movie_player');
       const cc = player?.querySelector('.ytp-subtitles-button');
       if (!cc || cc.getAttribute('aria-pressed') === null) {
@@ -486,7 +485,7 @@ export default defineContentScript({
     }
 
     function hideNativeCaptions(): void {
-      if (!cues.length && (bilingualOn || nativeCaptionsWereOn !== false)) {
+      if (!blocks.length && (bilingualOn || nativeCaptionsWereOn !== false)) {
         document.getElementById(NATIVE_CAPTIONS_HIDE_STYLE_ID)?.remove();
         return;
       }
@@ -514,7 +513,7 @@ export default defineContentScript({
       return { videoId: currentVideoId, generation, title: document.title, tracks,
         trackId: pendingTrack?.id ?? current?.id ?? '', switchingTrack: acquiringForView && !!pendingTrack,
         mode: translationMode, autoPause, ready: modeReady && !modeBusy,
-        hasCues: !!cues.length, notice };
+        hasCues: !!blocks.length, notice };
     }
 
     function ensureSwitchHost(): void {
@@ -564,13 +563,19 @@ export default defineContentScript({
           .wrap { text-align:center; padding:12px 18px; background:#151719; border-radius:0 0 8px 8px; }
           .bar { max-inline-size:56ch; margin-inline:auto; overflow-wrap:anywhere; }
           .en { font-weight:600; overflow-wrap:anywhere; } .zh { font-size:.8em; color:#e1cc91; margin-top:6px; }
+          .zh { position:relative; box-sizing:border-box; }
+          .zh-text { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; cursor:pointer; user-select:text; }
+          .zh[aria-expanded=true] .zh-text { position:absolute; inset-inline:0; inset-block-start:0; z-index:2; display:block; overflow:visible; border-radius:4px; background:#151719; }
+          .zh[data-up] .zh-text { inset-block-start:auto; inset-block-end:0; }
+          .zh:focus-visible { outline:2px solid #8ab4f8; border-radius:4px; }
+          .w[data-pause]::before { content:'… '; opacity:.7; }
           .notice { color:#b7bdc7; font-size:14px; } .w { cursor:pointer; border-radius:3px; } .w:hover { background:#454d58; }
           .w:focus-visible { outline:2px solid #8ab4f8; } .saved,.known { border-bottom:2px solid color-mix(in srgb,var(--pd-blue),white 62%); }
           button { cursor:pointer; margin:6px; padding:4px 10px; border:1px solid #555; border-radius:5px; background:#292b30; color:#eee; font:14px system-ui; }
           :host([data-fullscreen]) .wrap { background:transparent; padding:4px 8px; text-shadow:0 1px 3px #000,0 0 2px #000; }
           :host([data-fullscreen]) .en,:host([data-fullscreen]) .zh { width:fit-content;max-width:100%;margin-left:auto;margin-right:auto;background:rgba(16,18,20,.72);padding:2px 8px;border-radius:4px; }
         </style><div class="wrap"></div>`;
-        bindWordEvents(host);
+        bindWordEvents(root.querySelector<HTMLElement>('.wrap')!);
       }
       const fs = document.fullscreenElement;
       host.toggleAttribute('data-fullscreen', !!fs);
@@ -588,43 +593,110 @@ export default defineContentScript({
       return { host, body:host.shadowRoot!.querySelector<HTMLDivElement>('.wrap')! };
     }
 
-    function bindWordEvents(host: HTMLElement): void {
-      let lastPhraseAt = 0;
-      const wordOf = (e: Event) => (e.composedPath()[0] as Element)?.closest?.('.w') as HTMLElement | null;
-      const indexOf = (word: HTMLElement) => Number(word.closest<HTMLElement>('.en')!.dataset.cue);
-      host.addEventListener('pointerover', e => {
+    function bindWordEvents(wrap: HTMLElement): void {
+      const root = wrap.getRootNode() as ShadowRoot;
+      let pointerX = 0, pointerY = 0;
+      const rememberPosition = (e: PointerEvent) => { pointerX = e.clientX; pointerY = e.clientY; };
+      wrap.addEventListener('pointermove', rememberPosition);
+      const wordOf = (e: Event) => (e.target as Element).closest<HTMLElement>('[data-cue] .w');
+      const indexOf = (word: HTMLElement) => Number(word.closest<HTMLElement>('[data-cue]')!.dataset.cue);
+      wrap.addEventListener('pointerover', e => {
+        rememberPosition(e);
         const word = wordOf(e);
-        if (!word || word === suppressWord || (popup.isOpen() && !popup.isCompact())) return;
+        if (e.buttons || e.pointerType === 'touch' || !word || word === suppressWord || (popup.isOpen() && !popup.isCompact())) return;
         clearTimeout(leaveTimer); clearTimeout(hoverTimer);
         if (word === activeWord && popup.isOpen()) return;
-        hoverTimer = setTimeout(() => { if (word.isConnected && !window.getSelection()?.toString()) openLookup(word.textContent!, indexOf(word), word, true); }, 180);
+        hoverTimer = setTimeout(() => {
+          if (word.isConnected && word.contains(root.elementFromPoint(pointerX, pointerY)) && !shadowSelection(root)) {
+            openLookup(word.textContent!, indexOf(word), word, true);
+          }
+        }, 180);
       });
-      host.addEventListener('pointerout', e => {
-        const word = wordOf(e); if (!word || word.contains(e.relatedTarget as Node)) return;
+      wrap.addEventListener('pointerout', e => {
+        const word = wordOf(e);
+        if (!word || word.contains(e.relatedTarget as Node)) return;
         if (suppressWord === word) suppressWord = null;
-        clearTimeout(hoverTimer); scheduleCardClose();
+        clearTimeout(hoverTimer);
+        scheduleCardClose();
       });
-      host.addEventListener('focusin', e => { const word = wordOf(e); if (word) openLookup(word.textContent!, indexOf(word), word, true); });
-      host.addEventListener('mouseup', e => {
-        const real = e.composedPath()[0] as Element;
-        if (!real?.closest('.en')) return;
+      wrap.addEventListener('pointerdown', () => clearTimeout(hoverTimer));
+      wrap.addEventListener('pointercancel', () => clearTimeout(hoverTimer));
+      wrap.addEventListener('mouseup', e => {
+        if (!(e.target as Element).closest('.en')) return;
         const info = subtitleSelectionInBar();
-        if (info) {
-          // 拖选（单词或短语）后短时间内不触发单词点击查询
-          lastPhraseAt = Date.now(); clearTimeout(hoverTimer);
-          showSelectionActions(info);
-        }
+        if (info) showSelectionActions(info);
       });
-      const clickWord = (e: Event) => {
-        if (Date.now() - lastPhraseAt < 500) return;
-        const word = wordOf(e); if (!word) return;
-        e.preventDefault(); e.stopPropagation(); clearTimeout(hoverTimer); clearTimeout(leaveTimer);
+      const activateWord = (e: Event) => {
+        const word = wordOf(e);
+        if (!word || shadowSelection(root)) return;
+        e.preventDefault(); e.stopPropagation();
+        clearTimeout(hoverTimer); clearTimeout(leaveTimer);
         if (activeWord === word && popup.isOpen()) {
-          if (popup.isCompact()) popup.expand(); else { suppressWord = word; popup.close(); }
+          if (popup.isCompact()) popup.expand();
+          else { suppressWord = word; popup.close(); }
         } else openLookup(word.textContent!, indexOf(word), word);
       };
-      host.addEventListener('click', clickWord);
-      host.addEventListener('keydown', e => { if (e.key === 'Enter') clickWord(e); });
+      wrap.addEventListener('click', activateWord);
+      wrap.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') activateWord(e); });
+    }
+
+    // Keep the full accessible text in one node. Only the visual clamping and
+    // position change, so expansion does not resize the subtitle row.
+    let collapsePlayerTranslation: (() => void) | undefined;
+    function createPlayerTranslation() {
+      const slot = document.createElement('div');
+      slot.className = 'zh';
+      slot.tabIndex = 0;
+      slot.setAttribute('role', 'button');
+      slot.setAttribute('aria-expanded', 'false');
+      const text = document.createElement('span');
+      text.className = 'zh-text';
+      slot.append(text);
+      let pinned = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const collapse = () => {
+        pinned = false;
+        clearTimeout(timer);
+        slot.setAttribute('aria-expanded', 'false');
+        slot.style.blockSize = '';
+        slot.style.inlineSize = '';
+        delete slot.dataset.up;
+        document.removeEventListener('keydown', escape, true);
+        if (collapsePlayerTranslation === collapse) collapsePlayerTranslation = undefined;
+      };
+      const escape = (e: KeyboardEvent) => {
+        if (e.key !== 'Escape') return;
+        e.stopPropagation();
+        collapse();
+      };
+      function expand() {
+        if (slot.getAttribute('aria-expanded') === 'true') return;
+        const rect = slot.getBoundingClientRect();
+        slot.style.blockSize = rect.height + 'px';
+        slot.style.inlineSize = rect.width + 'px';
+        slot.toggleAttribute('data-up', rect.top + text.scrollHeight > innerHeight);
+        slot.setAttribute('aria-expanded', 'true');
+        document.addEventListener('keydown', escape, true);
+        collapsePlayerTranslation = collapse;
+      }
+      const selected = () => shadowSelection(slot.getRootNode() as ShadowRoot);
+      slot.addEventListener('pointerenter', e => {
+        if (e.buttons || e.pointerType === 'touch') return;
+        timer = setTimeout(() => {
+          if (slot.isConnected && !selected()) expand();
+        }, 180);
+      });
+      slot.addEventListener('pointerdown', () => clearTimeout(timer));
+      slot.addEventListener('pointerleave', () => { clearTimeout(timer); if (!pinned) collapse(); });
+      const pin = (e: Event) => {
+        if (selected()) return;
+        e.preventDefault(); e.stopPropagation(); clearTimeout(timer);
+        expand();
+        pinned = true;
+      };
+      slot.addEventListener('click', pin);
+      slot.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') pin(e); });
+      return slot;
     }
 
     interface SubtitleSelectionInfo {
@@ -644,19 +716,19 @@ export default defineContentScript({
       if (!root) return null;
       const selected = shadowSelection(root);
       if (!selected || !currentVideoId || !lastTrackId) return null;
-      const parts = [...root.querySelectorAll<HTMLElement>('.en')].filter(en => selected.range.intersectsNode(en)).map(en => {
-        const range = clampRangeToElement(selected.range, en);
-        return { en, range, index: Number(en.dataset.cue), text: range.toString().trim() };
-      }).filter(part => part.text);
-      const first = parts[0], last = parts.at(-1);
+      const en = root.querySelector<HTMLElement>('.en');
+      if (!en || !selected.range.intersectsNode(en)) return null;
+      const range = clampRangeToElement(selected.range, en);
+      const owners = [...en.querySelectorAll<HTMLElement>('[data-cue]')].filter(part =>
+        range.intersectsNode(part) && clampRangeToElement(range, part).toString().trim());
+      const first = owners[0], last = owners.at(-1);
       if (!first || !last) return null;
-      const bounds = {cueIndex:first.index, lastIndex:last.index, rect:selected.range.getBoundingClientRect(), range:selected.range.cloneRange()};
-      if (parts.length > 1) {
-        const raw = parts.map((part,i) => (i && cues[part.index]!.from > cues[part.index - 1]!.to ? ' ' : '') + part.text).join('');
-        return { ...bounds, raw, kind:'cross-cue', expression:null, hasWord:false };
-      }
-      const cls = classifyRangeIn(first.en, first.range, baseLang(lastTrackLang) || 'en');
-      return cls && { ...bounds, raw:first.text, kind:cls.kind, hasWord:cls.hasWord, expression:cls.expression };
+      const raw = range.toString().trim();
+      const bounds = {cueIndex:Number(first.dataset.cue), lastIndex:Number(last.dataset.cue),
+        rect:range.getBoundingClientRect(), range};
+      if (first !== last) return { ...bounds, raw, kind:'cross-cue', expression:null, hasWord:false };
+      const cls = classifyRangeIn(en, range, baseLang(lastTrackLang) || 'en');
+      return cls && { ...bounds, raw, kind:cls.kind, hasWord:cls.hasWord, expression:cls.expression };
     }
 
     function subtitleCandidate(info: SubtitleSelectionInfo): SelectionCandidate | null {
@@ -756,6 +828,8 @@ export default defineContentScript({
     }
 
     function removeSubsHost(): void {
+      clearTimeout(hoverTimer);
+      collapsePlayerTranslation?.();
       closeSelectionActions?.();
       document.getElementById(SUBS_ID)?.remove();
     }
@@ -792,17 +866,20 @@ export default defineContentScript({
       const got = ensureSubsHost();
       if (!got) return;
       const { body } = got;
-      const key = generation + '/' + currentIdx + '/' + currentPage;
+      const indices = blockCueIndices[currentBlock] ?? [];
+      const key = generation + '/' + (blockTextVisible ? currentBlock : -1) + '/' + indices.join(',');
       const bar = body.querySelector<HTMLDivElement>('.bar') ?? document.createElement('div');
       bar.className = 'bar';
       if (bar.dataset.screen !== key) {
+        clearTimeout(hoverTimer);
+        collapsePlayerTranslation?.();
         bar.replaceChildren();
         bar.dataset.screen = key;
       }
       for (const child of bar.querySelectorAll(':scope > .notice, :scope > button')) child.remove();
       if (bar.parentElement !== body) body.appendChild(bar);
 
-      if (!cues.length) {
+      if (!blocks.length) {
         const n = document.createElement('div');
         n.className = 'notice';
         setText(n,message(notice || '正在获取字幕…'));
@@ -829,41 +906,64 @@ export default defineContentScript({
         bar.prepend(n);
       }
 
-      if (currentIdx < 0) return;
-      const index = currentIdx;
-      const cue = cues[index]!;
-      let row = bar.querySelector<HTMLDivElement>(`[data-row="${index}"]`);
+      const block = blocks[currentBlock];
+      if (!block || !blockTextVisible) return;
+      let row = bar.querySelector<HTMLElement>('[data-row]');
       if (!row) {
-        row = document.createElement('div'); row.dataset.row = String(index);
+        row = document.createElement('div');
+        row.dataset.row = String(currentBlock);
         const en = document.createElement('div');
-        en.className = 'en'; en.dataset.cue = String(index);
-        appendSubtitleText(en, pages[index]![currentPage]!.text.trim(), baseLang(lastTrackLang) || 'en');
-        row.append(en); bar.append(row);
+        en.className = 'en';
+        const lang = baseLang(lastTrackLang) || 'en';
+        const start = blockRanges[currentBlock]?.from ?? 0;
+        const pauses = blockPauseOffsets(block, lang);
+        let offset = 0;
+        for (const i of indices) {
+          const cue = cues[i]!;
+          const left = Math.max(0, cue.from - start);
+          const right = Math.min(block.text.length, cue.to - start);
+          en.append(block.text.slice(offset,left));
+          const part = document.createElement('span');
+          part.dataset.cue = String(i);
+          appendSubtitleText(part, block.text.slice(left,right), lang,
+            new Set(pauses.filter(at => at >= left && at < right).map(at => at - left)));
+          en.append(part);
+          offset = right;
+        }
+        en.append(block.text.slice(offset));
+        row.append(en);
+        bar.append(row);
       }
       const en = row.firstElementChild!;
-      while (row.lastElementChild !== en) row.lastElementChild!.remove();
+      row.querySelectorAll(':scope > .notice, :scope > button').forEach(element => element.remove());
       en.querySelectorAll<HTMLElement>('.w').forEach(w => {
         w.classList.remove('saved', 'learning', 'known');
         const status = wordStatus(w.textContent!); if (status) w.classList.add(status);
       });
-      if (showTranslation() && !cue.segmentationFallback) {
-        const zh = pageTranslations.get(index)?.[currentPage];
-        if (zh) {
-          const z = document.createElement('div');
-          z.className = 'zh';
-          z.textContent = zh;
-          row.appendChild(z);
-        } else if (settingsFailed) {
+      const eligible = indices.filter(i => !cues[i]!.segmentationFallback);
+      let z = row.querySelector<HTMLElement>('.zh');
+      const texts = showTranslation() ? eligible.map(i => translations.get(i)).filter((v): v is string => !!v) : [];
+      if (texts.length) {
+        if (!z) { z = createPlayerTranslation(); row.append(z); }
+        const full = texts.join(' ');
+        if (z.firstChild!.textContent !== full) z.firstChild!.textContent = full;
+      } else if (z) {
+        collapsePlayerTranslation?.();
+        z.remove();
+      }
+      if (showTranslation() && texts.length < eligible.length) {
+        if (settingsFailed) {
           const error = document.createElement('div'); error.className = 'notice'; setText(error, message('无法连接扩展，请刷新页面')); row.appendChild(error);
           const reload = document.createElement('button'); setText(reload, message('刷新页面')); reload.addEventListener('click', () => location.reload()); row.appendChild(reload);
-        } else if (failedCues.has(index) || fallbackRetryAt > Date.now() && pendingCues.has(index)) {
+        } else if (eligible.some(i => failedCues.has(i) || fallbackRetryAt > Date.now() && pendingCues.has(i))) {
           const error = document.createElement('div'); error.className = 'notice'; setText(error, message('翻译暂不可用')); row.appendChild(error);
           const ai = document.createElement('button'); setText(ai, message('用 AI 翻译')); ai.addEventListener('click', () => void setTranslationMode('ai')); row.appendChild(ai);
           const retry = document.createElement('button'); setText(retry, message('重试')); retry.addEventListener('click', () => {
             fallbackRetryAt = 0;
-            const window = intervalTranslationWindow(cues[currentIdx]?.interval ?? -1);
-            if (window) for (let i = window.from; i < window.to; i++) failedCues.delete(i);
-            queuedInterval = -1;
+            for (const i of eligible) {
+              failedCues.delete(i);
+              if (!translations.has(i)) pendingCues.add(i);
+            }
             scheduleTranslate(); renderBar();
           }); row.appendChild(retry);
         } else {
@@ -938,17 +1038,26 @@ export default defineContentScript({
       });
       return r?.ok ? { ok:true } : { ok:false, error:tr('收藏失败，请重试') };
     }
-    function seekCue(index: number, play = false): void {
-      const v = getVideo(), cue = cues[index]; if (!v || !cue) return;
+    function seekCue(index: number, play = false, navigate = false): void {
+      const cue = cues[index]; if (!cue) return;
+      const replayBlock = currentBlock >= 0 ? currentBlock : apHeld ? apLastStopped : -1;
+      const shared = navigate && blockCueIndices[replayBlock]?.includes(index);
+      if (shared && !play && index !== currentIdx) getVideo()?.pause();
+      seekTo(shared ? blocks[replayBlock]!.start : cue.start, index, play);
+    }
+
+    function seekTo(timeMs: number, index: number, play: boolean): void {
+      const v = getVideo();
+      if (!v) return;
+      const start = timeMs / 1000;
       pausedByUsVideo = null; apHeld = false; apIndex = -1; apLastStopped = -1;
       pinnedIndex = index;
-      const start = screenTimes[index]!.start / 1000;
       if (v.currentTime !== start) {
         v.currentTime = start;
         rowSeekTime = v.currentTime;
       }
       if (play) void v.play();
-      tick();
+      tick(true);
     }
 
     // ---- M5 问答：视频来源与材料 ---------------------------------------------------
@@ -1167,31 +1276,33 @@ export default defineContentScript({
 
     // ---- 时间循环：currentTime 定位 + 翻译调度 ------------------------------------
 
-    function tick(): void {
+    function tick(renderImmediately = false): void {
       try {
         const v = getVideo();
         if (!v) return;
         bindPlayListener();
         const t = v.currentTime * 1000;
-        const intervalIndex = cueIndexAt(intervals, t);
-        const selectedScreen = screenTimes[pinnedIndex];
-        if (selectedScreen && (t < selectedScreen.start - 2 || t >= selectedScreen.start + selectedScreen.dur)) pinnedIndex = -1;
-        let idx = pinnedIndex >= 0 ? pinnedIndex : cueIndexAt(screenTimes,t);
-        if (autoPause && !pendingTrack && !v.paused && !v.seeking) {
-          const ap = intervals[apIndex];
-          if (ap && t >= ap.start + ap.dur) {
-            apDisplayIndex = cues[currentIdx]?.interval === apIndex ? currentIdx : ap.firstCue;
+        const adPlaying = v.closest('#movie_player')?.classList.contains('ad-showing');
+        const block = adPlaying ? -1 : cueIndexAt(blocks, t);
+        const covering = blockCueIndices[block];
+        if (!covering?.includes(pinnedIndex)) pinnedIndex = -1;
+        if (adPlaying) apIndex = -1;
+        if (autoPause && acquiringForView && !adPlaying && !pendingTrack && !v.paused && !v.seeking) {
+          const armed = blocks[apIndex];
+          if (armed && t >= armed.start + armed.dur) {
             apLastStopped = apIndex; apIndex = -1;
             apHeld = true; pausedByUsVideo = null; v.pause();
-          } else if (apIndex < 0 && intervalIndex >= 0 && intervalIndex !== apLastStopped) apIndex = intervalIndex;
+          } else if (apIndex < 0 && block >= 0 && block !== apLastStopped) apIndex = block;
         }
-        if (apHeld) idx = apDisplayIndex;
-        const localPages = pages[idx];
-        const page = localPages ? Math.max(0,localPages.findLastIndex(p => p.start <= t)) : 0;
-        if (idx !== currentIdx || page !== currentPage) {
+        const heldCues = apHeld && block < 0 ? blockCueIndices[apLastStopped] : undefined;
+        const idx = pinnedIndex >= 0 ? pinnedIndex : covering?.[0] ??
+          (heldCues?.includes(currentIdx) ? currentIdx : heldCues?.[0] ?? -1);
+        const visible = block >= 0 && t < blockTextEnds[block]!;
+        if (idx !== currentIdx || block !== currentBlock || visible !== blockTextVisible) {
+          blockTextVisible = visible;
           currentIdx = idx;
-          currentPage = page;
-          queueRender();
+          currentBlock = block;
+          if (renderImmediately) renderBar(); else queueRender();
           renderBadge();
         }
         if (idx >= 0 || pendingCues.size) scheduleTranslate();
@@ -1211,7 +1322,7 @@ export default defineContentScript({
       translationEpoch++;
       stopFallbackTranslation();
       pendingCues.clear();
-      queuedInterval = -1;
+      queuedBlock = -1;
       postToInject({ type: 'translation-cancel' });
       platformRequest = null;
       if (platformState === 'waiting') platformState = 'idle';
@@ -1221,18 +1332,32 @@ export default defineContentScript({
 
     function clearTranslationResults(): void {
       translations.clear(); translationSources.clear();
-      pageTranslations.clear();
       failedCues.clear();
     }
 
-    function replaceSubtitleView(nextCues: LearningCue[], nextIntervals: PlaybackInterval[], nextRevision: string) {
+    function resetSubtitleView(nextBlocks: SourceFragment[], nextSource: string, lang = '') {
       generation = crypto.randomUUID();
-      cues = nextCues; intervals = nextIntervals; revision = nextRevision;
-      currentIdx = pinnedIndex = -1; rowSeekTime = null;
+      blocks = nextBlocks; sourceRevision = nextSource; revision = '';
+      blockTextEnds = blocks.map(block => blockTextEnd(block, lang));
+      blockTextVisible = false;
+      cues = []; blockRanges = []; blockCueIndices = [];
+      currentIdx = currentBlock = pinnedIndex = -1; rowSeekTime = null;
       closeSelectionActions?.();
       pausedByUsVideo = null; popup.close(true);
       apIndex = apLastStopped = -1; apHeld = false;
       stopTranslation(); platformState = 'idle'; clearTranslationResults();
+    }
+
+    function bindLearningCues(next: LearningCue[], ranges: typeof blockRanges) {
+      cues = next;
+      blockRanges = ranges;
+      let first = 0;
+      blockCueIndices = ranges.map(range => {
+        while (first < cues.length && cues[first]!.to <= range.from) first++;
+        const indices: number[] = [];
+        for (let i = first; i < cues.length && cues[i]!.from < range.to; i++) indices.push(i);
+        return indices;
+      });
     }
 
     async function updateVideoSession(patch: { mode?: 'regular' | 'ai'; autoPause?: boolean } = {}): Promise<void> {
@@ -1307,26 +1432,11 @@ export default defineContentScript({
         const result = translated[id];
         const zh = result?.text === cue.text && result.start === cue.start && result.dur === cue.dur ? result.zh : undefined;
         if (zh && !cue.segmentationFallback) {
-          storeTranslation(id,zh,false); pendingCues.delete(id);
+          translations.set(id, zh); pendingCues.delete(id);
           translationSources.set(id, sourceLabel);
         }
       });
       queueRender();
-    }
-
-    function storeTranslation(index:number, raw:string, tagged:boolean) {
-      const result = translatedPages(raw,pages[index]!,targetLangOf(),tagged);
-      translations.set(index,result.text);
-      pageTranslations.set(index,result.parts);
-    }
-
-    function intervalTranslationWindow(index: number) {
-      const interval = intervals[index];
-      if (!interval) return null;
-      return {
-        from: Math.max(0, interval.firstCue - 1),
-        to: Math.min(cues.length, (intervals[index + 1]?.firstCue ?? cues.length) + 4),
-      };
     }
 
     function scheduleTranslate(): void {
@@ -1334,12 +1444,14 @@ export default defineContentScript({
       for (const i of visibleSubtitleIndices()) {
         if (cues[i] && !cues[i].segmentationFallback && !translations.has(i) && !failedCues.has(i)) pendingCues.add(i);
       }
-      const intervalIndex = cues[currentIdx]?.interval ?? -1;
-      if (queuedInterval !== intervalIndex) {
-        queuedInterval = intervalIndex;
-        const window = intervalTranslationWindow(intervalIndex);
-        if (window) for (let i = window.from; i < window.to; i++) {
-          if (!cues[i]!.segmentationFallback && !translations.has(i) && !failedCues.has(i)) pendingCues.add(i);
+      if (queuedBlock !== currentBlock) {
+        queuedBlock = currentBlock;
+        const covered = blockCueIndices[currentBlock];
+        if (covered?.length) {
+          const end = Math.min(cues.length, covered.at(-1)! + 5);
+          for (let i = Math.max(0, covered[0]! - 1); i < end; i++) {
+            if (!cues[i]!.segmentationFallback && !translations.has(i) && !failedCues.has(i)) pendingCues.add(i);
+          }
         }
       }
       if (translating || fallbackRetryAt > Date.now() || !pendingCues.size) return;
@@ -1349,7 +1461,6 @@ export default defineContentScript({
       }
       const ordered = new Set([currentIdx, ...visibleSubtitleIndices(), ...pendingCues].filter(i => pendingCues.has(i)));
       const { items, targets } = buildCueTranslationBatch(cues, ordered, 8);
-      const inputs = new Map(items.map(item=>[item.id,pageTranslationInput(pages[item.id]!)]));
       const ids = new Set(items.map(item => item.id));
       translating = true;
       queueRender();
@@ -1358,7 +1469,7 @@ export default defineContentScript({
       void send<import('@/lib/regularTranslation').RegularCueReply>({
         type: 'translateCues', mode: translationMode, requestId, videoId: currentVideoId, trackId: lastTrackId,
         sourceLang: lastTrackLang || undefined, targetLang: targetLangOf(),
-        items:items.map(item=>({id:item.id,text:inputs.get(item.id)!})),
+        items,
       }).then(r => {
         if (epoch !== fallbackEpoch) return;
         requestId = null; translating = false;
@@ -1374,14 +1485,7 @@ export default defineContentScript({
           if (deferred.has(target.id)) continue;
           pendingCues.delete(target.index);
           if (translated) {
-            const input = inputs.get(target.id)!;
-            const tagged = input !== cues[target.id]!.text;
-            // Repeated text can have different speech timing. Reuse the one
-            // translation; hints from another occurrence belong to its cuts.
-            if (tagged && input !== pageTranslationInput(pages[target.index]!)) {
-              const cleaned = translatedPages(translated.text,pages[target.id]!,targetLangOf(),true).text;
-              storeTranslation(target.index,cleaned,false);
-            } else storeTranslation(target.index,translated.text,tagged);
+            translations.set(target.index, translated.text);
             failedCues.delete(target.index);
             translationSources.set(target.index, translationMode === 'ai' ? tr('AI 翻译')
               : translated.source === 'browser-native' ? tr('浏览器内置翻译') : tr('Google 常规翻译'));
@@ -1468,7 +1572,7 @@ export default defineContentScript({
             sendResponse({ok:true}); return true;
           }
           if (!modeReady || modeBusy || ('mode' in change && !['regular','ai'].includes(change.mode)) ||
-              ('autoPause' in change && (typeof change.autoPause !== 'boolean' || !cues.length))) {
+              ('autoPause' in change && (typeof change.autoPause !== 'boolean' || !blocks.length))) {
             sendResponse({ok:false, error:'not-ready'}); return true;
           }
           void updateVideoSession(change).then(() => sendResponse({ok:currentVideoId===command.videoId && modeReady && !settingsFailed}));
@@ -1505,7 +1609,7 @@ export default defineContentScript({
         }
         if (m.type === 'blc-sub-control') {
           const c = m as SubControlMessage;
-          if (c.videoId !== currentVideoId || c.videoId !== videoIdFromLocation()) {
+          if (c.videoId !== currentVideoId || c.videoId !== videoIdFromLocation() || (c.generation && c.generation !== generation)) {
             sendResponse({ ok: false, error: 'video-mismatch' });
             return true;
           }
@@ -1517,17 +1621,19 @@ export default defineContentScript({
           try {
             if (c.action === 'retrySubtitles') retrySubtitleSource();
             else if (c.action === 'seek' && typeof c.timeMs === 'number') {
-              pinnedIndex = -1;
-              v.currentTime = c.timeMs / 1000;
+              seekTo(c.timeMs, -1, false);
             } else if (c.action === 'togglePlay') {
               if (v.paused) void v.play();
               else v.pause();
             } else if (c.action === 'replay') {
-              seekCue(Math.max(0, currentIdx), true);
+              tick();
+              const block = blocks[currentBlock >= 0 ? currentBlock : apHeld ? apLastStopped : -1];
+              if (block) seekTo(block.start, currentIdx, true);
             } else if (c.action === 'next' || c.action === 'prev') {
+              tick();
               const target = currentIdx < 0 ? 0 :
                 Math.min(cues.length - 1, Math.max(0, currentIdx + (c.action === 'next' ? 1 : -1)));
-              seekCue(target);
+              seekCue(target, false, true);
             }
           } catch {
             sendResponse({ok:false,error:'not-ready'});
@@ -1598,7 +1704,7 @@ export default defineContentScript({
       void updateVideoSession();
       navSeq++;
       cues = [];
-      intervals = []; screenTimes = []; pages = []; currentPage = 0; revision = ''; generation = crypto.randomUUID();
+      blocks = []; blockRanges = []; blockCueIndices = []; blockTextEnds = []; blockTextVisible = false; currentBlock = -1; sourceRevision = revision = ''; generation = crypto.randomUUID();
       pinnedIndex = -1; rowSeekTime = null;
       lastTrack = '';
       lastTrackLang = '';
@@ -1668,10 +1774,10 @@ export default defineContentScript({
           return;
         }
         if (d.type === 'track-selected') {
-          if (d.track && d.track.id !== trackOfUrl(lastTrackId)?.id && (pendingTrack || cues.length)) {
+          if (d.track && d.track.id !== trackOfUrl(lastTrackId)?.id && (pendingTrack || blocks.length)) {
             pendingTrack = d.track;
-            if (cues.length) {
-              replaceSubtitleView([], [], '');
+            if (blocks.length) {
+              resetSubtitleView([], '');
               lastTrack = lastTrackLang = lastTrackId = '';
               notice = ''; nocuesReason = ''; nocuesRetries = 0;
             }
@@ -1700,21 +1806,21 @@ export default defineContentScript({
           return;
         }
 
-        if (d.type === 'cues' && Array.isArray(d.cues) && Array.isArray(d.fragments) && Array.isArray(d.intervals) && typeof d.revision === 'string') {
+        if ((d.type === 'blocks' || d.type === 'cues') && Array.isArray(d.blocks) && d.blocks.length && typeof d.revision === 'string') {
           const kind = d.trackKind === 'asr' ? 'asr' : 'manual';
-          // 保留轨道完整语言标签（含变体，如 pt-BR）；匹配用 primary。
           const lang = String(d.trackLang || '').toLowerCase();
           const newTrackId = String(d.trackId || '');
-          const displayed = d.cues;
-          if (!displayed.length) { nocuesReason = 'empty-track'; return; }
-          // 同内容重复捕获不失效译文；时间、时长或原文改变则旧索引不再适用。
-          const contentChanged = lastTrackId !== newTrackId || revision !== d.revision;
-          if (contentChanged) {
-            replaceSubtitleView(displayed, d.intervals, d.revision);
-            const fragments = d.fragments;
-            screenTimes = subtitleScreenTimes(displayed,d.intervals,fragments,lang);
-            pages = displayed.map((cue,i)=>playerPages(cue,screenTimes[i]!,fragments,lang));
-            currentPage = 0;
+          const rawRevision = d.revision.replace(/-fallback$/, '');
+          if (lastTrackId !== newTrackId || sourceRevision !== rawRevision) {
+            resetSubtitleView(d.blocks, rawRevision, lang);
+          }
+          if (d.type === 'cues' && d.revision !== revision) {
+            if (!Array.isArray(d.cues) || !Array.isArray(d.blockRanges) || d.blockRanges.length !== blocks.length) return;
+            generation = crypto.randomUUID();
+            closeSelectionActions?.(); popup.close();
+            stopTranslation(); platformState = 'idle'; clearTranslationResults();
+            bindLearningCues(d.cues, d.blockRanges);
+            revision = d.revision;
           }
           clearAcquisitionTimer();
           pendingTrack = null;
@@ -1726,8 +1832,9 @@ export default defineContentScript({
           nocuesReason = '';
           nocuesRetries = 0;
           if (typeof d.seen === 'number') sawTimedtext = d.seen;
-          notice = d.segmentationFallback ? SUBTITLE_FALLBACK_NOTICE : '';
-          log('cues', {
+          notice = d.type === 'cues' && d.segmentationFallback ? SUBTITLE_FALLBACK_NOTICE : '';
+          tick();
+          log(d.type, {
             videoId: d.videoId,
             track: `${lastTrackLang}(${lastTrack})`,
             count: cues.length,

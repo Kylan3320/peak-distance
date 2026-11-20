@@ -275,6 +275,7 @@ export const SUBTITLE_FALLBACK_NOTICE = '部分英文字幕未能断句，可重
 export interface SubControlMessage {
   type: 'blc-sub-control';
   videoId: string;
+  generation?: string;
   action: 'seek' | 'togglePlay' | 'replay' | 'next' | 'prev' | 'retrySubtitles';
   timeMs?: number;
 }

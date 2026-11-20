@@ -35,20 +35,16 @@ export interface LearningCue extends Cue {
   lastFragment: number;
   firstOffset: number;
   lastOffset: number;
-  interval: number;
-}
-
-export interface PlaybackInterval {
-  start: number;
-  dur: number;
-  firstCue: number;
-  lastFragment: number;
 }
 
 export interface SubtitleViews {
   cues: LearningCue[];
+  /** Semantic fragments may coalesce increasing prefixes of a rolling caption. */
   fragments: SubtitleFragment[];
-  intervals: PlaybackInterval[];
+  /** Each block has exactly the time and text of one nonempty source event. */
+  blocks: SourceFragment[];
+  /** The block's half-open character range in the semantic transcript. */
+  blockRanges: { from: number; to: number }[];
 }
 
 export interface ConfigMessage {
@@ -83,10 +79,8 @@ export interface SelectTrackMessage {
 
 export type ContentMessage = ConfigMessage | NudgeMessage | ByeMessage | SelectTrackMessage | SourceCancelMessage;
 
-export interface CuesMessage extends SubtitleViews {
-  segmentationFallback?: boolean;
+interface SubtitleTrackMessage {
   source: typeof INJECT_SOURCE;
-  type: 'cues';
   videoId: string;
   nonce: number;
   /** manual = 人工字幕；asr = 平台自动生成 */
@@ -99,6 +93,16 @@ export interface CuesMessage extends SubtitleViews {
   seen: number;
   /** 同一表示的原文、来源与时间数据指纹。 */
   revision: string;
+}
+
+export interface BlocksMessage extends SubtitleTrackMessage {
+  type: 'blocks';
+  blocks: SourceFragment[];
+}
+
+export interface CuesMessage extends SubtitleTrackMessage, SubtitleViews {
+  type: 'cues';
+  segmentationFallback?: boolean;
 }
 
 export interface NoCuesMessage {
@@ -147,7 +151,7 @@ export interface BoundaryRequest {
   passages: string[];
 }
 
-export type InjectMessage = CuesMessage | NoCuesMessage | TracklistMessage | TranslationCuesMessage | TrackSelectedMessage | BoundaryRequest;
+export type InjectMessage = BlocksMessage | CuesMessage | NoCuesMessage | TracklistMessage | TranslationCuesMessage | TrackSelectedMessage | BoundaryRequest;
 
 export function formatCue(c: Cue): string {
   const s = (ms: number) => `${(ms / 1000).toFixed(2)}s`;

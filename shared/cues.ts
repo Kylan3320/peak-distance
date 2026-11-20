@@ -1,6 +1,6 @@
 // MAIN 与隔离世界共用的字幕解析、表示、定位和翻译纯逻辑。
 
-import type { Cue, LearningCue, PlaybackInterval, SourceFragment, SubtitleFragment, SubtitleViews } from './protocol';
+import type { Cue, LearningCue, SourceFragment, SubtitleFragment, SubtitleViews } from './protocol';
 import { segmentWords } from './tokenize';
 import { normalizeExpressionInLanguage } from './languages';
 
@@ -28,7 +28,7 @@ export function cueWords(cues: Cue[], lang?: string): { word: string; count: num
 }
 
 /** 平台译文缓存随表示规则更新；轨道身份与历史收藏不变。 */
-export const DISPLAY_CUE_VERSION = 6;
+export const DISPLAY_CUE_VERSION = 7;
 
 /** JSON3 的词段偏移和换人标记转换到规范化后的字符坐标。 */
 export function parseJson3(json: any): SourceFragment[] {
@@ -83,10 +83,33 @@ export function parseJson3(json: any): SourceFragment[] {
   return cues;
 }
 
+/** Mark a gap only between consecutive words with measured onsets. */
+export function blockPauseOffsets(block: SourceFragment, lang: string): number[] {
+  if (!block.anchors || block.anchors.length < 2) return [];
+  const times = new Map(block.anchors.map(point => [point.offset, point.time]));
+  const offsets: number[] = [];
+  let previous: number | undefined;
+  for (const word of segmentWords(block.text, lang)) {
+    const time = times.get(word.start);
+    if (time !== undefined && previous !== undefined && time - previous > 1500) offsets.push(word.start);
+    previous = time;
+  }
+  return offsets;
+}
+
+/** A word-timed track may leave a rolling caption window open after speech. */
+export function blockTextEnd(block: SourceFragment, lang: string): number {
+  const end = block.start + block.dur;
+  const anchor = block.anchors?.at(-1);
+  if (!anchor || anchor.time < block.start || anchor.time + 1300 >= end) return end;
+  const finalWord = segmentWords(block.text, lang).at(-1);
+  return finalWord?.start === anchor.offset ? anchor.time + 1300 : end;
+}
+
 export function buildSubtitleViews(rawCues: SourceFragment[], kind: 'manual' | 'asr', lang: string): SubtitleViews {
   const fragments = kind === 'asr' ? normalizeAsrCues(rawCues) :
     rawCues.map((cue, i) => ({ ...cue, firstEvent: i, lastEvent: i }));
-  return readingViews(fragments, kind, lang);
+  return readingViews(rawCues, fragments, kind, lang);
 }
 
 export async function buildSegmentedSubtitleViews(raw: SourceFragment[], kind: 'manual' | 'asr', lang: string,
@@ -94,14 +117,14 @@ export async function buildSegmentedSubtitleViews(raw: SourceFragment[], kind: '
   const fragments = kind === 'asr' ? normalizeAsrCues(raw) :
     raw.map((cue, index) => ({ ...cue, firstEvent: index, lastEvent: index }));
   const passages = new Set<string>();
-  const baseline = readingViews(fragments, kind, lang, text => { passages.add(text); return undefined; });
+  const baseline = readingViews(raw, fragments, kind, lang, text => { passages.add(text); return undefined; });
   if (!passages.size) return baseline;
   const inputs = [...passages];
   const outputs = await predict(inputs);
   if (outputs.length !== inputs.length) return {...baseline, segmentationFallback: true};
   const predictions = new Map(inputs.map((input, i) => [input, outputs[i]]));
   let incomplete = false;
-  const views = readingViews(fragments, kind, lang, text => predictions.get(text), () => { incomplete = true; });
+  const views = readingViews(raw, fragments, kind, lang, text => predictions.get(text), () => { incomplete = true; });
   return incomplete ? {...views, segmentationFallback: true} : views;
 }
 
@@ -197,17 +220,23 @@ function englishSentenceProbe(run: string): string {
   });
 }
 
-function readingViews(fragments: SubtitleFragment[], kind: 'manual' | 'asr', lang: string, prediction?: (text: string) => string | undefined,
+function readingViews(blocks: SourceFragment[], fragments: SubtitleFragment[], kind: 'manual' | 'asr', lang: string, prediction?: (text: string) => string | undefined,
   markUnaligned?: () => void): SubtitleViews {
   const english = /^en(?:-|$)/i.test(lang);
   const separator = /^(zh|ja)(-|$)/i.test(lang) ? '' : ' ';
   const spans: { from: number; to: number }[] = [];
+  const blockRanges: SubtitleViews['blockRanges'] = [];
   const speakerBreaks: number[] = [];
   let offset = 0;
   for (const fragment of fragments) {
     const from = offset;
     const to = from + fragment.text.length;
     spans.push({ from, to });
+    // Every rolling update repeats a prefix at the same text position. Only
+    // its own source event may reveal the longer text in the player.
+    for (let i = fragment.firstEvent; i <= fragment.lastEvent; i++) {
+      blockRanges.push({ from, to: from + blocks[i]!.text.length });
+    }
     for (const boundary of fragment.speakerBreaks ?? []) speakerBreaks.push(from + boundary);
     if (/^\[[^\[\]]{1,64}\]$/u.test(fragment.text)) speakerBreaks.push(from, to);
     offset = to + separator.length;
@@ -224,9 +253,13 @@ function readingViews(fragments: SubtitleFragment[], kind: 'manual' | 'asr', lan
     while (spans[firstFragment]!.to <= from) firstFragment++;
     let lastFragment = firstFragment;
     while (spans[lastFragment]!.to < to) lastFragment++;
+    let firstBlock = fragments[firstFragment]!.firstEvent;
+    while (blockRanges[firstBlock]!.to <= from) firstBlock++;
+    const start = blocks[firstBlock]!.start;
+    const last = fragments[lastFragment]!;
     cues.push({ text: text.slice(from, to), from, to, firstFragment, lastFragment,
       firstOffset: from - spans[firstFragment]!.from, lastOffset: to - spans[lastFragment]!.from,
-      interval: -1, start: 0, dur: 0, lastOff: 0,
+      start, dur: last.start + last.dur - start, lastOff: last.lastOff,
     });
   }
   let provisionalTail = false;
@@ -287,35 +320,7 @@ function readingViews(fragments: SubtitleFragment[], kind: 'manual' | 'asr', lan
     }
     runStart = runEnd;
   }
-  return { cues, fragments, intervals: buildPlaybackIntervals(cues, fragments) };
-}
-
-function buildPlaybackIntervals(cues: LearningCue[], fragments: SourceFragment[]): PlaybackInterval[] {
-  const intervals: PlaybackInterval[] = [];
-  cues.forEach((cue, i) => {
-    const fragment = fragments[cue.firstFragment]!;
-    const last = fragments[cue.lastFragment]!;
-    const previous = intervals.at(-1);
-    const wordStart = fragment.anchors?.find(a => a.offset === cue.firstOffset && a.time >= fragment.start && a.time < fragment.start + fragment.dur)?.time;
-    const newFragment = previous && cues[previous.firstCue]!.firstFragment !== cue.firstFragment;
-    const anchor = cue.firstOffset === 0 ? fragment.start : wordStart ?? (newFragment ? fragment.start : undefined);
-    if (!previous || (anchor !== undefined && anchor > previous.start)) {
-      const start = anchor ?? fragment.start;
-      if (previous) previous.dur = Math.min(previous.dur, start - previous.start);
-      intervals.push({ start, dur: last.start + last.dur - start, firstCue: i, lastFragment: cue.lastFragment });
-    } else {
-      previous.dur = last.start + last.dur - previous.start;
-      previous.lastFragment = cue.lastFragment;
-    }
-    cue.interval = intervals.length - 1;
-  });
-  for (const cue of cues) {
-    const interval = intervals[cue.interval]!;
-    cue.start = interval.start;
-    cue.dur = interval.dur;
-    cue.lastOff = fragments[cue.lastFragment]!.lastOff;
-  }
-  return intervals;
+  return { cues, fragments, blocks, blockRanges };
 }
 
 /** 仅复用与学习项一一对应的完整同源事件译文。 */

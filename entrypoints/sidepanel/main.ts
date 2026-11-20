@@ -892,6 +892,7 @@ const videoWorkspace=createYoutubeWorkspace({
     return ()=>{closeSelection();selectionObserver.disconnect();document.removeEventListener('selectionchange',checkSelection);document.removeEventListener('pointerdown',outsideSelection,true);document.removeEventListener('keydown',escapeSelection);document.removeEventListener('pd-popup-outside',clearSelection);document.removeEventListener('mouseup',showSelection);host.removeEventListener('pd-subtitle-selection-clear',clearSelection);};
   },
   words:(parent,text)=>appendSubtitleText(parent,text,cachedVideo?.trackLang || subsState?.trackLang || 'en'),
+  control:action=>void control(action),
   seek:(ref,play)=>void videoAction(ref,{action:'seek',play}),lookup:(word,ref,anchor)=>void openPanelWord(word,ref,anchor,false),
   save:(ref,vaultId,removeId)=>videoAction(ref,{action:'save',vaultId,removeId}),ask:ref=>void askFromRow(ref),
 },document.getElementById('video-workspace')!);
@@ -1090,7 +1091,7 @@ async function pollSubs():Promise<void> {
 }
 setInterval(()=>void pollSubs(),1000);
 browser.tabs.onActivated.addListener(()=>void pollSubs());
-async function control(action:'seek'|'togglePlay'|'replay'|'next'|'prev'|'retrySubtitles',timeMs?:number):Promise<void>{if(subsTabId!==null&&subsState?.videoId){await tabSend(subsTabId,{type:'blc-sub-control',videoId:subsState.videoId,action,timeMs});await pollSubs();}}
+async function control(action:'seek'|'togglePlay'|'replay'|'next'|'prev'|'retrySubtitles',timeMs?:number):Promise<void>{if(subsTabId!==null&&subsState?.videoId){await tabSend(subsTabId,{type:'blc-sub-control',videoId:subsState.videoId,action,timeMs,generation:subsState.generation});await pollSubs();}}
 
 // 快捷键：输入框 / 编辑区 / 弹窗内不截获
 document.addEventListener('keydown', (e) => {

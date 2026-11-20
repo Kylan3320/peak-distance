@@ -9,7 +9,7 @@ import { alignLearningTranslations, buildSegmentedSubtitleViews, parseJson3 } fr
 //      的可用凭据和签名（如 pot），不将某个参数视作所有视频的必需条件；
 //   2. 复用该 URL（保留 pot 与全部参数）加 fmt=json3，在页面上下文
 //      （同源、带 cookie）重新拉取并解析为 cue 列表；
-//   3. 通过 window.postMessage 把 {videoId, nonce, cues} 发给隔离世界的
+//   3. 通过 window.postMessage 先发布原轨，再发布学习句与原文范围给隔离世界的
 //      content script。
 //
 // 时序状态机（捕获归属、换视频重置、轨道身份固定）在 shared/subtitleTracker.ts，
@@ -89,7 +89,7 @@ export default defineContentScript({
     // ---- 与 content script 的桥 ---------------------------------------------
 
     function post(
-      type: 'cues' | 'nocues' | 'tracklist' | 'track-selected' | 'translation',
+      type: 'blocks' | 'cues' | 'nocues' | 'tracklist' | 'track-selected' | 'translation',
       nonce: number,
       extra: Record<string, unknown> = {},
     ): void {
@@ -182,6 +182,7 @@ export default defineContentScript({
           if (stale()) return;
           const revision = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
           translationController?.abort();
+          post('blocks', myNonce, { blocks: rawCues, revision, trackId: pinned.trackKey, trackKind: kind, trackLang: lang });
           const views = await buildSegmentedSubtitleViews(rawCues, kind, lang, passages => {
             const channel = new MessageChannel();
             return new Promise<string[]>(resolve => {

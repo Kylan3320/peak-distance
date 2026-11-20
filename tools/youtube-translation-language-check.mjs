@@ -39,13 +39,14 @@ try {
             trackId: 'https://www.youtube.com/api/timedtext?v=abcdefghijk&lang=en',
             trackLang: 'en', trackKind: 'manual', seen: 1, revision: 'fixture',
             cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', from: 0, to: 20,
-              firstFragment: 0, lastFragment: 0, firstOffset: 0, lastOffset: 20, interval: 0 },
+              firstFragment: 0, lastFragment: 0, firstOffset: 0, lastOffset: 20 },
               { start: 3000, dur: 3000, lastOff: 0, text: 'The next subtitle.', from: 21, to: 39,
-                firstFragment: 1, lastFragment: 1, firstOffset: 0, lastOffset: 18, interval: 1 }],
+                firstFragment: 1, lastFragment: 1, firstOffset: 0, lastOffset: 18 }],
             fragments: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', firstEvent: 0, lastEvent: 0 },
               { start: 3000, dur: 3000, lastOff: 0, text: 'The next subtitle.', firstEvent: 1, lastEvent: 1 }],
-            intervals: [{ start: 0, dur: 3000, firstCue: 0, lastFragment: 0 },
-              { start: 3000, dur: 3000, firstCue: 1, lastFragment: 1 }] }, '*');
+            blocks: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.' },
+              { start: 3000, dur: 3000, lastOff: 3000, text: 'The next subtitle.' }],
+            blockRanges: [{ from: 0, to: 20 }, { from: 21, to: 39 }] }, '*');
         }
         if (m.type === 'translation-request') window.translationRequests.push(m);
       });
@@ -76,7 +77,7 @@ try {
       const request = window.translationRequests[index];
       postMessage({ source: 'blc-inject', type: 'translation', nonce: window.currentNonce,
         videoId: request.videoId, trackId: request.trackId, requestId: request.requestId,
-        cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', zh: translation }] }, '*');
+        cues: [{ start: 0, dur: 3000, lastOff: 0, text: 'An English subtitle.', from: 0, to: 20, zh: translation }] }, '*');
       await new Promise(resolve => setTimeout(resolve, 0));
     }, { index, translation });
   }

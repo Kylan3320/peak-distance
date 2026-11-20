@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import {
-  alignLearningTranslations, buildCueTranslationBatch,
+  alignLearningTranslations, blockPauseOffsets, blockTextEnd, buildCueTranslationBatch,
   buildSegmentedSubtitleViews, buildSubtitleViews, cueIndexAt, fmtClock, normalizeAsrCues, parseJson3,
 } from '../shared/cues';
 import type { SourceFragment } from '../shared/protocol';
@@ -128,6 +128,14 @@ export async function subtitleSentenceChecks(check: (name: string, pass: boolean
   check('回退只使用未完成区间和源片段的交集',
     same(texts(make(['First sentence. Unfinished', 'tail'])), ['First sentence.', 'Unfinished', 'tail']) &&
     same(texts(make(['one', 'two', 'three'])), ['one', 'two', 'three']));
+  const timedBlock = {start:1000, dur:5000, text:'One more word.', lastOff:2200};
+  check('多词片段间距不冒充相邻词的停顿',
+    same(blockPauseOffsets({...timedBlock,anchors:[{offset:0,time:1000},{offset:9,time:3500}]},'en'),[]) &&
+    same(blockPauseOffsets({...timedBlock,anchors:[{offset:4,time:1000},{offset:9,time:3500}]},'en'),[9]));
+  check('仅有精确末词锚点时可缩短屏幕收尾，源块结束时间完整保留',
+    blockTextEnd(timedBlock,'en') === 6000 &&
+    blockTextEnd({...timedBlock,anchors:[{offset:4,time:2200}]},'en') === 6000 &&
+    blockTextEnd({...timedBlock,anchors:[{offset:9,time:2200}]},'en') === 3500);
   const speakers = parseJson3({ events: [
     { tStartMs: 0, dDurationMs: 1000, segs: [{ utf8: 'First line\nwithout punctuation' }] },
     { tStartMs: 1000, dDurationMs: 1000, segs: [{ utf8: '>> New speaker >>Again.' }] },
@@ -154,19 +162,24 @@ export async function subtitleSentenceChecks(check: (name: string, pass: boolean
     { tStartMs: 4300, dDurationMs: 1000, segs: [{ utf8: 'Four ends.' }] },
   ] }), 'manual', 'en');
   for (const anchored of [true, false]) {
-    const { cues, intervals, fragments } = timeFixture(anchored);
+    const { cues, blocks, blockRanges } = timeFixture(anchored);
     check('片段内拆句保留各自原文位置，跨片段保留首尾来源',
       same(cues.slice(0, 3).map(c => [c.firstFragment, c.lastFragment, c.firstOffset, c.lastOffset]),
         [[0, 0, 0, 4], [0, 0, 5, 9], [1, 2, 0, 5]]) &&
       cues[2]?.text === 'Three starts here.');
-    check(anchored ? '词段锚点使句界可定位' : '缺锚点的句子共用一个正时长区间',
-      same(cues.slice(0, 2).map(c => [c.start, c.dur, c.interval]),
-        anchored ? [[0, 800, 0], [800, 1200, 1]] : [[0, 2000, 0], [0, 2000, 0]]) &&
-      cueIndexAt(fragments, 800) === 0 && intervals[cueIndexAt(intervals, 800)]?.firstCue === (anchored ? 1 : 0));
-    check('句末使用末片段终点并裁剪到下一可定位项，末项保留其源终点',
-      intervals.at(-2)?.lastFragment === 2 && cues[2]?.start === 2500 && cues[2].dur === 1800 &&
-      cues[3]?.start === 4300 && cues[3].dur === 1000);
+    check('带词段锚点和没有词段锚点的源块均完整显示，两句定位在同一个块首',
+      same(cues.slice(0, 2).map(c => [c.start, c.dur]), [[0, 2000], [0, 2000]]) &&
+      same(blockRanges[0], {from: 0, to: 9}) &&
+      [0, 799, 800, 1999].every(t => blocks[cueIndexAt(blocks, t)]?.text === 'One. Two!') &&
+      cueIndexAt(blocks, 2000) === -1);
+    check('跨块学习句记录真实首尾源块范围，源块重叠不裁剪学习句来源',
+      cues[2]?.start === 2500 && cues[2].dur === 2100 && cues[3]?.start === 4300 && cues[3].dur === 1000);
   }
+  const rolling = buildSubtitleViews(make(['One.', 'One. Two!', 'Three.'], [0, 400, 1500]), 'asr', 'en');
+  check('滚动重复仅对语义合并；较长源块的新增文字在其真实起点才出现',
+    same(rolling.blockRanges, [{from: 0, to: 4}, {from: 0, to: 9}, {from: 10, to: 16}]) &&
+    same(rolling.cues.map(c => [c.text, c.start]), [['One.', 0], ['Two!', 400], ['Three.', 1500]]) &&
+    [399, 400].map(t => rolling.blocks[cueIndexAt(rolling.blocks, t)]?.text).join('|') === 'One.|One. Two!');
   const views = timeFixture(false);
   const exact = make(['一。二！', '三句开头', '在这里。', '四。'], [0, 2500, 3600, 4300]);
   exact[0]!.dur = 2000;

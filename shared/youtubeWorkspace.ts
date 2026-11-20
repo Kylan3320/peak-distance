@@ -74,6 +74,7 @@ export function createYoutubeWorkspace(actions: {
   retrySubtitles?: () => void;
   bindWords: (host: HTMLElement) => () => void;
   words: (parent: HTMLDivElement, text: string) => void;
+  control: (action: 'prev' | 'next' | 'replay') => void;
   seek: (row: SubtitleRowRef, play?: boolean) => void;
   lookup: (word: string, row: SubtitleRowRef, anchor: HTMLElement) => void;
   save: (row: SubtitleRowRef, vaultId: string | null, removeId: string | null) => Promise<{ok:boolean}>;
@@ -135,9 +136,6 @@ export function createYoutubeWorkspace(actions: {
   const rowRef = (index: number): SubtitleRowRef => ({
     index, text: state.cues[index]!.text, videoId: state.videoId, trackId: state.videoRef.trackId, generation: state.generation,
   });
-  const seek = (index: number, play?: boolean) => {
-    if (state.cues[index]) actions.seek(rowRef(index), play);
-  };
   const cueId = (index:number) => bookmarks[index]!.id;
   const storedSaved = (index:number) => !!bookmarks[index]!.saved;
   const isSaved = (index:number) => confirmedSaves.get(cueId(index)) ?? storedSaved(index);
@@ -177,9 +175,9 @@ export function createYoutubeWorkspace(actions: {
     if (id === 'saved') { const caption=document.createElement('span');setText(caption,label);b.removeAttribute('data-i18n');b.replaceChildren(caption,' ',savedCount); }
   }
 
-  icon(controls, 'previous', message('上一句'), () => seek(Math.max(0, state.current - 1)));
-  icon(controls, 'replay', message('重播'), () => seek(Math.max(0, state.current), true));
-  icon(controls, 'next', message('下一句'), () => seek(Math.min(state.cues.length - 1, state.current + 1)));
+  icon(controls, 'previous', message('上一句'), () => actions.control('prev'));
+  icon(controls, 'replay', message('重播'), () => actions.control('replay'));
+  icon(controls, 'next', message('下一句'), () => actions.control('next'));
   controls.querySelectorAll('button').forEach(b => b.dataset.playback = '');
   const back = icon(controls, 'locate', message('回到当前句'), () => {
     if(shadowSelection(root))getSelection()?.removeAllRanges();
